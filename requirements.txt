@@ -1,0 +1,8 @@
+APScheduler==3.11.3
+eccodes==2.50.0
+eccodeslib==2.50.0.34
+fastapi==0.162.2
+httpx==0.28.1
+numpy==2.5.4
+uvicorn[standard]==0.54.0
+scipy==1.18.1

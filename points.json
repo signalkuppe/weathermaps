@@ -1,0 +1,10 @@
+[
+  {"id": 1, "name": "Sondrio", "lat": 46.1712, "lon": 9.8716},
+  {"id": 2, "name": "Rasura (Val Gerola)", "lat": 46.1007, "lon": 9.5530},
+  {"id": 3, "name": "Bellano", "lat": 46.0432, "lon": 9.3041},
+  {"id": 4, "name": "Concenedo", "lat": 45.9426, "lon": 9.4786},
+  {"id": 5, "name": "Lecco", "lat": 45.8554, "lon": 9.3896},
+  {"id": 6, "name": "Tirano", "lat": 46.2157, "lon": 10.1732},
+  {"id": 7, "name": "Seregno", "lat": 45.6497, "lon": 9.2054},
+  {"id": 8, "name": "Roncaglia (Civo)", "lat": 46.1621, "lon": 9.5789}
+]
