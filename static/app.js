@@ -16,7 +16,7 @@
   };
 
   // runPinned: la corsa è stata scelta a mano; altrimenti si segue sempre l'ultima disponibile
-  const state = { model: null, var: null, run: null, runPinned: false, step: null, mode: null, opacity: 0.55, crisp: false, base: "osm" };
+  const state = { model: null, var: null, run: null, runPinned: false, step: null, mode: null, opacity: 0.55, crisp: false, base: "topo" };
   // "static": sito pubblicato su GitHub Pages (file JSON pre-generati, nessun server)
   const STATIC = document.documentElement.dataset.mode === "static";
   let publishedAt = null; // solo statico: quando sono stati pubblicati i dati
@@ -62,7 +62,7 @@
     { "Etichette sopra i dati": labels },
     { position: "topright" },
   ).addTo(map);
-  map.attributionControl.addAttribution("Dati: NOAA/NCEP GFS · ECMWF Open Data (CC-BY-4.0) · MeteoSvizzera ICON-CH2-EPS (CC-BY)");
+  map.attributionControl.addAttribution("Dati: NOAA/NCEP GFS · ECMWF Open Data (CC-BY-4.0) · ItaliaMeteo ICON-2I (CC-BY) · DWD ICON-D2 · MeteoSvizzera ICON-CH1/CH2 (CC-BY)");
   map.on("baselayerchange", (e) => {
     state.base = e.layer === bases.topo ? "topo" : "osm";
     writeHash();
@@ -81,6 +81,7 @@
     const h = Math.max(0, Math.round((Date.now() - runDate(rid).getTime()) / 3600e3));
     return h < 48 ? `${h}h fa` : `${Math.round(h / 24)} giorni fa`;
   };
+  const shortLabel = (id) => (meta.models.find((m) => m.id === id)?.label || id).split(" ")[0];
   const modelLabel = () => meta.models.find((m) => m.id === state.model)?.label || state.model;
   const runDate = (rid) =>
     new Date(Date.UTC(+rid.slice(0, 4), +rid.slice(4, 6) - 1, +rid.slice(6, 8), +rid.slice(8, 10)));
@@ -105,7 +106,7 @@
   // ---------- stato nell'URL
   function readHash() {
     const p = new URLSearchParams(location.hash.slice(1));
-    for (const k of ["model", "var", "mode", "base"]) if (p.get(k)) state[k] = p.get(k);
+    for (const k of ["model", "var", "mode"]) if (p.get(k)) state[k] = p.get(k);
     // "corsa" = corsa fissata a mano (il vecchio parametro "run" viene ignorato di proposito)
     if (p.get("corsa")) { state.run = p.get("corsa"); state.runPinned = true; }
     if (p.get("step")) state.step = +p.get("step");
@@ -114,7 +115,7 @@
   }
   function writeHash() {
     const p = new URLSearchParams();
-    for (const k of ["model", "var", "step", "mode", "opacity", "base"]) if (state[k] != null) p.set(k, state[k]);
+    for (const k of ["model", "var", "step", "mode", "opacity"]) if (state[k] != null) p.set(k, state[k]);
     // la corsa va nell'URL solo se scelta a mano: un link "normale" mostra sempre l'ultima
     if (state.runPinned && state.run) p.set("corsa", state.run);
     if (state.crisp) p.set("crisp", "1");
@@ -196,7 +197,11 @@
         return b;
       }),
     );
-    ui.runAge.textContent = `emessa ${fmtAge(state.run)}`;
+    const sel = list.find((r) => r.run === state.run)?.variables[state.var];
+    ui.runAge.textContent =
+      state.model === "mean" && sel?.members
+        ? `media di ${Object.keys(sel.members).length} modelli`
+        : `emessa ${fmtAge(state.run)}`;
     renderRunLive(list[0]);
     return before !== state.run;
   }
@@ -484,8 +489,9 @@
       ui.badge.innerHTML = `<b>${modelLabel()}</b> · nessuna corsa`;
       return;
     }
+    const runWord = state.model === "mean" ? "dalle" : "corsa";
     ui.badge.innerHTML =
-      `<b>${modelLabel()}</b><span class="badge-run">corsa <strong>${cycle(state.run)}</strong> ${fmtRunDay(state.run)}</span>` +
+      `<b>${modelLabel()}</b><span class="badge-run">${runWord} <strong>${cycle(state.run)}</strong> ${fmtRunDay(state.run)}</span>` +
       `<span class="badge-valid">+${s}h · ${fmtLocal(valid)}</span>`;
     const i = steps().indexOf(s);
     const prev = i > 0 ? steps()[i - 1] : 0;
@@ -514,9 +520,15 @@
       current = f;
       draw(f);
       renderPoints();
-      if (f.max == null) setStatus("");
-      else if (variable().kind === "accum") setStatus(`Massimo nell'area: ${f.max} ${f.units}`);
-      else setStatus(`Nell'area: min ${f.min} · max ${f.max} ${f.units}`);
+      let text = "";
+      if (f.max != null) {
+        text = variable().kind === "accum" ? `Massimo nell'area: ${f.max} ${f.units}` : `Nell'area: min ${f.min} · max ${f.max} ${f.units}`;
+      }
+      if (f.members && f.member_runs) {
+        const names = f.members.map((id) => `${shortLabel(id)} ${cycle(f.member_runs[id])}`).join(", ");
+        text += `${text ? " · " : ""}media di ${f.members.length}: ${names}`;
+      }
+      setStatus(text);
       prefetch();
     } catch (e) {
       if (my !== seq) return;
@@ -725,7 +737,7 @@
       if (map.getZoom() < map.getMinZoom()) map.setZoom(map.getMinZoom(), { animate: false });
       map.panInsideBounds(box, { animate: false });
     });
-    (bases[state.base] || bases.osm).addTo(map);
+    bases.topo.addTo(map); // all'avvio sempre la mappa con il rilievo
 
     ui.opacity.value = state.opacity;
     ui.crisp.checked = state.crisp;

@@ -72,7 +72,8 @@ class Variable:
             "decimals": self.decimals,
             "rank": self.rank,
             "scale": self.scale.as_dict(),
-            "models": sorted(self.selectors),
+            # "mean" = media dei modelli, disponibile se la grandezza ha almeno due modelli
+            "models": sorted(self.selectors) + (["mean"] if len(self.selectors) > 1 else []),
         }
 
 
@@ -126,9 +127,15 @@ register(
             "ecmwf": GribSelector(param="tp", levtype="sfc", short_name="tp", step_range_prefix="0-"),
             # MeteoSvizzera: param = "forecast:variable" della STAC API
             "icon-ch2": GribSelector(param="TOT_PREC", short_name="tp", step_range_prefix="0-"),
+            "icon-ch1": GribSelector(param="TOT_PREC", short_name="tp", step_range_prefix="0-"),
+            # DWD: cartella/nome file (param), tipo di livello nel nome file
+            "icon-d2": GribSelector(param="tot_prec", levtype="single-level", short_name="tp", step_range_prefix="0-"),
+            # ItaliaMeteo MeteoHub: cartella (param) e suffisso del file "{levtype}-{levelist}"
+            "icon-2i": GribSelector(param="TOT_PREC", levtype="surface", levelist="0", short_name="tp", step_range_prefix="0-"),
         },
         # GFS APCP e ICON TOT_PREC sono in kg m-2 (= mm); ECMWF tp è in metri.
-        convert={"gfs": _identity, "ecmwf": _m_to_mm, "icon-ch2": _identity},
+        convert={"gfs": _identity, "ecmwf": _m_to_mm, "icon-ch2": _identity, "icon-ch1": _identity,
+                 "icon-d2": _identity, "icon-2i": _identity},
         scale=PRECIP_SCALE,
         decimals=1,
         nonnegative=True,
@@ -167,8 +174,10 @@ register(
         selectors={
             "gfs": GribSelector(var="TMP", level="850_mb", short_name="t"),
             "ecmwf": GribSelector(param="t", levtype="pl", levelist="850", short_name="t"),
+            "icon-d2": GribSelector(param="t", levtype="pressure-level", levelist="850", short_name="t"),
+            "icon-2i": GribSelector(param="T", levtype="isobaricInhPa", levelist="850", short_name="t"),
         },
-        convert={"gfs": _k_to_c, "ecmwf": _k_to_c},
+        convert={"gfs": _k_to_c, "ecmwf": _k_to_c, "icon-d2": _k_to_c, "icon-2i": _k_to_c},
         scale=T850_SCALE,
         decimals=1,
         rank="asc",  # classifica: prima la temperatura più bassa

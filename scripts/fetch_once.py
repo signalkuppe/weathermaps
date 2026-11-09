@@ -12,6 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.fetcher import SOURCES, update_model  # noqa: E402
+from app.mean import build_mean  # noqa: E402
 from app.store import Store  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -27,6 +28,7 @@ def main(argv: list[str]) -> int:
         summary = update_model(m, store)
         print(json.dumps(summary, indent=2))
         errors += summary.get("errors", 0)
+    print("media:", json.dumps(build_mean(store), indent=2))
     return 1 if errors else 0
 
 

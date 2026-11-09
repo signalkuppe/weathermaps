@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from . import variables
 from .config import STEPS, get_initial_view, get_points, prev_step
 from . import fetcher
+from . import mean as mean_mod
 from .fetcher import MODELS, steps_for
 from .sources import parse_run_id
 from .store import Store
@@ -28,7 +29,7 @@ def health():
 
 @router.get("/refresh")
 def refresh_status(model: str):
-    if model not in MODELS:
+    if model not in fetcher.SOURCES:
         raise HTTPException(400, f"Modello sconosciuto: {model}")
     return JSONResponse(fetcher.status(model), headers={"Cache-Control": "no-store"})
 
@@ -36,8 +37,8 @@ def refresh_status(model: str):
 @router.post("/refresh")
 def refresh(request: Request, model: str):
     """Controlla subito se sono usciti nuovi passi (invece di aspettare lo scheduler)."""
-    if model not in MODELS:
-        raise HTTPException(400, f"Modello sconosciuto: {model}")
+    if model not in fetcher.SOURCES:
+        raise HTTPException(400, f"Modello sconosciuto o non scaricabile: {model}")
     started, reason = fetcher.request_refresh(model, _store(request))
     return JSONResponse({**fetcher.status(model), "accepted": started, "reason": reason, "cooldown_s": fetcher.REFRESH_COOLDOWN_S}, headers={"Cache-Control": "no-store"})
 
@@ -71,7 +72,15 @@ def runs(request: Request):
                     continue
                 expected = steps_for(variables.REGISTRY[var_id], model_id)
                 have = store.steps(model_id, rid, var_id)
-                vars_out[var_id] = {"steps": have, "complete": set(expected) <= set(have)}
+                if not have:
+                    continue
+                info = {"steps": have, "complete": set(expected) <= set(have)}
+                if model_id == "mean":
+                    # la media è calcolata da corse complete: non è mai "in arrivo"
+                    info["complete"] = True
+                    m = mean_mod.members_info(store, rid, var_id)
+                    info["members"] = (m or {}).get("members", {})
+                vars_out[var_id] = info
             if vars_out:
                 items.append({"run": rid, "variables": vars_out})
         out[model_id] = items
@@ -141,4 +150,10 @@ def field(
         "min": None if np.all(np.isnan(values)) else round(float(np.nanmin(values)), v.decimals),
         "values": _round_list(values, v.decimals),
     }
-    return JSONResponse(body, headers={"Cache-Control": "public, max-age=86400, immutable"})
+    cache = "public, max-age=86400, immutable"
+    if model == "mean":
+        info = mean_mod.members_info(store, run, var) or {}
+        body["members"] = info.get("steps", {}).get(str(step), [])
+        body["member_runs"] = info.get("members", {})
+        cache = "public, max-age=300"  # la media si ricalcola quando arrivano nuovi dati
+    return JSONResponse(body, headers={"Cache-Control": cache})

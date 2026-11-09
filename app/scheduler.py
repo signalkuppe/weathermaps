@@ -8,6 +8,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from .config import SCHEDULER_INTERVAL_MIN
 from .fetcher import SOURCES, update_model
+from .mean import build_mean
 from .store import Store
 
 log = logging.getLogger("weathermaps.scheduler")
@@ -31,6 +32,17 @@ def start(store: Store) -> BackgroundScheduler:
             max_instances=1,
             coalesce=True,
         )
+    # la media si ricontrolla a ogni giro (se gli ingressi non cambiano non ricalcola nulla)
+    sched.add_job(
+        build_mean,
+        "interval",
+        minutes=SCHEDULER_INTERVAL_MIN,
+        args=[store],
+        id="update-mean",
+        next_run_time=first + timedelta(minutes=3),
+        max_instances=1,
+        coalesce=True,
+    )
     sched.start()
     log.info("Scheduler avviato: ogni %d minuti per %s", SCHEDULER_INTERVAL_MIN, list(SOURCES))
     return sched

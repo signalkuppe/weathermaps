@@ -12,16 +12,19 @@ import numpy as np
 from . import variables
 from .config import RETENTION, STEPS
 from .grid import Field
-from .sources import NotAvailable, ecmwf, gfs, icon_ch2, make_client, run_id
+from . import mean
+from .sources import NotAvailable, ecmwf, gfs, icon_2i, icon_d2, make_client, run_id
+from .sources.meteoswiss import icon_ch1, icon_ch2
 from .store import Store
 
 log = logging.getLogger("weathermaps.fetcher")
 
-SOURCES = {gfs.MODEL.id: gfs, ecmwf.MODEL.id: ecmwf, icon_ch2.MODEL.id: icon_ch2}
-MODELS = {m.MODEL.id: m.MODEL for m in SOURCES.values()}
+SOURCES = {src.MODEL.id: src for src in (gfs, ecmwf, icon_2i, icon_d2, icon_ch2, icon_ch1)}
+# modelli mostrati: le sorgenti più la media (calcolata, non scaricata)
+MODELS = {**{m.MODEL.id: m.MODEL for m in SOURCES.values()}, mean.MODEL.id: mean.MODEL}
 
 # pausa fra richieste per non stressare i server pubblici
-REQUEST_PAUSE = {"gfs": 0.4, "ecmwf": 0.1, "icon-ch2": 0.1}
+REQUEST_PAUSE = {"gfs": 0.4, "ecmwf": 0.1, "icon-ch2": 0.1, "icon-ch1": 0.1, "icon-d2": 0.1, "icon-2i": 0.1}
 RETRIES = 3
 
 _locks = {m: threading.Lock() for m in SOURCES}
@@ -88,9 +91,12 @@ def update_model(model_id: str, store: Store | None = None, now: datetime | None
         return {"model": model_id, "skipped": True}
     st = STATUS[model_id]
     st.update(running=True, started=time.time(), finished=None, downloaded=0, errors=0)
+    store = store or Store()
     try:
-        summary = _update(model_id, store or Store(), now)
+        summary = _update(model_id, store, now)
         st.update(errors=summary["errors"])
+        if summary["downloaded"]:
+            summary["mean"] = mean.build_mean(store)
         return summary
     except Exception:
         st["errors"] += 1

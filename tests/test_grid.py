@@ -119,15 +119,20 @@ def test_t850_meta_rank_ascending():
     assert get("tp").as_dict()["rank"] == "desc"
 
 
-# ---------- ICON-CH2 (griglia non strutturata)
-from app.sources import icon_ch2  # noqa: E402
+# ---------- MeteoSvizzera ICON-CH1/CH2 (griglia non strutturata)
+from app.sources import meteoswiss  # noqa: E402
 
 
 def test_icon_horizon_format():
-    assert icon_ch2.horizon(3) == "P0DT03H00M00S"
-    assert icon_ch2.horizon(24) == "P1DT00H00M00S"
-    assert icon_ch2.horizon(120) == "P5DT00H00M00S"
-    assert icon_ch2.horizon(27) == "P1DT03H00M00S"
+    assert meteoswiss.horizon(3) == "P0DT03H00M00S"
+    assert meteoswiss.horizon(24) == "P1DT00H00M00S"
+    assert meteoswiss.horizon(120) == "P5DT00H00M00S"
+    assert meteoswiss.horizon(27) == "P1DT03H00M00S"
+
+
+def test_icon_sources_configured():
+    assert meteoswiss.icon_ch2.MODEL.max_step == 120 and meteoswiss.icon_ch1.MODEL.max_step == 33
+    assert meteoswiss.icon_ch1.dlat < meteoswiss.icon_ch2.dlat  # CH1 più fine
 
 
 def test_icon_regridder_nearest_and_mask():
@@ -137,18 +142,49 @@ def test_icon_regridder_nearest_and_mask():
     lon = rng.uniform(6, 9, 40000)
     vals = lat * 10 + lon  # campo noto e liscio
     box = BBox.parse("44,47,6,12")
-    rg = icon_ch2.Regridder.build(lat, lon, box)
+    rg = meteoswiss.Regridder.build(lat, lon, box, 0.02, 0.028)
     out = rg.apply(vals)
     ny, nx = out.shape
     lats = box.lat_min + np.arange(ny) * rg.dlat
     lons = box.lon_min + np.arange(nx) * rg.dlon
-    inside = lons <= 8.9
-    outside = lons >= 9.2
-    assert np.isfinite(out[5:-5][:, inside][:, 5:]).all()
-    assert np.isnan(out[:, outside]).all()
-    # il valore riproiettato è quello del punto sorgente più vicino: errore piccolo sul campo liscio
+    assert np.isnan(out[:, lons >= 9.2]).all()
     glon, glat = np.meshgrid(lons, lats)
     interior = (glat > 44.1) & (glat < 46.9) & (glon > 6.1) & (glon < 8.9)
-    err = np.abs(out - (glat * 10 + glon))[interior]
     assert np.isfinite(out[interior]).all()
-    assert err.max() < 0.25  # vicino più prossimo entro ~0.02° su un gradiente di 10/grado
+    assert np.abs(out - (glat * 10 + glon))[interior].max() < 0.25  # vicino più prossimo entro ~0.02°
+
+
+# ---------- ICON-D2 e ICON-2I: indirizzi dei file
+from datetime import datetime as _dt  # noqa: E402
+
+from app.sources import icon_2i, icon_d2  # noqa: E402
+
+
+def test_icon_d2_urls():
+    run = _dt(2026, 11, 9, 12)
+    assert icon_d2.url(run, 24, get("tp")).endswith(
+        "/12/tot_prec/icon-d2_germany_regular-lat-lon_single-level_2026110912_024_2d_tot_prec.grib2.bz2")
+    assert icon_d2.url(run, 24, get("t850")).endswith(
+        "/12/t/icon-d2_germany_regular-lat-lon_pressure-level_2026110912_024_850_t.grib2.bz2")
+
+
+def test_icon_2i_urls():
+    run = _dt(2026, 11, 9, 12)
+    assert icon_2i.url(run, get("tp")).endswith("/2026110912/TOT_PREC/ICON_2I_SURFACE_PRESSURE_LEVELS_2026110912_surface-0.grib")
+    assert icon_2i.url(run, get("t850")).endswith("/2026110912/T/ICON_2I_SURFACE_PRESSURE_LEVELS_2026110912_isobaricInhPa-850.grib")
+
+
+# ---------- interpolazione per la media
+from app.mean import bilinear  # noqa: E402
+
+
+def test_bilinear_exact_on_linear_field():
+    lats = 42 + np.arange(29) * 0.25
+    lons = 4 + np.arange(53) * 0.25
+    vals = (lats[:, None] * 2 + lons[None, :] * 3).astype(np.float32)
+    grid = {"lat0": 42, "lon0": 4, "dlat": 0.25, "dlon": 0.25}
+    tl = np.array([42.0, 45.13, 48.99, 49.2])
+    tn = np.array([4.0, 9.87, 16.99, 3.5])
+    out = bilinear(vals, grid, tl, tn)
+    np.testing.assert_allclose(out[:3, :3], tl[:3, None] * 2 + tn[None, :3] * 3, rtol=1e-5)
+    assert np.isnan(out[3]).all() and np.isnan(out[:, 3]).all()  # fuori griglia

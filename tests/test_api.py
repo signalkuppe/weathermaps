@@ -37,7 +37,8 @@ def test_meta(client):
     m = client.get("/api/meta").json()
     assert m["bbox"] == {"lat_min": 42, "lat_max": 49, "lon_min": 4, "lon_max": 17}
     assert m["steps"][:3] == [3, 6, 9] and m["steps"][-1] == 192 and len(m["steps"]) == 56
-    assert {x["id"] for x in m["models"]} == {"gfs", "ecmwf", "icon-ch2"}
+    assert {x["id"] for x in m["models"]} == {"gfs", "ecmwf", "icon-2i", "icon-d2", "icon-ch2", "icon-ch1", "mean"}
+    assert "mean" in next(v for v in m["variables"] if v["id"] == "tp")["models"]
     assert next(x for x in m["models"] if x["id"] == "icon-ch2")["max_step"] == 120
     tp = next(v for v in m["variables"] if v["id"] == "tp")
     assert tp["modes"] == ["total", "interval"]
@@ -163,3 +164,43 @@ def test_refresh_starts_once_then_cooldown(client, monkeypatch):
     assert again["accepted"] is False and again["reason"] == "cooldown"
     assert calls == ["gfs"]
     assert client.post("/api/refresh", params={"model": "nope"}).status_code == 400
+
+
+
+def test_mean_aligns_runs_and_keeps_total_interval_consistent(tmp_path):
+    """Due modelli partiti a ore diverse, su griglie diverse: la media va per istante di validità."""
+    from app import mean
+    from app.fetcher import steps_for
+
+    store = Store(data_dir=tmp_path, bbox=BOX)
+    tp = variables.get("tp")
+    # modello A (gfs): corsa 06Z, 1 mm/h ovunque -> totale = ore dall'inizio
+    for s in steps_for(tp, "gfs"):
+        store.save("gfs", "2026110906", "tp", s,
+                   Field(values=np.full((29, 53), float(s), np.float32), lat0=42, lon0=4, dlat=0.25, dlon=0.25))
+    # modello B (ecmwf): corsa 00Z, 3 mm/h ovunque, griglia diversa
+    for s in steps_for(tp, "ecmwf"):
+        store.save("ecmwf", "2026110900", "tp", s,
+                   Field(values=np.full((71, 131), 3.0 * s, np.float32), lat0=42, lon0=4, dlat=0.1, dlon=0.1))
+    summary = mean.build_mean(store)
+    assert "tp" in summary
+    # T0 = corsa più recente (06Z), già allineata alle 6 ore
+    assert store.runs("mean") == ["2026110906"]
+    v24, grid = store.load("mean", "2026110906", "tp", 24)
+    v21, _ = store.load("mean", "2026110906", "tp", 21)
+    # da T0: A ha 24 mm in 24h, B 72 mm -> media 48; intervallo 21-24: (3 + 9) / 2 = 6
+    assert np.nanmean(v24) == pytest.approx(48, abs=0.01)
+    assert np.nanmean(v24 - v21) == pytest.approx(6, abs=0.01)
+    info = mean.members_info(store, "2026110906", "tp")
+    assert info["members"] == {"gfs": "2026110906", "ecmwf": "2026110900"}
+    assert info["steps"]["24"] == ["gfs", "ecmwf"]
+    # ricalcolo con ingressi invariati: saltato
+    assert mean.build_mean(store)["tp"] == "invariata"
+
+    app = create_app(store=store, start_scheduler=False)
+    with TestClient(app) as c:
+        runs = c.get("/api/runs").json()["mean"][0]
+        assert runs["variables"]["tp"]["complete"] is True and set(runs["variables"]["tp"]["members"]) == {"gfs", "ecmwf"}
+        f = c.get("/api/field", params={"model": "mean", "run": "2026110906", "step": 24, "mode": "interval"}).json()
+        assert f["members"] == ["gfs", "ecmwf"] and f["max"] == pytest.approx(6, abs=0.1)
+        assert c.post("/api/refresh", params={"model": "mean"}).status_code == 400

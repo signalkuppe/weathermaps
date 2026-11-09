@@ -1,6 +1,18 @@
 # Weathermaps
 
-Mappe delle precipitazioni previste da **GFS 0.25°** (NOAA), **ECMWF IFS 0.1°** (Open Data) e **ICON-CH2-EPS** (MeteoSvizzera, corsa di controllo, ~2 km) sul Nord Italia, fino a +192h (+120h per ICON-CH2), sopra OpenStreetMap / OpenTopoMap.
+Mappe delle precipitazioni e della temperatura a 850 hPa previste da sei modelli sul Nord Italia, sopra OpenStreetMap / OpenTopoMap (all'avvio sempre la mappa con il rilievo):
+
+| Modello | Fonte | Risoluzione | Orizzonte | Corse |
+|---|---|---|---|---|
+| GFS | NOAA/NCEP | 0.25° | +192h | 00/06/12/18 |
+| ECMWF IFS | ECMWF Open Data | 0.1° | +192h | 00/12 |
+| ICON-2I | ItaliaMeteo (MeteoHub) | 2.2 km | +72h | 00/12 |
+| ICON-D2 | DWD Open Data | 2.2 km | +48h | ogni 3 ore |
+| ICON-CH2-EPS (controllo) | MeteoSvizzera | ~2 km | +120h | ogni 6 ore |
+| ICON-CH1-EPS (controllo) | MeteoSvizzera | ~1 km | +33h | ogni 3 ore |
+| **Media modelli** | calcolata | ~2 km | fino a +192h | — |
+
+La **media** è costruita per istante di validità da un orario comune T0 (inizio della corsa completa più recente, arrotondato alle 6 ore): per ogni modello si usa l'ultima corsa completa partita non dopo T0; la pioggia è la somma delle medie di ogni intervallo (così Totale e Intervallo restano coerenti quando un modello a breve scadenza esce), la temperatura è la media dei valori. In ogni passo la pagina indica quali modelli sono nella media.
 
 - Grandezze: **Precipitazione** (classifica punti dal più piovoso) e **Temperatura a 850 hPa** (classifica dal più freddo)
 - Modalità **Totale** (accumulo da inizio corsa) e **Intervallo** (pioggia del passo da 3h o 6h)
@@ -88,5 +100,7 @@ in quel caso basta riattivarlo dalla scheda Actions.
 
 - GFS: NOAA/NCEP via [NOMADS](https://nomads.ncep.noaa.gov/) (dominio pubblico)
 - ECMWF: [Open Data](https://www.ecmwf.int/en/forecasts/datasets/open-data), licenza CC-BY-4.0
-- MeteoSvizzera: [Open Data ICON-CH2-EPS](https://opendatadocs.meteoswiss.ch/e-forecast-data/e2-e3-numerical-weather-forecasting-model), licenza CC-BY. I campi sono su griglia ICON non strutturata e vengono riportati su una griglia regolare di ~2.2 km (punto del modello più vicino); le coordinate della griglia si scaricano una volta in `DATA_DIR/static`.
+- ItaliaMeteo: [ICON-2I su MeteoHub](https://dati.agenziaitaliameteo.it/dataset/previsioni-meteorologiche-modello-icon-2i), licenza CC-BY, servizio "singola variabile" (si scaricano solo i messaggi dei passi necessari).
+- DWD: [Open Data ICON-D2](https://opendata.dwd.de/weather/nwp/icon-d2/), griglia regolare 0.02°.
+- MeteoSvizzera: [Open Data ICON-CH1/CH2-EPS](https://opendatadocs.meteoswiss.ch/e-forecast-data/e2-e3-numerical-weather-forecasting-model), licenza CC-BY. I campi sono su griglia ICON non strutturata e vengono riportati su una griglia regolare di ~2.2 km (punto del modello più vicino); le coordinate della griglia si scaricano una volta in `DATA_DIR/static`.
 - Mappe: © OpenStreetMap contributors, OpenTopoMap (CC-BY-SA), etichette CARTO
