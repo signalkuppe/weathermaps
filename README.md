@@ -19,6 +19,8 @@ python scripts/fetch_once.py      # primo download (~5 min, poi incrementale)
 uvicorn app.main:app --reload     # http://localhost:8000
 ```
 
+In alternativa, senza attivare l'ambiente: `./dev.sh` (stesso server, http://localhost:8000).
+
 Il server aggiorna i dati da solo ogni 10 minuti (`SCHEDULER_ENABLED=0` per disattivarlo).
 Test: `pytest`.
 

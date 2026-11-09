@@ -24,9 +24,9 @@ jobs:
       DATA_DIR: ${{ github.workspace }}/data
       SCHEDULER_ENABLED: "0"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
           cache: pip
@@ -36,7 +36,7 @@ jobs:
 
       # i dati già scaricati passano da un'esecuzione all'altra: si scaricano solo i passi nuovi
       - name: Recupera dati precedenti
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: data
           key: data-${{ github.run_id }}
@@ -51,12 +51,12 @@ jobs:
 
       - name: Salva dati per il prossimo giro
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: data
           key: data-${{ github.run_id }}
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: public
 
@@ -68,4 +68,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
