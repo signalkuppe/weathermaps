@@ -36,6 +36,13 @@ def create_app(store: Store | None = None, start_scheduler: bool | None = None) 
             sched.shutdown(wait=False)
 
     app = FastAPI(title="Weathermaps", lifespan=lifespan)
+
+    @app.middleware("http")
+    async def revalidate_static(request, call_next):
+        response = await call_next(request)
+        if not request.url.path.startswith("/api/"):
+            response.headers.setdefault("Cache-Control", "no-cache")
+        return response
     app.add_middleware(GZipMiddleware, minimum_size=1000)
     app.include_router(router)
     app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")

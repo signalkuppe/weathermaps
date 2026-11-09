@@ -200,14 +200,24 @@ class MeteoSwissSource:
 
 
 icon_ch2 = MeteoSwissSource(
-    ModelInfo(id="icon-ch2", label="ICON-CH2 2 km", resolution=0.02, cycles=(0, 6, 12, 18), delay_hours=2.0, max_step=120),
+    ModelInfo(id="icon-ch2", label="ICON-CH2 2 km", resolution=0.02, cycles=(0, 6, 12, 18), delay_hours=2.0, max_step=120, country="ch",
+              description=(
+                  "Modello di MeteoSvizzera a circa 2 km su Alpi e dintorni (corsa di controllo "
+                  "dell'ensemble ICON-CH2-EPS). Una corsa ogni 6 ore fino a +120h: alta risoluzione "
+                  "con l'orizzonte più lungo."
+              )),
     collection="ch.meteoschweiz.ogd-forecasting-icon-ch2",
     hconst_asset="horizontal_constants_icon-ch2-eps.grib2",
     dlat=0.02, dlon=0.028,  # ~2.2 km a 45°N
 )
 
 icon_ch1 = MeteoSwissSource(
-    ModelInfo(id="icon-ch1", label="ICON-CH1 1 km", resolution=0.01, cycles=(0, 3, 6, 9, 12, 15, 18, 21), delay_hours=1.5, max_step=33),
+    ModelInfo(id="icon-ch1", label="ICON-CH1 1 km", resolution=0.01, cycles=(0, 3, 6, 9, 12, 15, 18, 21), delay_hours=1.5, max_step=33, country="ch",
+              description=(
+                  "Modello di MeteoSvizzera a circa 1 km, il più dettagliato (corsa di controllo "
+                  "dell'ensemble ICON-CH1-EPS). Una corsa ogni 3 ore, ma solo fino a +33h: "
+                  "ideale per oggi e domani in montagna."
+              )),
     collection="ch.meteoschweiz.ogd-forecasting-icon-ch1",
     hconst_asset="horizontal_constants_icon-ch1-eps.grib2",
     dlat=0.01, dlon=0.014,  # ~1.1 km a 45°N

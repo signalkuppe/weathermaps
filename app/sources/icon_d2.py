@@ -22,6 +22,12 @@ MODEL = ModelInfo(
     cycles=(0, 3, 6, 9, 12, 15, 18, 21),
     delay_hours=1.5,
     max_step=48,
+    country="de",
+    description=(
+        "Modello del servizio meteo tedesco (DWD) a 2,2 km sull'Europa centrale e le Alpi. "
+        "Una corsa ogni 3 ore fino a +48h: il più aggiornato. Il suo dominio inizia a 43,2°N, "
+        "quindi non copre la fascia più a sud della mappa."
+    ),
 )
 
 ROOT = "https://opendata.dwd.de/weather/nwp/icon-d2/grib"

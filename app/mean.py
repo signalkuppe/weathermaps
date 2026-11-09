@@ -31,7 +31,14 @@ from .store import Store
 
 log = logging.getLogger("weathermaps.mean")
 
-MODEL = ModelInfo(id="mean", label="Media modelli", resolution=0.02, cycles=tuple(range(24)), delay_hours=0, max_step=192)
+MODEL = ModelInfo(
+    id="mean", label="Media modelli", resolution=0.02, cycles=tuple(range(24)), delay_hours=0, max_step=192,
+    description=(
+        "Media dei modelli disponibili per lo stesso istante, su una griglia comune di circa 2 km. "
+        "Ogni modello usa la sua ultima corsa completa. Oltre l'orizzonte dei modelli ad alta "
+        "risoluzione restano solo GFS ed ECMWF: in ogni passo, sotto, sono indicati i modelli usati."
+    ),
+)
 TARGET_DLAT = 0.02
 TARGET_DLON = 0.028
 ALIGN_HOURS = 6

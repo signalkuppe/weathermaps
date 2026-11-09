@@ -25,6 +25,12 @@ MODEL = ModelInfo(
     cycles=(0, 12),
     delay_hours=2.5,
     max_step=72,
+    country="it",
+    description=(
+        "Modello nazionale italiano di ItaliaMeteo e ARPAE-SIMC, a 2,2 km sull'Italia. "
+        "Corse delle 00 e 12 UTC fino a +72h. Assimila le osservazioni italiane e risolve "
+        "bene rilievi, laghi e temporali: il più adatto al Nord Italia a breve termine."
+    ),
 )
 
 ROOT = "https://meteohub.agenziaitaliameteo.it/nwp/ICON-2I_SURFACE_PRESSURE_LEVELS"

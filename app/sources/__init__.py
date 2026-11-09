@@ -23,6 +23,8 @@ class ModelInfo:
     cycles: tuple[int, ...]  # ore UTC delle corse usate
     delay_hours: float  # ritardo tipico prima che i primi passi siano disponibili
     max_step: int
+    description: str = ""  # testo per l'icona informazioni accanto al selettore del modello
+    country: str = ""  # codice dell'ente (us, eu, it, de, ch) per la bandiera nel selettore
 
     def candidate_runs(self, now: datetime | None = None, count: int = 3) -> list[datetime]:
         """Ultime `count` corse plausibilmente pubblicate, dalla più recente."""
@@ -42,6 +44,8 @@ class ModelInfo:
             "resolution": self.resolution,
             "cycles": list(self.cycles),
             "max_step": self.max_step,
+            "description": self.description,
+            "country": self.country,
         }
 
 

@@ -18,6 +18,12 @@ MODEL = ModelInfo(
     cycles=(0, 6, 12, 18),
     delay_hours=3.5,
     max_step=384,
+    country="us",
+    description=(
+        "Modello globale del servizio meteo statunitense (NOAA/NCEP). Griglia di 0,25° (circa 25 km), "
+        "4 corse al giorno (00, 06, 12, 18 UTC), qui fino a +192h. Utile per la tendenza a medio termine; "
+        "per la griglia larga smussa molto i rilievi e le precipitazioni locali."
+    ),
 )
 
 FILTER_URL = "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl"

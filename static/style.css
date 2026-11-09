@@ -51,6 +51,46 @@ body {
 }
 .panel-head h1 { font-size: 15px; margin: 0; font-weight: 650; }
 .panel.collapsed .panel-body { display: none; }
+.head-actions { display: flex; gap: 6px; align-items: center; }
+.share-btn { display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; font-size: 13px; font-weight: 600; color: var(--accent); }
+.share-btn svg { flex: none; }
+.share-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 40px;
+  transform: translateX(-50%);
+  z-index: 1200;
+  max-width: calc(100vw - 32px);
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: #1d2330;
+  color: #fff;
+  font-size: 13px;
+  box-shadow: var(--shadow);
+}
+.share-dialog {
+  width: min(720px, calc(100vw - 24px));
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+}
+.share-dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+.share-dialog img { display: block; width: 100%; max-height: 70vh; object-fit: contain; border-radius: 6px; border: 1px solid var(--line); }
+.share-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; flex-wrap: wrap; }
+.share-actions button {
+  font: inherit;
+  font-size: 14px;
+  padding: 7px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+}
+.share-actions .primary { background: #25d366; border-color: #1fb457; color: #0b2e17; font-weight: 650; }
 .panel.collapsed .panel-head { border-bottom: 0; }
 .panel-body { padding: 10px 12px 12px; display: grid; gap: 8px; }
 
@@ -68,6 +108,112 @@ select {
   padding: 4px 6px;
 }
 input[type="range"] { accent-color: var(--accent); }
+
+.label-info { display: inline-flex; align-items: center; gap: 5px; }
+.info-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.info-btn svg { display: block; }
+.info-btn:hover, .info-btn[aria-expanded="true"] { color: var(--accent); }
+.info-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* riquadro fluttuante sopra il contenuto: non sposta il layout */
+.row:has(> .model-info) { position: relative; }
+.model-info {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: -4px;
+  z-index: 1100;
+  width: min(300px, calc(100vw - 32px));
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.model-info::before { /* freccia verso l'icona */
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: 68px;
+  width: 10px;
+  height: 10px;
+  background: var(--bg);
+  border-left: 1px solid var(--line);
+  border-top: 1px solid var(--line);
+  transform: rotate(45deg);
+}
+
+/* select personalizzabile (https://developer.mozilla.org/en-US/docs/Learn_web_development/Extensions/Forms/Customizable_select) */
+/* riquadro dell'icona a larghezza fissa = larghezza di una bandiera 4:3 alta 15px: nomi incolonnati */
+.opt-icon { display: inline-flex; flex: none; width: 20px; height: 15px; align-items: center; justify-content: center; }
+.opt-icon .fi { font-size: 15px; width: 20px; height: 15px; line-height: 15px; border-radius: 2px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15); }
+.opt-icon svg { display: block; width: 16px; height: 16px; color: var(--accent); }
+@supports (appearance: base-select) {
+  .rich-select,
+  .rich-select::picker(select) {
+    appearance: base-select;
+  }
+  .rich-select {
+    display: flex;
+    align-items: center;
+    padding: 4px 8px;
+    cursor: pointer;
+  }
+  .rich-select > button {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: start;
+  }
+  .rich-select selectedcontent,
+  .rich-select option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .rich-select .opt-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rich-select::picker-icon { color: var(--muted); transition: rotate 0.15s; }
+  .rich-select:open::picker-icon { rotate: 180deg; }
+  .rich-select::picker(select) {
+    margin-top: 4px;
+    padding: 4px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--fg);
+    box-shadow: var(--shadow);
+  }
+  .rich-select option {
+    padding: 6px 8px;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .rich-select option:hover,
+  .rich-select option:focus-visible { background: rgba(127, 127, 127, 0.14); outline: none; }
+  .rich-select option:checked { font-weight: 650; }
+  .rich-select option::checkmark { order: 1; margin-left: auto; color: var(--accent); }
+}
 
 .seg { display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .seg button {

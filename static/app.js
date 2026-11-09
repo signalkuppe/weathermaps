@@ -13,10 +13,11 @@
     badge: $("badge"), runAge: $("run-age"),
     runLive: $("run-live"), runLiveText: $("run-live-text"), refresh: $("refresh"), runLiveNote: $("run-live-note"),
     pointsBox: $("points-box"), points: $("points"), pointsUnit: $("points-unit"),
+    modelInfo: $("model-info"), modelInfoBtn: $("model-info-btn"),
   };
 
   // runPinned: la corsa è stata scelta a mano; altrimenti si segue sempre l'ultima disponibile
-  const state = { model: null, var: null, run: null, runPinned: false, step: null, mode: null, opacity: 0.55, crisp: false, base: "topo" };
+  const state = { model: null, var: null, run: null, runPinned: false, step: null, mode: null, opacity: 0.55, crisp: false, base: "osm" };
   // "static": sito pubblicato su GitHub Pages (file JSON pre-generati, nessun server)
   const STATIC = document.documentElement.dataset.mode === "static";
   let publishedAt = null; // solo statico: quando sono stati pubblicati i dati
@@ -40,10 +41,12 @@
   map.zoomControl.setPosition("topright");
   const bases = {
     osm: L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      crossOrigin: "anonymous",
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     }),
     topo: L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {
+      crossOrigin: "anonymous",
       maxZoom: 17,
       attribution: 'Mappa &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA), dati &copy; OpenStreetMap',
     }),
@@ -52,6 +55,7 @@
   map.getPane("labels").style.zIndex = 450;
   map.getPane("labels").style.pointerEvents = "none";
   const labels = L.tileLayer("https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png", {
+    crossOrigin: "anonymous",
     pane: "labels",
     subdomains: "abcd",
     maxZoom: 19,
@@ -123,6 +127,26 @@
   }
 
   // ---------- popolamento controlli
+  // bandiere: libreria flag-icons (tutte in formato 4:3, stessa larghezza); per la media un'icona Lucide "layers" (ISC)
+  const LAYERS_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/></svg>';
+  const modelIcon = (m) =>
+    m.country ? `<span class="fi fi-${m.country}"></span>` : m.id === "mean" ? LAYERS_ICON : "";
+
+  /** Select dei modelli: bandiera + nome. Il <button><selectedcontent> iniziale resta al suo posto. */
+  function fillModelSelect(models, value) {
+    for (const o of [...ui.model.querySelectorAll("option")]) o.remove();
+    for (const m of models) {
+      const o = document.createElement("option");
+      o.value = m.id;
+      const kind = m.country ? "flag" : "glyph";
+      o.innerHTML = `<span class="opt-icon ${kind}" aria-hidden="true">${modelIcon(m)}</span><span class="opt-label"></span>`;
+      o.querySelector(".opt-label").textContent = m.label;
+      o.selected = m.id === value;
+      ui.model.append(o);
+    }
+    ui.model.value = value;
+  }
+
   function fillSelect(sel, items, value) {
     sel.replaceChildren(...items.map(([v, label]) => new Option(label, v, false, v === value)));
   }
@@ -130,8 +154,33 @@
   function setupModels() {
     const models = meta.models.filter((m) => variable().models.includes(m.id));
     if (!models.find((m) => m.id === state.model)) state.model = models[0].id;
-    fillSelect(ui.model, models.map((m) => [m.id, m.label]), state.model);
+    fillModelSelect(models, state.model);
+    renderModelInfo();
   }
+
+  // ---------- icona informazioni sul modello scelto
+  function renderModelInfo() {
+    const m = meta.models.find((x) => x.id === state.model);
+    const text = m?.description || "";
+    ui.modelInfo.textContent = text;
+    ui.modelInfoBtn.title = text ? `${m.label}: ${text}` : "";
+    ui.modelInfoBtn.hidden = !text;
+    if (!text) setModelInfoOpen(false);
+  }
+  function setModelInfoOpen(open) {
+    ui.modelInfo.hidden = !open;
+    ui.modelInfoBtn.setAttribute("aria-expanded", String(open));
+  }
+  ui.modelInfoBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    setModelInfoOpen(ui.modelInfo.hidden);
+  });
+  document.addEventListener("click", (e) => {
+    if (!ui.modelInfo.hidden && !e.target.closest("#model-info, #model-info-btn")) setModelInfoOpen(false);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") setModelInfoOpen(false);
+  });
 
   function setupVars() {
     if (!meta.variables.find((v) => v.id === state.var)) state.var = meta.variables[0].id;
@@ -623,6 +672,240 @@
     ui.points.append(...order.map((i) => pointRows[i]));
   }
 
+  // ---------- condivisione: immagine della mappa che si sta guardando
+  const shareUi = {
+    btn: $("share"), toast: $("share-toast"), dialog: $("share-dialog"), preview: $("share-preview"),
+    send: $("share-send"), download: $("share-download"), close: $("share-close"),
+  };
+  let shareFile = null;
+  let shareText = "";
+
+  /** Link alla stessa vista, con la corsa fissata (chi lo apre vede proprio questa corsa). */
+  function shareUrl() {
+    const p = new URLSearchParams();
+    for (const k of ["model", "var", "step", "mode"]) if (state[k] != null) p.set(k, state[k]);
+    if (state.run) p.set("corsa", state.run);
+    return `${location.origin}${location.pathname}#${p}`;
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  const FONT = "system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+
+  /** Spezza un testo in righe che stanno in `maxWidth` (con il font già impostato su ctx). */
+  function wrapLines(ctx, text, maxWidth) {
+    const words = text.split(" ");
+    const lines = [];
+    let line = "";
+    for (const w of words) {
+      const test = line ? `${line} ${w}` : w;
+      if (line && ctx.measureText(test).width > maxWidth) {
+        lines.push(line);
+        line = w;
+      } else line = test;
+    }
+    if (line) lines.push(line);
+    return lines;
+  }
+
+  /** Compone mappa + dati + punti + intestazione + legenda in un'immagine JPEG. */
+  async function composeImage() {
+    const container = map.getContainer();
+    const cr = container.getBoundingClientRect();
+    const W = Math.round(cr.width);
+    const Hm = Math.round(cr.height);
+
+    // testi di intestazione e fonti, spezzati sulla larghezza dell'immagine
+    const v = variable();
+    const s = state.step;
+    const valid = new Date(runDate(state.run).getTime() + s * 3600e3);
+    const modeText = state.mode === "interval" ? ` nell'intervallo +${current?.prev_step ?? 0}h → +${s}h` : state.mode === "total" ? " totale" : "";
+    const runText = state.model === "mean" ? `dalle ${cycle(state.run)} ${fmtRunDay(state.run)}` : `corsa ${cycle(state.run)} ${fmtRunDay(state.run)}`;
+    const baseAttr = map.hasLayer(bases.topo) ? "Mappa © OpenTopoMap (CC-BY-SA), dati © OpenStreetMap" : "Mappa © OpenStreetMap contributors";
+    const measure = document.createElement("canvas").getContext("2d");
+    measure.font = `700 17px ${FONT}`;
+    const titleLines = wrapLines(measure, `${modelLabel()} · ${runText}`, W - 24);
+    measure.font = `500 14px ${FONT}`;
+    const subLines = wrapLines(measure, `${v.label}${modeText} (${v.units}) · +${s}h · ${fmtLocal(valid)}`, W - 24);
+    measure.font = `400 10px ${FONT}`;
+    // l'attribuzione di OpenStreetMap è obbligatoria anche sulle immagini
+    const attrLines = wrapLines(measure, `${baseAttr} · Dati: NOAA, ECMWF, ItaliaMeteo, DWD, MeteoSvizzera · ${location.host}${location.pathname}`, W - 24);
+    const HEAD = 12 + titleLines.length * 21 + subLines.length * 18 + 6;
+    const FOOT = 40 + attrLines.length * 13 + 6;
+    const scale = Math.min(2, window.devicePixelRatio || 1);
+    const canvas = document.createElement("canvas");
+    canvas.width = W * scale;
+    canvas.height = (HEAD + Hm + FOOT) * scale;
+    const ctx = canvas.getContext("2d");
+    ctx.scale(scale, scale);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, W, HEAD + Hm + FOOT);
+
+    // mappa: stessa porzione visibile a schermo
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, HEAD, W, Hm);
+    ctx.clip();
+    const drawImg = (img, alpha = 1) => {
+      if (!img.complete || !img.naturalWidth) return;
+      const r = img.getBoundingClientRect();
+      if (r.right < cr.left || r.left > cr.right || r.bottom < cr.top || r.top > cr.bottom) return;
+      ctx.globalAlpha = alpha;
+      ctx.drawImage(img, r.left - cr.left, HEAD + r.top - cr.top, r.width, r.height);
+      ctx.globalAlpha = 1;
+    };
+    const drawTiles = (pane) => {
+      const levels = [...pane.querySelectorAll(".leaflet-tile-container")]
+        .sort((a, b) => (+a.style.zIndex || 0) - (+b.style.zIndex || 0));
+      for (const lvl of levels) for (const img of lvl.querySelectorAll("img.leaflet-tile-loaded")) drawImg(img);
+    };
+    drawTiles(map.getPane("tilePane"));
+    if (overlay?.getElement()) {
+      ctx.imageSmoothingEnabled = !state.crisp;
+      drawImg(overlay.getElement(), state.opacity);
+      ctx.imageSmoothingEnabled = true;
+    }
+    if (map.hasLayer(labels)) drawTiles(map.getPane("labels"));
+    // punti: stessa grafica dei marcatori
+    for (const m of pointMarkers) {
+      const el = m.getElement();
+      if (!el) continue;
+      const num = el.querySelector(".pt-num");
+      const val = el.querySelector(".pt-val");
+      const nr = num.getBoundingClientRect();
+      const cx = nr.left - cr.left + nr.width / 2;
+      const cy = HEAD + nr.top - cr.top + nr.height / 2;
+      if (cx < -20 || cx > W + 20 || cy < HEAD - 20 || cy > HEAD + Hm + 20) continue;
+      const vr = val.getBoundingClientRect();
+      ctx.font = "600 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+      ctx.textBaseline = "middle";
+      const vx = vr.left - cr.left;
+      const vy = HEAD + vr.top - cr.top;
+      ctx.fillStyle = "rgba(0,0,0,0.25)";
+      roundRect(ctx, vx, vy + 1, vr.width, vr.height, 4);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.95)";
+      roundRect(ctx, vx, vy, vr.width, vr.height, 4);
+      ctx.fill();
+      ctx.fillStyle = "#1d2330";
+      ctx.textAlign = "center";
+      ctx.fillText(val.textContent, vx + vr.width / 2, vy + vr.height / 2 + 0.5);
+      ctx.beginPath();
+      ctx.arc(cx, cy, 11, 0, Math.PI * 2);
+      ctx.fillStyle = getComputedStyle(num).backgroundColor || "#fff";
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "#1d2330";
+      ctx.stroke();
+      ctx.fillStyle = getComputedStyle(num).color;
+      ctx.font = "700 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+      ctx.fillText(num.textContent, cx, cy + 0.5);
+    }
+    ctx.restore();
+
+    // intestazione: modello, corsa, grandezza e istante
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    let ty = 6;
+    ctx.fillStyle = "#1d2330";
+    ctx.font = `700 17px ${FONT}`;
+    for (const l of titleLines) ctx.fillText(l, 12, (ty += 21));
+    ctx.fillStyle = "#3d4656";
+    ctx.font = `500 14px ${FONT}`;
+    for (const l of subLines) ctx.fillText(l, 12, (ty += 18));
+
+    // legenda orizzontale
+    const { thresholds, colors } = v.scale;
+    const n = thresholds.length;
+    const lw = Math.min(W - 24, 560);
+    const cw = lw / n;
+    const ly = HEAD + Hm + 10;
+    thresholds.forEach((t, i) => {
+      ctx.fillStyle = colors[i];
+      ctx.fillRect(12 + i * cw, ly, cw, 10);
+      ctx.fillStyle = "#3d4656";
+      ctx.font = "500 10px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+      ctx.textAlign = "left";
+      ctx.fillText(String(t).replace("-", "−"), 12 + i * cw, ly + 22);
+    });
+    // fonti
+    ctx.font = `400 10px ${FONT}`;
+    ctx.fillStyle = "#5d6677";
+    attrLines.forEach((l, i) => ctx.fillText(l, 12, ly + 42 + i * 13));
+
+    const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.9));
+    const name = `weathermaps-${state.model}-${state.var}-${state.run}-${String(s).padStart(3, "0")}.jpg`;
+    shareText = `${modelLabel()} ${runText}: ${v.label.toLowerCase()}${modeText}, +${s}h (${fmtLocal(valid)})\n${shareUrl()}`;
+    return new File([blob], name, { type: "image/jpeg" });
+  }
+
+  function toast(text) {
+    shareUi.toast.textContent = text;
+    shareUi.toast.hidden = false;
+    clearTimeout(toast.t);
+    toast.t = setTimeout(() => { shareUi.toast.hidden = true; }, 4500);
+  }
+
+  function downloadShareFile() {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(shareFile);
+    a.download = shareFile.name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+
+  /** Condivisione nativa (telefono: menu con WhatsApp); altrimenti scarica e apre WhatsApp con il link. */
+  async function sendShare() {
+    const data = { files: [shareFile], text: shareText, title: "Weathermaps" };
+    if (navigator.canShare?.(data)) {
+      try {
+        await navigator.share(data);
+        return true;
+      } catch (e) {
+        if (e.name === "AbortError") return true; // annullato dall'utente
+        if (e.name !== "NotAllowedError") throw e;
+        return false; // gesto scaduto: si riprova dal pulsante dell'anteprima
+      }
+    }
+    downloadShareFile();
+    window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`, "_blank", "noopener");
+    toast("Immagine scaricata: allegala al messaggio WhatsApp che si è appena aperto.");
+    return true;
+  }
+
+  shareUi.btn.addEventListener("click", async () => {
+    if (!current) { toast("Niente da condividere: scegli un istante con dati."); return; }
+    shareUi.btn.disabled = true;
+    try {
+      shareFile = await composeImage();
+      shareUi.preview.src = URL.createObjectURL(shareFile);
+      // anteprima con pulsanti: il clic su "Condividi" è un gesto nuovo, valido per la condivisione nativa
+      shareUi.dialog.showModal();
+    } catch (e) {
+      toast(`Impossibile creare l'immagine: ${e.message}`);
+    } finally {
+      shareUi.btn.disabled = false;
+    }
+  });
+  shareUi.send.addEventListener("click", async () => {
+    try {
+      if (await sendShare()) shareUi.dialog.close();
+    } catch (e) {
+      toast(`Condivisione non riuscita: ${e.message}`);
+    }
+  });
+  shareUi.download.addEventListener("click", () => { downloadShareFile(); });
+  shareUi.close.addEventListener("click", () => shareUi.dialog.close());
+  shareUi.dialog.addEventListener("close", () => { URL.revokeObjectURL(shareUi.preview.src); });
+
   // ---------- tooltip puntuale (griglia nativa, nearest neighbour)
   map.on("mousemove", (e) => {
     if (!current) { ui.probe.hidden = true; return; }
@@ -687,7 +970,7 @@
     writeHash();
   });
   ui.crisp.addEventListener("change", () => { state.crisp = ui.crisp.checked; if (current) draw(current); writeHash(); });
-  ui.model.addEventListener("change", () => { state.model = ui.model.value; state.runPinned = false; setupRuns(); setupSteps(); update(); });
+  ui.model.addEventListener("change", () => { state.model = ui.model.value; state.runPinned = false; renderModelInfo(); setupRuns(); setupSteps(); update(); });
   ui.varSel.addEventListener("change", () => { state.var = ui.varSel.value; setupModels(); setupModes(); setupRuns(); setupSteps(); update(); });
   ui.collapse.addEventListener("click", () => {
     const c = ui.panel.classList.toggle("collapsed");
@@ -737,7 +1020,7 @@
       if (map.getZoom() < map.getMinZoom()) map.setZoom(map.getMinZoom(), { animate: false });
       map.panInsideBounds(box, { animate: false });
     });
-    bases.topo.addTo(map); // all'avvio sempre la mappa con il rilievo
+    bases.osm.addTo(map); // all'avvio sempre OpenStreetMap; il rilievo si sceglie dal selettore livelli
 
     ui.opacity.value = state.opacity;
     ui.crisp.checked = state.crisp;

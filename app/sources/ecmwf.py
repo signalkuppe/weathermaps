@@ -18,6 +18,12 @@ MODEL = ModelInfo(
     cycles=(0, 12),  # le 06/18 si fermano a 144h
     delay_hours=7.5,
     max_step=360,
+    country="eu",
+    description=(
+        "Modello globale del Centro Europeo (ECMWF), il riferimento per il medio termine. "
+        "Dati aperti a 0,1° (circa 9 km), corse delle 00 e 12 UTC, qui fino a +192h. "
+        "Più dettagliato di GFS, ma i rilievi alpini restano semplificati."
+    ),
 )
 
 ROOT = "https://data.ecmwf.int/forecasts"
