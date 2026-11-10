@@ -449,7 +449,7 @@ input[type="range"] { accent-color: var(--accent); }
 .pt-left .pt-val::before { left: 100%; top: 50%; margin-top: -5px; border-right: 0; border-left-color: rgba(255, 255, 255, 0.92); }
 .pt-above .pt-val::before { top: 100%; left: 50%; margin-left: -5px; border-bottom: 0; border-top-color: rgba(255, 255, 255, 0.92); }
 .pt-below .pt-val::before { bottom: 100%; left: 50%; margin-left: -5px; border-top: 0; border-bottom-color: rgba(255, 255, 255, 0.92); }
-.pt-noval .pt-val, .pt-popped .pt-val { display: none; }
+.pt-noval .pt-val, .pt-popped .pt-val, .pt .pt-val:empty { display: none; }
 .pt .pt-num, .points .pt-num {
   display: inline-grid;
   place-items: center;
@@ -611,3 +611,60 @@ input[type="range"] { accent-color: var(--accent); }
 @media (max-width: 600px) { .legend .lg-tick-end { top: 8px; } }
 /* prima soglia della barra sfumata dentro il riquadro (allineata al bordo sinistro invece che centrata) */
 .legend .lg-continuous li:first-child .lg-tick:not(.lg-tick-end) { transform: none; }
+
+/* meteogramma: pannelli uno sotto l'altro con lo stesso asse dei tempi, lettura dei valori al passaggio */
+.chart-head { min-width: 0; }
+.chart-head h2 { font-size: 22px; line-height: 1.2; }
+.chart-sub { margin-top: 3px; display: flex; align-items: center; gap: 7px; min-width: 0; }
+.chart-sub span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chart-sub .fi { flex: none; width: 18px; height: 13.5px; border-radius: 2px; box-shadow: 0 0 0 1px rgba(29, 35, 48, 0.2); }
+.chart-sub svg { flex: none; width: 15px; height: 15px; }
+.chart-sub { font-size: 12px; color: var(--muted); }
+.chart-body { flex: 1; min-height: 0; overflow-y: auto; position: relative; touch-action: pan-y; padding-top: 30px; }
+.chart-body svg { display: block; width: 100%; font: 11px system-ui, sans-serif; font-variant-numeric: tabular-nums;
+  user-select: none; -webkit-user-select: none; }
+.chart-body .ch-title { font-size: 12.5px; font-weight: 650; fill: var(--fg); }
+.chart-body .ch-note { font-size: 11.5px; fill: var(--muted); }
+.chart-body .ch-tick { fill: var(--muted); }
+.chart-body .ch-grid { stroke: var(--line); stroke-width: 1; }
+.chart-body .ch-day { stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 3; }
+.chart-body .ch-now { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.chart-body .ch-cursor { stroke: var(--fg); stroke-width: 1; opacity: 0.6; }
+.chart-body .ch-zero { stroke: var(--muted); stroke-width: 1; }
+.chart-tip { position: absolute; z-index: 2; pointer-events: none; padding: 6px 9px; border-radius: 7px;
+  background: #1d2330; color: #fff; font: 12px/1.45 system-ui, sans-serif; font-variant-numeric: tabular-nums;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3); white-space: nowrap; }
+.chart-tip b { font-weight: 650; }
+.chart-tip .t { color: rgba(255, 255, 255, 0.7); margin-bottom: 2px; }
+.chart-empty { padding: 24px 0; color: var(--muted); }
+.pt-pop-chart { margin-top: 6px; width: 100%; padding: 4px 8px; border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 6px; background: none; color: #fff; font: 600 12px/1.4 system-ui, sans-serif; cursor: pointer; }
+.pt-pop-chart:hover { background: rgba(255, 255, 255, 0.12); }
+
+/* finestra del grafico: margini più ampi della condivisione (titolo e grafico non incollati ai bordi) */
+/* margine uguale su tutti i lati (--cm), dal bordo al contenuto più esterno: a sinistra intestazione, titoli e numeri
+   dell'asse; a destra il grafico (padding più i 14 px interni dell'SVG, CHART_R in app.js) */
+.chart-dialog { --cm: 40px; padding: max(var(--cm), env(safe-area-inset-top)) calc(var(--cm) - 14px) max(var(--cm), env(safe-area-inset-bottom)) var(--cm); gap: 26px; }
+.chart-dialog .share-head { align-items: flex-start; }
+.chart-actions { display: flex; align-items: center; gap: 4px; margin: -9px 5px 0 0; } /* icone sul margine */
+.chart-actions .share-x { margin-right: 0; }
+.chart-share { color: var(--accent); }
+.chart-share:disabled { opacity: 0.5; cursor: progress; }
+@media (max-width: 600px) { .chart-dialog { --cm: 20px; } }
+
+/* avviso nel pannello quando la combinazione scelta non ha dati; la mappa intanto è in scala di grigi */
+.nodata { display: grid; gap: 2px; padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(194, 65, 12, 0.35);
+  background: rgba(194, 65, 12, 0.08); color: #9a3412; font-size: 12.5px; line-height: 1.4; }
+.nodata[hidden] { display: none; }
+.nodata b { font-size: 13px; font-weight: 650; color: #c2410c; }
+@media (prefers-color-scheme: dark) { .nodata { color: #fdba74; } .nodata b { color: #fb923c; } }
+.map-nodata .leaflet-tile-pane { filter: grayscale(1); }
+/* senza dati sopra la mappa resta solo il menu principale: niente barra, legenda, località né tooltip */
+.no-data .badge, .no-data .legend, .no-data .probe, .no-data .leaflet-marker-pane, .no-data .pt-pop { display: none !important; }
+
+/* ricerca località in corso: spinner a destra nel campo (stesso dello slider dell'ora) */
+.places-search.searching::after { content: ""; position: absolute; right: 10px; top: 50%; width: 14px; height: 14px;
+  margin-top: -7px; box-sizing: border-box; border: 2px solid var(--line); border-top-color: var(--accent);
+  border-radius: 50%; animation: spin 0.7s linear infinite; pointer-events: none; }
+.places-search.searching input { padding-right: 32px; }
+.place-results .place-wait { font-style: italic; }

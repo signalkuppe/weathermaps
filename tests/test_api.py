@@ -389,3 +389,25 @@ def test_meta_t850_detail_height_hidden(client):
     assert "z850" not in vs
     assert vs["t850"]["details"] == [{"var": "z850", "label": "Altezza 850 hPa"}]
     assert variables.get("z850").convert["icon-d2"](9806.65) == pytest.approx(1000)
+
+
+def test_series_point_and_tiles(tmp_path):
+    """Meteogramma: serie in un punto (API) e riquadri del sito statico con gli stessi valori."""
+    from app import series
+    store = Store(data_dir=tmp_path, bbox=BOX)
+    for s in (3, 6, 9):
+        store.save("gfs", "2026110900", "tp", s,
+                   Field(values=np.full((29, 53), float(s), np.float32), lat0=42, lon0=4, dlat=0.25, dlon=0.25))
+    app = create_app(store=store, start_scheduler=False)
+    with TestClient(app) as c:
+        d = c.get("/api/series", params={"model": "gfs", "run": "2026110900", "lat": 45.5, "lon": 9.2}).json()
+        assert d["vars"]["tp"] == {"steps": [3, 6, 9], "values": [3.0, 6.0, 9.0]}
+        assert c.get("/api/meta").json()["series"] == {"dstep": series.DSTEP, "tile": series.TILE}
+        assert c.get("/api/series", params={"model": "gfs", "run": "2026110100", "lat": 45, "lon": 9}).status_code == 404
+    tiles = series.build_tiles(store, "gfs", "2026110900")
+    t = tiles[series.tile_of(store.bbox, 45.5, 9.2)]
+    per = round(series.TILE / series.DSTEP)
+    gy, gx = round((45.5 - BOX.lat_min) / series.DSTEP), round((9.2 - BOX.lon_min) / series.DSTEP)
+    cell = (gy % per) * t["nx"] + (gx % per)
+    v = t["vars"]["tp"]
+    assert [x / v["scale"] for x in v["values"][cell * 3:(cell + 1) * 3]] == [3.0, 6.0, 9.0]

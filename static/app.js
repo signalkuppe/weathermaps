@@ -13,7 +13,7 @@
     badge: $("badge"), badgeText: $("badge-text"), mPlay: $("m-play"), runAge: $("run-age"),
     runLive: $("run-live"), runLiveText: $("run-live-text"), refresh: $("refresh"), runLiveNote: $("run-live-note"),
     pointsBox: $("points-box"), points: $("points"),
-    loading: $("loading"), placeQ: $("place-q"), placeResults: $("place-results"), placesEdit: $("places-edit"), placesEmpty: $("places-empty"),
+    loading: $("loading"), nodata: $("nodata"), nodataTitle: $("nodata-title"), nodataText: $("nodata-text"), placeQ: $("place-q"), placeResults: $("place-results"), placesEdit: $("places-edit"), placesEmpty: $("places-empty"),
     modelInfo: $("model-info"), modelInfoBtn: $("model-info-btn"),
   };
 
@@ -157,6 +157,17 @@
   const runInfo = () => (runs[state.model] || []).find((r) => r.run === state.run);
   const availableSteps = () => new Set(runInfo()?.variables[dataVar()]?.steps || []);
 
+  /** Avviso al centro della mappa (null = nascosto). */
+  function showNoData(title, text = "") {
+    ui.nodata.hidden = !title;
+    if (title) { ui.nodataTitle.textContent = title; ui.nodataText.textContent = text; }
+    map.getContainer().classList.toggle("map-nodata", !!title); // senza dati la mappa resta in grigio
+    document.body.classList.toggle("no-data", !!title); // e sopra c'è solo il menu principale (vedi style.css)
+    if (title) ui.probe.hidden = true;
+    // pannello chiuso (su mobile succede spesso): si riapre, altrimenti resterebbe solo una mappa grigia muta
+    if (title && ui.panel.classList.contains("collapsed")) ui.collapse.click();
+  }
+
   function setStatus(text, warn = false) {
     ui.status.textContent = text || "";
     ui.status.classList.toggle("warn", !!warn);
@@ -207,9 +218,11 @@
     sel.replaceChildren(...items.map(([v, label]) => new Option(label, v, false, v === value)));
   }
 
+  // tutti i modelli, sempre: cambiando grandezza il modello non cambia da solo; se non la fornisce lo dice l'avviso
+  // al centro della mappa (vedi update)
   function setupModels() {
-    const models = meta.models.filter((m) => variable().models.includes(m.id));
-    if (!models.find((m) => m.id === state.model)) state.model = models[0].id;
+    const models = meta.models;
+    if (!models.find((m) => m.id === state.model)) state.model = (models.find((m) => variable().models.includes(m.id)) || models[0]).id;
     fillModelSelect(models, state.model);
     renderModelInfo();
   }
@@ -972,10 +985,16 @@
     const s = state.step;
     const run = runDate(state.run || "1970010100");
     const valid = new Date(run.getTime() + s * 3600e3);
-    ui.valid.textContent = state.run ? `${fmtLocal(valid)} · +${s}h` : "—";
+    ui.valid.textContent = state.run ? `${fmtLocal(valid)} · +${s}h` : "";
     if (!state.run) {
-      ui.range.textContent = "—";
-      ui.badgeText.innerHTML = `<b>${modelLabel()}</b> · nessuna corsa`;
+      ui.range.textContent = "";
+      // anche nella barra (su mobile il pannello di solito è chiuso): grandezza non fornita o dati non ancora arrivati
+      const what = variable().models.includes(state.model) ? "nessun dato" : "non disponibile";
+      // stessa struttura della barra normale: su mobile "non disponibile" al posto dell'ora, il modello a destra
+      ui.badgeText.innerHTML =
+        `<b class="badge-d">${modelLabel()}</b><span class="badge-run badge-d">${what === "nessun dato" ? "nessun dato" : `${baseLabel()} non disponibile`}</span>` +
+        `<span class="badge-m badge-m-time"><b>${what}</b></span>` +
+        `<span class="badge-m badge-m-model">${shortLabel(state.model)}</span>`;
       return;
     }
     const runWord = state.model === "mean" ? "dalle" : "corsa";
@@ -997,13 +1016,27 @@
     writeHash();
     renderLegend();
     renderTime();
-    if (!state.run) { setLoading(false); clearOverlay(); current = null; renderPoints(); setStatus("Nessun dato ancora scaricato per questo modello.", true); return; }
+    if (!variable().models.includes(state.model)) {
+      setLoading(false); clearOverlay(); current = null; renderPoints(); setStatus("");
+      const names = meta.models.filter((m) => variable().models.includes(m.id)).map((m) => shortLabel(m.id));
+      showNoData(`${modelLabel()} non fornisce ${baseLabel()}`, `Disponibile con: ${names.join(", ")}.`);
+      return;
+    }
+    if (!state.run) {
+      setLoading(false); clearOverlay(); current = null; renderPoints(); setStatus("");
+      showNoData(`${modelLabel()}: nessun dato per ${baseLabel()}`,
+        "I dati di questa combinazione non sono ancora disponibili: arriveranno con uno dei prossimi aggiornamenti. Intanto puoi scegliere un altro modello.");
+      return;
+    }
     if (!availableSteps().has(state.step)) {
       setLoading(false);
       clearOverlay(); current = null; renderPoints();
       setStatus("");
+      showNoData(`Nessun dato per ${fmtLocal(new Date(runDate(state.run).getTime() + state.step * 3600e3))}`,
+        `${modelLabel()} non ha dati di ${baseLabel()} per quest'ora: scegline un'altra con lo slider o le frecce.`);
       return;
     }
+    showNoData(null);
     const my = ++seq;
     setLoading(true); // spinner nella riga dell'ora: niente testo che compare e sparisce spostando il pannello
     try {
@@ -1093,7 +1126,7 @@
     places.forEach((p, idx) => {
       const icon = L.divIcon({
         className: "pt pt-right",
-        html: `<span class="pt-num">–</span><span class="pt-val">—</span>`,
+        html: `<span class="pt-num"></span><span class="pt-val"></span>`,
         iconSize: [22, 22],
         iconAnchor: [11, 11],
       });
@@ -1103,7 +1136,7 @@
       pointMarkers.push(m);
 
       const li = document.createElement("li");
-      li.innerHTML = `<span class="pt-num">–</span><span class="pt-name"></span><span class="pt-v">—</span>`;
+      li.innerHTML = `<span class="pt-num"></span><span class="pt-name"></span><span class="pt-v"></span>`;
       if (editing) {
         // modifica: nome rinominabile al posto del testo, pulsante per eliminare al posto del valore
         const input = document.createElement("input");
@@ -1186,6 +1219,7 @@
   window.visualViewport?.addEventListener("resize", placeResults); // tastiera del telefono
 
   function hideResults() {
+    ui.placeQ.parentElement.classList.remove("searching");
     ui.placeResults.hidden = true;
     ui.placeResults.replaceChildren();
   }
@@ -1195,15 +1229,16 @@
     return [kind, pr.city !== pr.name ? pr.city : null, pr.county, pr.state, pr.country !== "Italia" ? pr.country : null]
       .filter(Boolean).filter((x, i, a) => a.indexOf(x) === i).join(", ");
   }
+  const setSearching = (on) => ui.placeQ.parentElement.classList.toggle("searching", on);
   async function searchPlaces(q) {
     searchCtl?.abort();
-    searchCtl = new AbortController();
+    const ctl = (searchCtl = new AbortController());
     const b = meta.bbox;
     const url = `https://photon.komoot.io/api/?${new URLSearchParams({ q, limit: "8" })}` +
       `&bbox=${b.lon_min},${b.lat_min},${b.lon_max},${b.lat_max}` +
       "&osm_tag=place&osm_tag=natural:peak&osm_tag=mountain_pass";
     try {
-      const r = await fetch(url, { signal: searchCtl.signal });
+      const r = await fetch(url, { signal: ctl.signal });
       if (!r.ok) throw new Error(r.statusText);
       const d = await r.json();
       const items = (d.features || [])
@@ -1227,8 +1262,10 @@
       }
       ui.placeResults.hidden = false;
       placeResults();
+      setSearching(false);
     } catch (e) {
       if (e.name === "AbortError") return;
+      setSearching(false);
       ui.placeResults.innerHTML = `<li class="place-none">Ricerca non riuscita, riprova più tardi</li>`;
       ui.placeResults.hidden = false;
       placeResults();
@@ -1237,7 +1274,12 @@
   ui.placeQ.addEventListener("input", () => {
     clearTimeout(searchTimer);
     const q = ui.placeQ.value.trim();
-    if (q.length < 2) { searchCtl?.abort(); hideResults(); return; }
+    if (q.length < 2) { searchCtl?.abort(); setSearching(false); hideResults(); return; }
+    // subito uno stato di attesa: spinner nel campo e "Ricerca…" nell'elenco (Photon risponde in qualche decimo)
+    setSearching(true);
+    ui.placeResults.innerHTML = '<li class="place-none place-wait">Ricerca…</li>';
+    ui.placeResults.hidden = false;
+    placeResults();
     searchTimer = setTimeout(() => searchPlaces(q), 300);
   });
   ui.placeQ.addEventListener("keydown", (e) => {
@@ -1253,7 +1295,7 @@
     const values = [];
     pts.forEach((p, i) => {
       const v = current ? valueAt(current, p.lat, p.lon) : null;
-      const text = v == null ? "—" : v.toFixed(dec);
+      const text = v == null ? "" : v.toFixed(dec); // senza valore niente trattini: l'etichetta si nasconde
       const c = v == null ? null : color(v);
       const el = pointMarkers[i].getElement();
       if (el) {
@@ -1263,7 +1305,7 @@
         el.classList.toggle("pt-dark", !!c && c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114 < 140);
       }
       const pv = pointRows[i].querySelector(".pt-v"); // in modifica al suo posto c'è il pulsante elimina
-      if (pv) pv.textContent = v == null ? "—" : `${text} ${current.units}`;
+      if (pv) pv.textContent = v == null ? "" : `${text} ${current.units}`;
       const n = pointRows[i].querySelector(".pt-num");
       n.style.background = c ? `rgb(${c.join(",")})` : "";
       n.classList.toggle("pt-dark", !!c && c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114 < 140);
@@ -1280,7 +1322,7 @@
     order.forEach((i, pos) => {
       if (shown[i] == null) rank = null;
       else if (pos === 0 || shown[i] !== shown[order[pos - 1]]) rank = pos + 1;
-      const label = rank == null ? "–" : String(rank);
+      const label = rank == null ? "" : String(rank);
       pointRows[i].querySelector(".pt-num").textContent = label;
       const el = pointMarkers[i].getElement();
       if (el) el.querySelector(".pt-num").textContent = label;
@@ -1374,10 +1416,12 @@
     pop.innerHTML =
       `<div class="pt-pop-head"><strong>${esc(p.name)}</strong>` +
       `<button type="button" class="pt-pop-close" aria-label="Chiudi"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>` +
-      rows.map(([k, x]) => `<div class="pt-pop-row"><span>${esc(k)}</span><b>${esc(x)}</b></div>`).join("") +
+      rows.filter(([, x]) => x !== "—").map(([k, x]) => `<div class="pt-pop-row"><span>${esc(k)}</span><b>${esc(x)}</b></div>`).join("") + // senza valore la riga non c'è
       (foot ? `<div class="pt-pop-foot">${esc(foot)}</div>` : "") +
+      (meta.series && state.run ? '<button type="button" class="pt-pop-chart">Grafico nel tempo</button>' : "") +
       `<i class="pt-pop-arrow"></i>`;
     pop.querySelector(".pt-pop-close").addEventListener("click", closePlacePop);
+    pop.querySelector(".pt-pop-chart")?.addEventListener("click", () => openChart(p));
     pop.hidden = false;
     markPoppedPoint();
     placePlacePop();
@@ -2066,6 +2110,300 @@
   shareUi.close.addEventListener("click", closeShare);
 
 
+  // ---------- meteogramma di una località: andamento nel tempo delle grandezze del modello scelto. Sempre le stesse
+  // quattro (pioggia, T850, zero termico, vento a 10 m), quelle che il modello non ha si saltano. Un pannello per
+  // grandezza (mai due scale sullo stesso grafico), stesso asse dei tempi; pioggia a barre per intervallo,
+  // le altre a linee; ora locale sull'asse, l'ora mostrata nella mappa tratteggiata, lettura dei valori al passaggio.
+  const chartUi = {
+    dialog: $("chart-dialog"), body: $("chart-body"), title: $("chart-title"), sub: $("chart-sub"), close: $("chart-close"),
+  };
+  let chartData = null;
+  // margine uguale su tutti i lati (come --cm in style.css): a sinistra coincide con lo spazio dei numeri dell'asse,
+  // così titolo della finestra e titoli dei grafici partono alla stessa distanza dal bordo che i grafici hanno a destra
+  const CHART_AXIS = 40; // spazio dei numeri dell'asse dentro l'SVG, a sinistra del grafico
+  const CHART_R = 14; // dentro l'SVG, a destra (l'ultima ora sull'asse non viene tagliata)
+  chartUi.close.addEventListener("click", () => chartUi.dialog.close());
+
+  /** Serie nel punto: dal server (api/series) o, nel sito statico, dal riquadro di 2°×2° che lo contiene. */
+  async function getSeries(model, run, lat, lon) {
+    if (!STATIC) {
+      const r = await fetch(`api/series?${new URLSearchParams({ model, run, lat, lon })}`);
+      if (!r.ok) throw new Error(r.statusText);
+      return r.json();
+    }
+    const { dstep, tile } = meta.series;
+    const b = meta.bbox;
+    const per = Math.round(tile / dstep);
+    const gy = Math.round((lat - b.lat_min) / dstep), gx = Math.round((lon - b.lon_min) / dstep);
+    const ty = Math.floor(gy / per), tx = Math.floor(gx / per);
+    const r = await fetch(`data/series/${model}/${run}/${ty}_${tx}.json`);
+    if (!r.ok) throw new Error("serie non disponibile per questo punto");
+    const t = await r.json();
+    const iy = Math.min(t.ny - 1, gy - ty * per), ix = Math.min(t.nx - 1, gx - tx * per);
+    const cell = iy * t.nx + ix;
+    const vars = {};
+    for (const [k, v] of Object.entries(t.vars)) {
+      const n = v.steps.length;
+      vars[k] = { steps: v.steps, values: v.values.slice(cell * n, (cell + 1) * n).map((x) => (x == null ? null : x / v.scale)) };
+    }
+    return { lat: t.lat0 + iy * dstep, lon: t.lon0 + ix * dstep, vars };
+  }
+
+  async function openChart(p) {
+    chartUi.title.textContent = p.name;
+    const m = meta.models.find((x) => x.id === state.model);
+    chartUi.sub.innerHTML = `${m ? modelIcon(m) : ""}<span>${modelLabel()} · ${state.model === "mean" ? "dalle" : "corsa"} ${cycle(state.run)} ${fmtRunDay(state.run)}</span>`;
+    chartUi.body.innerHTML = '<div class="chart-empty">Caricamento…</div>';
+    chartData = null;
+    chartUi.dialog.showModal();
+    const want = `${state.model}|${state.run}`;
+    try {
+      const series = await getSeries(state.model, state.run, p.lat, p.lon);
+      if (want !== `${state.model}|${state.run}` || !chartUi.dialog.open) return;
+      chartData = { series, run: state.run };
+      drawChart();
+    } catch (e) {
+      chartUi.body.innerHTML = `<div class="chart-empty">Grafico non disponibile: ${e.message}</div>`;
+    }
+  }
+  new ResizeObserver(() => { if (chartUi.dialog.open && chartData) drawChart(); }).observe(chartUi.body);
+
+  // ---------- condivisione del meteogramma: immagine larga 1080 px (anche da telefono) con località, modello e corsa
+  // in alto, crediti in basso; poi come l'immagine della mappa (menu del telefono, altrimenti download)
+  const CHART_CSS = [ // le classi della pagina non valgono dentro un'immagine: stessi stili, tema chiaro
+    ".ch-title{font:650 12.5px system-ui,sans-serif;fill:#1d2330}.ch-note{font-weight:400;font-size:11.5px;fill:#5d6677}",
+    ".ch-tick{font:11px system-ui,sans-serif;fill:#5d6677}.ch-grid{stroke:#d8dde6;stroke-width:1}",
+    ".ch-day{stroke:#d8dde6;stroke-width:1;stroke-dasharray:3 3}.ch-now{stroke:#1560e0;stroke-width:1.5;stroke-dasharray:4 3}",
+    ".ch-zero{stroke:#5d6677;stroke-width:1}text{font-variant-numeric:tabular-nums}",
+  ].join("");
+  async function makeChartFile() {
+    const M = 48, EW = 1032, K = 2; // margine uguale su tutti i lati, larghezza dell'SVG, scala (nitidezza)
+    const g = drawChart(EW);
+    if (!g) throw new Error("niente da condividere");
+    const svgText = `<svg xmlns="http://www.w3.org/2000/svg" width="${g.W}" height="${g.H}" viewBox="0 0 ${g.W} ${g.H}"><style>${CHART_CSS}</style>${g.markup}</svg>`;
+    const [img, flag] = await Promise.all([new Promise((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = () => reject(new Error("grafico non convertibile in immagine"));
+      im.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgText)}`;
+    }), loadFlag(state.model)]);
+    const TOP = M + 78; // titolo, sottotitolo e spazio prima dei grafici
+    const cw = M + g.W - CHART_R + M, chh = TOP + g.H + 28 + M;
+    const cv = document.createElement("canvas");
+    cv.width = cw * K; cv.height = chh * K;
+    const ctx = cv.getContext("2d");
+    ctx.scale(K, K);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, cw, chh);
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = "#1d2330";
+    ctx.font = `700 28px ${FONT}`;
+    ctx.fillText(chartUi.title.textContent, M, M + 22); // allineati ai titoli dei grafici
+    let sx = M;
+    if (flag) { // bandiera del modello (icona a livelli per la mediana) prima del sottotitolo
+      const fh = 15, fw = Math.round(fh * (flag.naturalWidth / flag.naturalHeight || 4 / 3));
+      ctx.drawImage(flag, M, M + 37, fw, fh);
+      if (flag.dataset.border) { ctx.strokeStyle = "rgba(29,35,48,0.25)"; ctx.lineWidth = 1; ctx.strokeRect(M + 0.5, M + 37.5, fw - 1, fh - 1); }
+      sx += fw + 8;
+    }
+    ctx.fillStyle = "#5d6677";
+    ctx.font = `500 15px ${FONT}`;
+    ctx.fillText(chartUi.sub.textContent, sx, M + 50);
+    ctx.drawImage(img, M, TOP, g.W, g.H);
+    ctx.font = `400 12px ${FONT}`;
+    const attr = shareTexts().attr;
+    ctx.fillText(attr.slice(Math.max(0, attr.indexOf("Dati:"))), M, chh - M, cw - M * 2 - 230); // niente crediti della mappa
+    ctx.textAlign = "right";
+    ctx.font = `700 14px ${FONT}`;
+    ctx.fillStyle = "#1d2330";
+    const site = "signalkuppe.com";
+    ctx.fillText(site, cw - M, chh - M);
+    const sw = ctx.measureText(site).width;
+    ctx.font = `400 14px ${FONT}`;
+    ctx.fillStyle = "#5d6677";
+    ctx.fillText("Realizzato da ", cw - M - sw, chh - M);
+    const blob = await new Promise((resolve) => cv.toBlob(resolve, "image/jpeg", 0.92));
+    const slug = chartUi.title.textContent.toLowerCase().normalize("NFD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    return new File([blob], `weathermaps-grafico-${slug || "localita"}-${state.model}-${chartData.run}.jpg`, { type: "image/jpeg" });
+  }
+  $("chart-share").addEventListener("click", async () => {
+    if (!chartData) return;
+    const btn = $("chart-share");
+    btn.disabled = true;
+    try {
+      const file = await makeChartFile();
+      const data = { files: [file] };
+      if (navigator.canShare?.(data)) {
+        try { await navigator.share(data); } catch (e) { if (e.name !== "AbortError") throw e; }
+      } else {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(file);
+        a.download = file.name;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      }
+    } catch (e) {
+      chartUi.sub.textContent += ` · condivisione non riuscita: ${e.message}`;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  /** 3–5 valori "tondi" fra lo e hi per l'asse. */
+  function niceTicks(lo, hi, n = 3) {
+    const raw = (hi - lo) / n || 1;
+    const mag = 10 ** Math.floor(Math.log10(raw));
+    const step = [1, 2, 2.5, 5, 10].map((k) => k * mag).find((k) => k >= raw) || 10 * mag;
+    const out = [];
+    for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(+v.toFixed(6));
+    return out;
+  }
+  const dirName = (u, v) => {
+    if (u == null || v == null || Math.hypot(u, v) < 1) return "";
+    return DIRS[Math.round((((Math.atan2(-u, -v) * 180) / Math.PI + 360) % 360) / 45) % 8];
+  };
+
+  /** Disegna il meteogramma nella finestra; con `exportW` restituisce invece l'SVG largo exportW (per l'immagine). */
+  function drawChart(exportW) {
+    const { series, run } = chartData;
+    const V = series.vars;
+    const t0 = runDate(run).getTime();
+    const W = exportW || Math.max(280, chartUi.body.clientWidth);
+    const L = CHART_AXIS, R = CHART_R, pw = W - L - R;
+    const PH = 78, HEAD = 30, GAP = 16, AXIS = 34; // altezza grafico, titolo, spazio fra pannelli, asse dei tempi
+    const steps = [...new Set(Object.values(V).flatMap((v) => v.steps))].sort((a, b) => a - b);
+    if (!steps.length) {
+      if (exportW) return null;
+      chartUi.body.innerHTML = '<div class="chart-empty">Nessun dato in questo punto.</div>';
+      return;
+    }
+    const x0 = Math.min(0, steps[0]), x1 = steps[steps.length - 1];
+    const X = (h) => L + ((h - x0) / (x1 - x0 || 1)) * pw;
+    const fmt = (x, d) => (x == null ? "—" : x.toFixed(d).replace("-", "−"));
+    // barre per intervallo dalle cumulate (pioggia, neve)
+    const intervals = (v) => v.steps.map((b, i) => {
+      const a = i ? v.steps[i - 1] : 0;
+      const cur = v.values[i], prev = i ? v.values[i - 1] : 0;
+      return { a, b, y: cur == null || prev == null ? null : Math.max(0, cur - prev), cum: cur };
+    });
+    const points = (v) => v.steps.map((x, i) => ({ x, y: v.values[i] }));
+    const last = (v) => [...v.values].reverse().find((x) => x != null);
+    const panels = [];
+    if (V.tp) panels.push({ title: "Pioggia", unit: "mm", kind: "bar", color: "#2f7fd8", data: intervals(V.tp), dec: 1,
+      min: 1, note: `totale ${fmt(last(V.tp), 1)} mm`, tip: (d) => `Pioggia +${d.b - d.a}h` });
+    if (V.t850) panels.push({ title: "Temperatura 850 hPa", unit: "°C", kind: "line", color: "#d9480f", data: points(V.t850),
+      dec: 1, zero: true, tip: () => "T 850 hPa" });
+    if (V.hzero) panels.push({ title: "Zero termico", unit: "m", kind: "line", color: "#0b7285", data: points(V.hzero),
+      dec: 0, tip: () => "Zero termico" });
+    if (V.u10 && V.v10) {
+      const data = V.u10.steps.map((x, i) => {
+        const u = V.u10.values[i], v = V.v10.values[i];
+        return { x, y: u == null || v == null ? null : Math.hypot(u, v), u, v };
+      });
+      panels.push({ title: "Vento 10 m", unit: "km/h", kind: "line", color: "#495057", data, dec: 0, arrows: true, min: 10,
+        tip: () => "Vento 10 m" });
+    }
+    const H = panels.length * (HEAD + PH + GAP) + AXIS;
+    const svg = [];
+    // giorni (mezzanotte locale) e ore ogni 6 ore, ora di Roma come nel resto della pagina
+    const hourOf = (h) => +new Date(t0 + h * 3600e3).toLocaleString("it-IT", { timeZone: "Europe/Rome", hour: "2-digit", hour12: false });
+    const days = [], hours = [];
+    const every = pw / ((x1 - x0) / 6) >= 30 ? 6 : pw / ((x1 - x0) / 12) >= 30 ? 12 : 24;
+    for (let h = Math.ceil(x0); h <= x1; h++) {
+      const hh = hourOf(h) % 24;
+      if (hh === 0) days.push(h);
+      else if (hh % every === 0) hours.push([h, hh]);
+    }
+    panels.forEach((p, i) => {
+      const top = i * (HEAD + PH + GAP) + HEAD, bot = top + PH;
+      const vals = p.data.map((d) => d.y).filter((y) => y != null);
+      let lo = p.kind === "bar" ? 0 : Math.min(...vals), hi = Math.max(p.min ?? -Infinity, ...vals);
+      if (p.zero) { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
+      if (p.kind === "line") { const pad = (hi - lo) * 0.1 || 1; lo -= p.min != null && lo >= 0 ? 0 : pad; hi += pad; }
+      if (p.min != null && p.kind === "line") lo = Math.max(0, lo);
+      const ticks = niceTicks(lo, hi);
+      lo = Math.min(lo, ticks[0]); hi = Math.max(hi, ticks[ticks.length - 1]);
+      const Y = (y) => bot - ((y - lo) / (hi - lo || 1)) * PH;
+      p.Y = Y; p.top = top; p.bot = bot;
+      svg.push(`<text class="ch-title" x="0" y="${top - 14}">${p.title} <tspan class="ch-note">(${p.unit})${p.note ? " · " + p.note : ""}</tspan></text>`);
+      for (const t of ticks) {
+        svg.push(`<line class="ch-grid" x1="${L}" x2="${L + pw}" y1="${Y(t)}" y2="${Y(t)}"/>`);
+        svg.push(`<text class="ch-tick" x="${L - 6}" y="${Y(t) + 3.5}" text-anchor="end">${fmt(t, Math.abs(t) < 10 && t % 1 ? 1 : 0)}</text>`);
+      }
+      if (p.zero && lo < 0 && hi > 0) svg.push(`<line class="ch-zero" x1="${L}" x2="${L + pw}" y1="${Y(0)}" y2="${Y(0)}"/>`);
+      if (p.kind === "bar") {
+        for (const d of p.data) {
+          if (d.y == null || d.y < 0.05) continue;
+          const xa = X(d.a) + 1, xb = X(d.b) - 1, y = Y(d.y);
+          svg.push(`<rect x="${xa}" y="${y}" width="${Math.max(1, xb - xa)}" height="${Math.max(0, bot - y)}" rx="1.5" fill="${p.color}"/>`);
+        }
+      } else {
+        let path = "", pen = false;
+        for (const d of p.data) {
+          if (d.y == null) { pen = false; continue; }
+          path += `${pen ? "L" : "M"}${X(d.x).toFixed(1)},${Y(d.y).toFixed(1)}`;
+          pen = true;
+        }
+        svg.push(`<path d="${path}" fill="none" stroke="${p.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`);
+      }
+      if (p.arrows) {
+        // frecce verso dove va il vento, una ogni ~22 px
+        const k = Math.max(1, Math.ceil(22 / (pw / p.data.length)));
+        p.data.forEach((d, j) => {
+          if (j % k || d.u == null || d.y < 2) return;
+          const ang = (Math.atan2(-d.v, d.u) * 180) / Math.PI; // schermo: y verso il basso
+          svg.push(`<g transform="translate(${X(d.x).toFixed(1)},${top + 7}) rotate(${ang.toFixed(0)})" stroke="${p.color}" stroke-width="1.4" fill="none" stroke-linecap="round"><path d="M-6,0H6M2.5,-3.5L6,0L2.5,3.5"/></g>`);
+        });
+      }
+    });
+    const yTop = 0, yBot = H - AXIS;
+    // nomi dei giorni ("mer 11") se c'è spazio, altrimenti solo il numero
+    const dayFmt = pw / ((x1 - x0) / 24) >= 52 ? { weekday: "short", day: "numeric" } : { day: "numeric" };
+    for (const h of days) {
+      svg.push(`<line class="ch-day" x1="${X(h)}" x2="${X(h)}" y1="${HEAD + 2}" y2="${yBot}"/>`);
+      const d = new Date(t0 + h * 3600e3).toLocaleDateString("it-IT", { timeZone: "Europe/Rome", ...dayFmt });
+      svg.push(`<text class="ch-tick" x="${X(h)}" y="${yBot + 26}" text-anchor="middle" font-weight="600">${d}</text>`);
+      svg.push(`<text class="ch-tick" x="${X(h)}" y="${yBot + 12}" text-anchor="middle">00</text>`);
+    }
+    for (const [h, hh] of hours) svg.push(`<text class="ch-tick" x="${X(h)}" y="${yBot + 12}" text-anchor="middle">${String(hh).padStart(2, "0")}</text>`);
+    if (!exportW && state.step != null && state.run === run) { // ora della mappa: solo nella pagina
+      svg.push(`<line class="ch-now" x1="${X(state.step)}" x2="${X(state.step)}" y1="${HEAD + 2}" y2="${yBot}"/>`);
+    }
+    if (exportW) return { markup: svg.join(""), W, H };
+    svg.push(`<line class="ch-cursor" id="ch-cursor" x1="0" x2="0" y1="${HEAD + 2}" y2="${yBot}" visibility="hidden"/>`);
+    svg.push(`<rect id="ch-hit" x="${L}" y="${yTop}" width="${pw}" height="${yBot}" fill="transparent"/>`);
+    chartUi.body.innerHTML = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="Andamento nel tempo">${svg.join("")}</svg><div class="chart-tip" hidden></div>`;
+
+    // lettura dei valori: il passo più vicino al puntatore, su tutti i pannelli
+    const svgEl = chartUi.body.querySelector("svg"), tip = chartUi.body.querySelector(".chart-tip");
+    const cursor = svgEl.querySelector("#ch-cursor");
+    const show = (ev) => {
+      const r = svgEl.getBoundingClientRect();
+      const px = ((ev.clientX - r.left) / r.width) * W;
+      const h = x0 + ((px - L) / pw) * (x1 - x0);
+      const st = steps.reduce((a, b) => (Math.abs(b - h) < Math.abs(a - h) ? b : a));
+      cursor.setAttribute("x1", X(st)); cursor.setAttribute("x2", X(st)); cursor.setAttribute("visibility", "visible");
+      const rows = panels.map((p) => {
+        const d = p.data.find((e) => (p.kind === "bar" ? e.b : e.x) === st);
+        if (!d) return "";
+        const extra = p.arrows && d.y != null ? (dirName(d.u, d.v) ? ` da ${dirName(d.u, d.v)}` : "")
+          : p.kind === "bar" && d.cum != null ? ` · tot <b>${fmt(d.cum, p.dec)}</b> ${p.unit}` : ""; // cumulata dall'inizio
+        return `<div>${p.tip(d)} <b>${fmt(d.y, p.dec)}</b> ${p.unit}${extra}</div>`;
+      }).join("");
+      tip.innerHTML = `<div class="t">${fmtLocal(new Date(t0 + st * 3600e3))} · +${st}h</div>${rows}`;
+      tip.hidden = false;
+      const br = chartUi.body.getBoundingClientRect();
+      const cx = ev.clientX - br.left, w = tip.offsetWidth;
+      tip.style.left = `${Math.min(Math.max(cx + 14 + w > br.width ? cx - 14 - w : cx + 14, 4), br.width - w - 4)}px`;
+      tip.style.top = `${Math.max(4, ev.clientY - br.top + chartUi.body.scrollTop - 20)}px`;
+    };
+    const hide = () => { tip.hidden = true; cursor.setAttribute("visibility", "hidden"); };
+    const hit = svgEl.querySelector("#ch-hit");
+    hit.addEventListener("pointermove", show);
+    hit.addEventListener("pointerdown", show);
+    hit.addEventListener("pointerleave", hide);
+  }
+
   // ---------- tooltip puntuale (griglia nativa, nearest neighbour)
   map.on("mousemove", (e) => {
     // sopra una località (o col suo riquadro aperto lì) basta il riquadro nero: un solo tooltip alla volta
@@ -2074,10 +2412,11 @@
     const ix = Math.round((e.latlng.lng - lon0) / dlon);
     const iy = Math.round((e.latlng.lat - lat0) / dlat);
     let text;
-    if (ix < 0 || iy < 0 || ix >= nx || iy >= ny) text = "—";
+    if (ix < 0 || iy < 0 || ix >= nx || iy >= ny) { ui.probe.hidden = true; return; } // fuori dai dati: niente tooltip
     else {
       const v = current.values[iy * nx + ix];
-      text = v == null ? "—" : `<b>${v.toFixed(variable().decimals)}</b> ${current.units}`;
+      if (v == null) { ui.probe.hidden = true; return; }
+      text = `<b>${v.toFixed(variable().decimals)}</b> ${current.units}`;
       const d = current.u ? windDirAt(current, e.latlng.lat, e.latlng.lng) : null;
       if (d) text += ` da ${d.name}`;
     }

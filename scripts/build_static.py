@@ -6,6 +6,7 @@ Produce in OUT_DIR:
   data/meta.json                     come /api/meta
   data/runs.json                     come /api/runs + istante di generazione
   data/field/{model}/{var}/{run}/{step}.json   campo "totale" (o "valore") come /api/field
+  data/series/{model}/{run}/{riga}_{colonna}.json   meteogrammi in riquadri di 2°×2° (app/series.py)
 
 Per contenere il numero di file (GitHub Pages li sincronizza uno per uno, entro 10 minuti):
   - le due componenti del vento stanno in un solo file per passo: data/field/{model}/{vettore}/{run}/{step}.json
@@ -30,7 +31,7 @@ sys.path.insert(0, str(ROOT))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import variables  # noqa: E402
+from app import series, variables  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.store import Store  # noqa: E402
 
@@ -112,7 +113,16 @@ def main(out_dir: Path) -> int:
                         body.update(var=vec["id"], u=fu["values"], v=fv["values"])
                         size += write_json(out_dir / "data" / "field" / model / vec["id"] / run / f"{step}.json", body)
                         files += 1
-    print(f"Sito statico in {out_dir}: {files} campi, {size / 1e6:.1f} MB di JSON")
+        # meteogrammi: serie temporali su una griglia di 0,1° in riquadri di 2°×2° (vedi app/series.py)
+        nser = 0
+        for model, items in runs.items():
+            for item in items:
+                if item.get("incoming"):
+                    continue
+                for (ty, tx), body in series.build_tiles(store, model, item["run"]).items():
+                    size += write_json(out_dir / "data" / "series" / model / item["run"] / f"{ty}_{tx}.json", body)
+                    nser += 1
+    print(f"Sito statico in {out_dir}: {files} campi, {nser} riquadri di serie, {size / 1e6:.1f} MB di JSON")
     return 0
 
 
