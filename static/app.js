@@ -1895,8 +1895,9 @@
   // bandiera del modello per l'intestazione dell'immagine: lo stesso SVG di flag-icons usato nella pagina (letto dal
   // CSS), per la mediana l'icona "layers"; caricata una volta per modello
   const flagCache = new Map();
-  function loadFlag(modelId) {
-    if (!flagCache.has(modelId)) {
+  function loadFlag(modelId, ink = "#1d2330") { // ink: colore dell'icona della mediana
+    const key = `${modelId}|${ink}`;
+    if (!flagCache.has(key)) {
       const m = meta.models.find((x) => x.id === modelId);
       let url = null, border = false;
       if (m?.country) {
@@ -1908,9 +1909,9 @@
         probe.remove();
         border = true;
       } else if (modelId === "mean") {
-        url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(LAYERS_ICON.replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" ').replace(/currentColor/g, "#1d2330"))}`;
+        url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(LAYERS_ICON.replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" ').replace(/currentColor/g, ink))}`;
       }
-      flagCache.set(modelId, !url ? Promise.resolve(null) : new Promise((resolve) => {
+      flagCache.set(key, !url ? Promise.resolve(null) : new Promise((resolve) => {
         const img = new Image();
         img.crossOrigin = "anonymous"; // senza, il canvas diventerebbe "sporco" e non si potrebbe esportare
         if (border) img.dataset.border = "1";
@@ -1919,7 +1920,7 @@
         img.src = url;
       }));
     }
-    return flagCache.get(modelId);
+    return flagCache.get(key);
   }
 
   async function openShare() {
@@ -2170,43 +2171,51 @@
 
   // ---------- condivisione del meteogramma: immagine larga 1080 px (anche da telefono) con località, modello e corsa
   // in alto, crediti in basso; poi come l'immagine della mappa (menu del telefono, altrimenti download)
-  const CHART_CSS = [ // le classi della pagina non valgono dentro un'immagine: stessi stili, tema chiaro
-    ".ch-title{font:650 12.5px system-ui,sans-serif;fill:#1d2330}.ch-note{font-weight:400;font-size:11.5px;fill:#5d6677}",
-    ".ch-tick{font:11px system-ui,sans-serif;fill:#5d6677}.ch-grid{stroke:#d8dde6;stroke-width:1}",
-    ".ch-day{stroke:#d8dde6;stroke-width:1;stroke-dasharray:3 3}.ch-now{stroke:#1560e0;stroke-width:1.5;stroke-dasharray:4 3}",
-    ".ch-zero{stroke:#5d6677;stroke-width:1}text{font-variant-numeric:tabular-nums}",
+  /** Colori del tema attuale della pagina (chiaro o scuro), per un'immagine uguale a quella nel browser. */
+  function chartColors() {
+    const cs = getComputedStyle(chartUi.dialog);
+    const v = (n, d) => cs.getPropertyValue(n).trim() || d;
+    return { bg: v("--bg", "#ffffff"), fg: v("--fg", "#1d2330"), muted: v("--muted", "#5d6677"),
+      line: v("--line", "#d8dde6"), accent: v("--accent", "#1560e0") };
+  }
+  const chartCss = (c) => [ // le classi della pagina non valgono dentro un'immagine: stessi stili e colori
+    `.ch-title{font:650 12.5px system-ui,sans-serif;fill:${c.fg}}.ch-note{font-weight:400;font-size:11.5px;fill:${c.muted}}`,
+    `.ch-tick{font:11px system-ui,sans-serif;fill:${c.muted}}.ch-grid{stroke:${c.line};stroke-width:1}`,
+    `.ch-day{stroke:${c.line};stroke-width:1;stroke-dasharray:3 3}.ch-now{stroke:${c.accent};stroke-width:1.5;stroke-dasharray:4 3}`,
+    `.ch-zero{stroke:${c.muted};stroke-width:1}text{font-variant-numeric:tabular-nums}`,
   ].join("");
   async function makeChartFile() {
     const M = 48, EW = 1032, K = 2; // margine uguale su tutti i lati, larghezza dell'SVG, scala (nitidezza)
     const g = drawChart(EW);
     if (!g) throw new Error("niente da condividere");
-    const svgText = `<svg xmlns="http://www.w3.org/2000/svg" width="${g.W}" height="${g.H}" viewBox="0 0 ${g.W} ${g.H}"><style>${CHART_CSS}</style>${g.markup}</svg>`;
+    const c = chartColors();
+    const svgText = `<svg xmlns="http://www.w3.org/2000/svg" width="${g.W}" height="${g.H}" viewBox="0 0 ${g.W} ${g.H}"><style>${chartCss(c)}</style>${g.markup}</svg>`;
     const [img, flag] = await Promise.all([new Promise((resolve, reject) => {
       const im = new Image();
       im.onload = () => resolve(im);
       im.onerror = () => reject(new Error("grafico non convertibile in immagine"));
       im.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgText)}`;
-    }), loadFlag(state.model)]);
+    }), loadFlag(state.model, c.fg)]);
     const TOP = M + 78; // titolo, sottotitolo e spazio prima dei grafici
     const cw = M + g.W - CHART_R + M, chh = TOP + g.H + 28 + M;
     const cv = document.createElement("canvas");
     cv.width = cw * K; cv.height = chh * K;
     const ctx = cv.getContext("2d");
     ctx.scale(K, K);
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = c.bg;
     ctx.fillRect(0, 0, cw, chh);
     ctx.textBaseline = "alphabetic";
-    ctx.fillStyle = "#1d2330";
+    ctx.fillStyle = c.fg;
     ctx.font = `700 28px ${FONT}`;
     ctx.fillText(chartUi.title.textContent, M, M + 22); // allineati ai titoli dei grafici
     let sx = M;
     if (flag) { // bandiera del modello (icona a livelli per la mediana) prima del sottotitolo
       const fh = 15, fw = Math.round(fh * (flag.naturalWidth / flag.naturalHeight || 4 / 3));
       ctx.drawImage(flag, M, M + 37, fw, fh);
-      if (flag.dataset.border) { ctx.strokeStyle = "rgba(29,35,48,0.25)"; ctx.lineWidth = 1; ctx.strokeRect(M + 0.5, M + 37.5, fw - 1, fh - 1); }
+      if (flag.dataset.border) { ctx.strokeStyle = c.line; ctx.lineWidth = 1; ctx.strokeRect(M + 0.5, M + 37.5, fw - 1, fh - 1); }
       sx += fw + 8;
     }
-    ctx.fillStyle = "#5d6677";
+    ctx.fillStyle = c.muted;
     ctx.font = `500 15px ${FONT}`;
     ctx.fillText(chartUi.sub.textContent, sx, M + 50);
     ctx.drawImage(img, M, TOP, g.W, g.H);
@@ -2215,12 +2224,12 @@
     ctx.fillText(attr.slice(Math.max(0, attr.indexOf("Dati:"))), M, chh - M, cw - M * 2 - 230); // niente crediti della mappa
     ctx.textAlign = "right";
     ctx.font = `700 14px ${FONT}`;
-    ctx.fillStyle = "#1d2330";
+    ctx.fillStyle = c.fg;
     const site = "signalkuppe.com";
     ctx.fillText(site, cw - M, chh - M);
     const sw = ctx.measureText(site).width;
     ctx.font = `400 14px ${FONT}`;
-    ctx.fillStyle = "#5d6677";
+    ctx.fillStyle = c.muted;
     ctx.fillText("Realizzato da ", cw - M - sw, chh - M);
     const blob = await new Promise((resolve) => cv.toBlob(resolve, "image/jpeg", 0.92));
     const slug = chartUi.title.textContent.toLowerCase().normalize("NFD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
