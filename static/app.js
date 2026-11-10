@@ -2109,6 +2109,7 @@
     dialog: $("chart-dialog"), body: $("chart-body"), title: $("chart-title"), sub: $("chart-sub"), close: $("chart-close"),
   };
   let chartData = null;
+  const CHART_L = 46; // margine sinistro dei grafici (numeri dell'asse): anche il titolo della finestra parte da qui
   chartUi.close.addEventListener("click", () => chartUi.dialog.close());
 
   /** Serie nel punto: dal server (api/series) o, nel sito statico, dal riquadro di 2°×2° che lo contiene. */
@@ -2183,14 +2184,15 @@
     ctx.textBaseline = "alphabetic";
     ctx.fillStyle = "#1d2330";
     ctx.font = `700 24px ${FONT}`;
-    ctx.fillText(chartUi.title.textContent, PAD, 40);
+    ctx.font = `700 28px ${FONT}`;
+    ctx.fillText(chartUi.title.textContent, PAD + CHART_L, 42); // allineati ai titoli dei grafici
     ctx.fillStyle = "#5d6677";
     ctx.font = `500 15px ${FONT}`;
-    ctx.fillText(chartUi.sub.textContent, PAD, 62);
+    ctx.fillText(chartUi.sub.textContent, PAD + CHART_L, 64);
     ctx.drawImage(img, PAD, TOP, g.W, g.H);
     ctx.font = `400 12px ${FONT}`;
     const attr = shareTexts().attr;
-    ctx.fillText(attr.slice(Math.max(0, attr.indexOf("Dati:"))), PAD, chh - 16, cw - PAD * 2 - 230); // niente crediti della mappa
+    ctx.fillText(attr.slice(Math.max(0, attr.indexOf("Dati:"))), PAD + CHART_L, chh - 16, cw - PAD * 2 - CHART_L - 230); // niente crediti della mappa
     ctx.textAlign = "right";
     ctx.font = `700 14px ${FONT}`;
     ctx.fillStyle = "#1d2330";
@@ -2247,7 +2249,7 @@
     const V = series.vars;
     const t0 = runDate(run).getTime();
     const W = exportW || Math.max(280, chartUi.body.clientWidth);
-    const L = 46, R = 14, pw = W - L - R;
+    const L = CHART_L, R = 14, pw = W - L - R;
     const PH = 78, HEAD = 22, GAP = 16, AXIS = 34; // altezza grafico, titolo, spazio fra pannelli, asse dei tempi
     const steps = [...new Set(Object.values(V).flatMap((v) => v.steps))].sort((a, b) => a - b);
     if (!steps.length) {
