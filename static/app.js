@@ -161,6 +161,7 @@
   function showNoData(title, text = "") {
     ui.nodata.hidden = !title;
     if (title) { ui.nodataTitle.textContent = title; ui.nodataText.textContent = text; }
+    map.getContainer().classList.toggle("map-nodata", !!title); // senza dati la mappa resta in grigio
   }
 
   function setStatus(text, warn = false) {
@@ -980,10 +981,11 @@
     const s = state.step;
     const run = runDate(state.run || "1970010100");
     const valid = new Date(run.getTime() + s * 3600e3);
-    ui.valid.textContent = state.run ? `${fmtLocal(valid)} · +${s}h` : "—";
+    ui.valid.textContent = state.run ? `${fmtLocal(valid)} · +${s}h` : "";
     if (!state.run) {
-      ui.range.textContent = "—";
-      ui.badgeText.innerHTML = `<b>${modelLabel()}</b> · nessuna corsa`;
+      ui.range.textContent = "";
+      // anche nella barra (su mobile il pannello di solito è chiuso): grandezza non fornita o dati non ancora arrivati
+      ui.badgeText.innerHTML = `<b>${modelLabel()}</b> · ${variable().models.includes(state.model) ? "nessun dato" : `${baseLabel()} non disponibile`}`;
       return;
     }
     const runWord = state.model === "mean" ? "dalle" : "corsa";
@@ -1115,7 +1117,7 @@
     places.forEach((p, idx) => {
       const icon = L.divIcon({
         className: "pt pt-right",
-        html: `<span class="pt-num">–</span><span class="pt-val">—</span>`,
+        html: `<span class="pt-num"></span><span class="pt-val"></span>`,
         iconSize: [22, 22],
         iconAnchor: [11, 11],
       });
@@ -1125,7 +1127,7 @@
       pointMarkers.push(m);
 
       const li = document.createElement("li");
-      li.innerHTML = `<span class="pt-num">–</span><span class="pt-name"></span><span class="pt-v">—</span>`;
+      li.innerHTML = `<span class="pt-num"></span><span class="pt-name"></span><span class="pt-v"></span>`;
       if (editing) {
         // modifica: nome rinominabile al posto del testo, pulsante per eliminare al posto del valore
         const input = document.createElement("input");
@@ -1275,7 +1277,7 @@
     const values = [];
     pts.forEach((p, i) => {
       const v = current ? valueAt(current, p.lat, p.lon) : null;
-      const text = v == null ? "—" : v.toFixed(dec);
+      const text = v == null ? "" : v.toFixed(dec); // senza valore niente trattini: l'etichetta si nasconde
       const c = v == null ? null : color(v);
       const el = pointMarkers[i].getElement();
       if (el) {
@@ -1285,7 +1287,7 @@
         el.classList.toggle("pt-dark", !!c && c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114 < 140);
       }
       const pv = pointRows[i].querySelector(".pt-v"); // in modifica al suo posto c'è il pulsante elimina
-      if (pv) pv.textContent = v == null ? "—" : `${text} ${current.units}`;
+      if (pv) pv.textContent = v == null ? "" : `${text} ${current.units}`;
       const n = pointRows[i].querySelector(".pt-num");
       n.style.background = c ? `rgb(${c.join(",")})` : "";
       n.classList.toggle("pt-dark", !!c && c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114 < 140);
@@ -1302,7 +1304,7 @@
     order.forEach((i, pos) => {
       if (shown[i] == null) rank = null;
       else if (pos === 0 || shown[i] !== shown[order[pos - 1]]) rank = pos + 1;
-      const label = rank == null ? "–" : String(rank);
+      const label = rank == null ? "" : String(rank);
       pointRows[i].querySelector(".pt-num").textContent = label;
       const el = pointMarkers[i].getElement();
       if (el) el.querySelector(".pt-num").textContent = label;
@@ -1396,7 +1398,7 @@
     pop.innerHTML =
       `<div class="pt-pop-head"><strong>${esc(p.name)}</strong>` +
       `<button type="button" class="pt-pop-close" aria-label="Chiudi"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>` +
-      rows.map(([k, x]) => `<div class="pt-pop-row"><span>${esc(k)}</span><b>${esc(x)}</b></div>`).join("") +
+      rows.filter(([, x]) => x !== "—").map(([k, x]) => `<div class="pt-pop-row"><span>${esc(k)}</span><b>${esc(x)}</b></div>`).join("") + // senza valore la riga non c'è
       (foot ? `<div class="pt-pop-foot">${esc(foot)}</div>` : "") +
       (meta.series && state.run ? '<button type="button" class="pt-pop-chart">Grafico nel tempo</button>' : "") +
       `<i class="pt-pop-arrow"></i>`;
@@ -2379,10 +2381,11 @@
     const ix = Math.round((e.latlng.lng - lon0) / dlon);
     const iy = Math.round((e.latlng.lat - lat0) / dlat);
     let text;
-    if (ix < 0 || iy < 0 || ix >= nx || iy >= ny) text = "—";
+    if (ix < 0 || iy < 0 || ix >= nx || iy >= ny) { ui.probe.hidden = true; return; } // fuori dai dati: niente tooltip
     else {
       const v = current.values[iy * nx + ix];
-      text = v == null ? "—" : `<b>${v.toFixed(variable().decimals)}</b> ${current.units}`;
+      if (v == null) { ui.probe.hidden = true; return; }
+      text = `<b>${v.toFixed(variable().decimals)}</b> ${current.units}`;
       const d = current.u ? windDirAt(current, e.latlng.lat, e.latlng.lng) : null;
       if (d) text += ` da ${d.name}`;
     }

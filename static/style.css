@@ -449,7 +449,7 @@ input[type="range"] { accent-color: var(--accent); }
 .pt-left .pt-val::before { left: 100%; top: 50%; margin-top: -5px; border-right: 0; border-left-color: rgba(255, 255, 255, 0.92); }
 .pt-above .pt-val::before { top: 100%; left: 50%; margin-left: -5px; border-bottom: 0; border-top-color: rgba(255, 255, 255, 0.92); }
 .pt-below .pt-val::before { bottom: 100%; left: 50%; margin-left: -5px; border-top: 0; border-bottom-color: rgba(255, 255, 255, 0.92); }
-.pt-noval .pt-val, .pt-popped .pt-val { display: none; }
+.pt-noval .pt-val, .pt-popped .pt-val, .pt .pt-val:empty { display: none; }
 .pt .pt-num, .points .pt-num {
   display: inline-grid;
   place-items: center;
@@ -645,11 +645,10 @@ input[type="range"] { accent-color: var(--accent); }
 .chart-share:disabled { opacity: 0.5; cursor: progress; }
 @media (max-width: 600px) { .chart-dialog { padding-left: 20px; padding-right: 20px; } }
 
-/* avviso al centro della mappa quando la combinazione scelta non ha dati */
-.nodata { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 980;
-  display: grid; gap: 4px; width: min(340px, calc(100vw - 48px)); padding: 14px 18px; border-radius: 10px;
-  background: var(--panel); color: var(--fg); box-shadow: var(--shadow); border: 1px solid var(--line);
-  border-left: 4px solid #c2410c; font-size: 13px; line-height: 1.45; pointer-events: none; }
+/* avviso nel pannello quando la combinazione scelta non ha dati; la mappa intanto è in scala di grigi */
+.nodata { display: grid; gap: 2px; padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(194, 65, 12, 0.35);
+  background: rgba(194, 65, 12, 0.08); color: #9a3412; font-size: 12.5px; line-height: 1.4; }
 .nodata[hidden] { display: none; }
-.nodata b { font-size: 14px; font-weight: 650; }
-.nodata span { color: var(--muted); }
+.nodata b { font-size: 13px; font-weight: 650; color: #c2410c; }
+@media (prefers-color-scheme: dark) { .nodata { color: #fdba74; } .nodata b { color: #fb923c; } }
+.map-nodata .leaflet-tile-pane { filter: grayscale(1); }

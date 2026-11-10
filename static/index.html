@@ -49,6 +49,8 @@
         </div>
         <div id="run-live-note" class="run-live-note" role="status"></div>
       </div>
+      <!-- combinazione modello/grandezza/ora senza dati (la mappa intanto è in grigio) -->
+      <div id="nodata" class="nodata" role="status" hidden><b id="nodata-title"></b><span id="nodata-text"></span></div>
       <div class="row" id="mode-row">
         <span>Modalità</span>
         <div class="seg" id="mode"></div>
@@ -185,8 +187,6 @@
   </dialog>
   <div id="legend" class="legend"></div>
   <div id="probe" class="probe" hidden></div>
-  <!-- combinazione modello/grandezza/ora senza dati: avviso al centro della mappa -->
-  <div id="nodata" class="nodata" role="status" hidden><b id="nodata-title"></b><span id="nodata-text"></span></div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
   <script src="app.js"></script>
