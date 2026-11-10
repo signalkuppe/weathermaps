@@ -245,9 +245,11 @@
     if (e.key === "Escape") setModelInfoOpen(false);
   });
 
+  /** Grandezze con dati per il modello scelto (se il modello non ne ha nessuna, quelle con dati per qualcuno). */
   function setupVars() {
-    const withData = meta.variables.filter((v) => v.models.some((m) => hasData(m, v)));
-    const vars = withData.length ? withData : meta.variables;
+    const any = meta.variables.filter((v) => v.models.some((m) => hasData(m, v)));
+    const forModel = any.filter((v) => v.models.includes(state.model) && hasData(state.model, v));
+    const vars = forModel.length ? forModel : any.length ? any : meta.variables;
     if (!vars.find((v) => v.id === state.var)) state.var = vars[0].id;
     fillSelect(ui.varSel, vars.map((v) => [v.id, v.label]), state.var);
     ui.varRow.hidden = vars.length < 2;
@@ -2467,8 +2469,18 @@
   });
   ui.crisp.addEventListener("change", () => { state.crisp = ui.crisp.checked; if (current) draw(current); writeHash(); });
   ui.iso.addEventListener("change", () => { state.iso = ui.iso.checked; drawContours(variable().contour_field ? currentContour : current); renderLegend(); writeHash(); });
-  ui.model.addEventListener("change", () => { state.model = ui.model.value; renderModelInfo(); setupRuns(); setupSteps(); update(); });
-  ui.varSel.addEventListener("change", () => { state.var = ui.varSel.value; setupModels(); setupModes(); setupRuns(); setupSteps(); update(); });
+  ui.model.addEventListener("change", () => {
+    state.model = ui.model.value;
+    setupVars(); // solo le grandezze del modello: se quella scelta non c'è, la prima disponibile
+    setupModels();
+    renderModelInfo(); setupModes(); setupRuns(); setupSteps(); update();
+  });
+  ui.varSel.addEventListener("change", () => {
+    state.var = ui.varSel.value;
+    setupModels(); // solo i modelli con la grandezza: se quello scelto non c'è, il primo disponibile
+    setupVars();
+    setupModes(); setupRuns(); setupSteps(); update();
+  });
   ui.collapse.addEventListener("click", () => {
     const c = ui.panel.classList.toggle("collapsed");
     ui.collapse.textContent = c ? "+" : "−";
@@ -2530,6 +2542,7 @@
     if (mobileMq.matches) ui.pointsBox.open = false;
     setupPoints();
     setupModels();
+    setupVars(); // di nuovo, ora che il modello è definitivo: solo le sue grandezze
     setupModes();
     setupRuns();
     setupSteps();
