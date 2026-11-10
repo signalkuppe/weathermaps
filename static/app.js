@@ -2068,8 +2068,9 @@
   shareUi.close.addEventListener("click", closeShare);
 
 
-  // ---------- meteogramma di una località: andamento nel tempo delle grandezze del modello scelto. Un pannello per
-  // grandezza (mai due scale sullo stesso grafico), stesso asse dei tempi; pioggia e neve a barre per intervallo,
+  // ---------- meteogramma di una località: andamento nel tempo delle grandezze del modello scelto. Sempre le stesse
+  // quattro (pioggia, T850, zero termico, vento a 10 m), quelle che il modello non ha si saltano. Un pannello per
+  // grandezza (mai due scale sullo stesso grafico), stesso asse dei tempi; pioggia a barre per intervallo,
   // le altre a linee; ora locale sull'asse, l'ora mostrata nella mappa tratteggiata, lettura dei valori al passaggio.
   const chartUi = {
     dialog: $("chart-dialog"), body: $("chart-body"), title: $("chart-title"), sub: $("chart-sub"), close: $("chart-close"),
@@ -2235,8 +2236,6 @@
     const panels = [];
     if (V.tp) panels.push({ title: "Pioggia", unit: "mm", kind: "bar", color: "#2f7fd8", data: intervals(V.tp), dec: 1,
       min: 1, note: `totale ${fmt(last(V.tp), 1)} mm`, tip: (d) => `Pioggia +${d.b - d.a}h` });
-    if (V.sf && intervals(V.sf).some((d) => d.y >= 0.1)) panels.push({ title: "Neve", unit: "cm", kind: "bar", color: "#7c5cd6",
-      data: intervals(V.sf), dec: 1, min: 1, note: `totale ${fmt(last(V.sf), 1)} cm`, tip: (d) => `Neve +${d.b - d.a}h` });
     if (V.t850) panels.push({ title: "Temperatura 850 hPa", unit: "°C", kind: "line", color: "#d9480f", data: points(V.t850),
       dec: 1, zero: true, tip: () => "T 850 hPa" });
     if (V.hzero) panels.push({ title: "Zero termico", unit: "m", kind: "line", color: "#0b7285", data: points(V.hzero),

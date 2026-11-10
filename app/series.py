@@ -4,7 +4,8 @@ Il sito statico non può leggere un punto da tutte le mappe di una corsa (decine
 la build prepara le serie su una griglia regolare di 0,1° (~10 km), divise in riquadri di 2°×2°: il browser scarica
 solo il riquadro della località. Sul server lo stesso risultato si ottiene con `point_series`, dai campi salvati.
 
-Per contenere i file i valori sono interi scalati (vedi SCALE): es. la pioggia in decimi di mm.
+Per contenere i file i valori sono interi scalati (vedi SCALE): es. la pioggia in decimi di mm. Le grandezze sono
+quelle del meteogramma: pioggia, temperatura a 850 hPa, zero termico, vento a 10 m.
 """
 from __future__ import annotations
 
@@ -19,7 +20,7 @@ from .store import Store
 DSTEP = 0.1  # passo della griglia delle serie, gradi
 TILE = 2.0  # lato dei riquadri, gradi
 # grandezze del meteogramma e fattore per salvarle come interi (valore = intero / fattore)
-SCALE = {"tp": 10, "sf": 10, "t850": 10, "hzero": 0.1, "u10": 1, "v10": 1}
+SCALE = {"tp": 10, "t850": 10, "hzero": 0.1, "u10": 1, "v10": 1}
 
 
 def grid(bbox: BBox) -> tuple[np.ndarray, np.ndarray]:
