@@ -2228,7 +2228,7 @@
     const intervals = (v) => v.steps.map((b, i) => {
       const a = i ? v.steps[i - 1] : 0;
       const cur = v.values[i], prev = i ? v.values[i - 1] : 0;
-      return { a, b, y: cur == null || prev == null ? null : Math.max(0, cur - prev) };
+      return { a, b, y: cur == null || prev == null ? null : Math.max(0, cur - prev), cum: cur };
     });
     const points = (v) => v.steps.map((x, i) => ({ x, y: v.values[i] }));
     const last = (v) => [...v.values].reverse().find((x) => x != null);
@@ -2332,7 +2332,8 @@
       const rows = panels.map((p) => {
         const d = p.data.find((e) => (p.kind === "bar" ? e.b : e.x) === st);
         if (!d) return "";
-        const extra = p.arrows && d.y != null ? ` da ${dirName(d.u, d.v)}` : "";
+        const extra = p.arrows && d.y != null ? ` da ${dirName(d.u, d.v)}`
+          : p.kind === "bar" && d.cum != null ? ` · tot <b>${fmt(d.cum, p.dec)}</b> ${p.unit}` : ""; // cumulata dall'inizio
         return `<div>${p.tip(d)} <b>${fmt(d.y, p.dec)}</b> ${p.unit}${extra}</div>`;
       }).join("");
       tip.innerHTML = `<div class="t">${fmtLocal(new Date(t0 + st * 3600e3))} · +${st}h</div>${rows}`;

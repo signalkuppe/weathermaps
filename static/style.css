@@ -637,7 +637,7 @@ input[type="range"] { accent-color: var(--accent); }
 .pt-pop-chart:hover { background: rgba(255, 255, 255, 0.12); }
 
 /* finestra del grafico: margini più ampi della condivisione (titolo e grafico non incollati ai bordi) */
-.chart-dialog { padding: max(18px, env(safe-area-inset-top)) 28px max(16px, env(safe-area-inset-bottom)); gap: 14px; }
+.chart-dialog { padding: max(18px, env(safe-area-inset-top)) 28px max(16px, env(safe-area-inset-bottom)); gap: 26px; }
 .chart-dialog .share-head { align-items: flex-start; }
 .chart-actions { display: flex; align-items: center; gap: 4px; margin-right: -8px; }
 .chart-actions .share-x { margin-right: 0; }
