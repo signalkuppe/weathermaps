@@ -438,6 +438,14 @@
   async function getField(step, mode = state.mode, ctx = ctxNow(), prev = mode === "interval" ? intervalPrev(step) : null) {
     // statico: c'è solo il totale; la cumulata è la differenza fra due totali (come fa il server)
     if (STATIC && mode === "interval") return getIntervalStatic(step, ctx, prev);
+    // statico: i campi dei dettagli (es. z850) stanno nel file della grandezza a cui appartengono (t850)
+    if (STATIC) {
+      const owner = meta.variables.find((x) => x.details?.some((d) => d.var === ctx.var));
+      if (owner) {
+        return getField(step, "value", { ...ctx, var: owner.id }).then((f) =>
+          f.extra?.[ctx.var] ?? Promise.reject(new Error(`${ctx.var} non disponibile`)));
+      }
+    }
     const url = fieldUrl(step, mode, ctx, prev);
     if (!cache.has(url)) {
       const pr = fetch(url).then(async (r) => {
@@ -497,10 +505,11 @@
     const ctx = ctxNow();
     const key = `vec|${ctx.model}|${ctx.run}|${vec.u}|${step}`;
     if (!cache.has(key)) {
-      const pr = Promise.all([
-        getField(step, "value", { ...ctx, var: vec.u }),
-        getField(step, "value", { ...ctx, var: vec.v }),
-      ]).then(([fu, fv]) => {
+      // statico: le due componenti stanno in un solo file per passo (meno file da pubblicare)
+      const parts = STATIC
+        ? getField(step, "value", { ...ctx, var: state.var }).then((b) => [{ ...b, values: b.u }, { ...b, values: b.v }])
+        : Promise.all([getField(step, "value", { ...ctx, var: vec.u }), getField(step, "value", { ...ctx, var: vec.v })]);
+      const pr = parts.then(([fu, fv]) => {
         let max = null, min = null;
         const values = fu.values.map((u, k) => {
           const v = fv.values[k];
