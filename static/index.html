@@ -55,6 +55,7 @@
       </div>
 
       <div class="time">
+        <span id="loading" class="spinner" role="status" aria-label="Caricamento" hidden></span>
         <div id="valid" class="valid">—</div>
         <div id="range" class="range">—</div>
       </div>
@@ -143,6 +144,10 @@
     </div>
     <div class="share-tools">
       <div class="seg share-ratio" id="share-ratio" role="group" aria-label="Proporzioni dell'immagine"></div>
+      <label class="share-switch" id="share-points-row">
+        <input id="share-points" type="checkbox" role="switch" checked>
+        <span>Località</span>
+      </label>
       <span class="share-hint">Trascina la mappa · pizzica o usa la rotella per ingrandire</span>
       <div class="share-zoom">
         <button id="share-zoom-out" type="button" aria-label="Rimpicciolisci la mappa" title="Rimpicciolisci">−</button>

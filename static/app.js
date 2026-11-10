@@ -13,7 +13,7 @@
     badge: $("badge"), badgeText: $("badge-text"), mPlay: $("m-play"), runAge: $("run-age"),
     runLive: $("run-live"), runLiveText: $("run-live-text"), refresh: $("refresh"), runLiveNote: $("run-live-note"),
     pointsBox: $("points-box"), points: $("points"),
-    placeQ: $("place-q"), placeResults: $("place-results"), placesEdit: $("places-edit"), placesEmpty: $("places-empty"),
+    loading: $("loading"), placeQ: $("place-q"), placeResults: $("place-results"), placesEdit: $("places-edit"), placesEmpty: $("places-empty"),
     modelInfo: $("model-info"), modelInfoBtn: $("model-info-btn"),
   };
 
@@ -560,6 +560,38 @@
   map.getPane("contourLabels").style.zIndex = 430;
   map.getPane("contourLabels").style.pointerEvents = "none";
   const isoRenderer = L.canvas({ pane: "contours", padding: 0.5 });
+
+  // ---------- contorni geografici (coste, laghi, confini di stato e regionali, Natural Earth) sopra i colori:
+  // si riconoscono i luoghi anche quando i dati coprono la mappa. Più evidenti quanto più i colori sono opachi.
+  map.createPane("borders");
+  map.getPane("borders").style.zIndex = 410;
+  map.getPane("borders").style.pointerEvents = "none";
+  const bordersRenderer = L.canvas({ pane: "borders", padding: 0.5 });
+  const bordersLayer = L.layerGroup().addTo(map);
+  const BORDER_STYLE = {
+    coast: { weight: 1, opacity: 0.8 },
+    lakes: { weight: 1, opacity: 0.8 },
+    countries: { weight: 1.3, opacity: 0.85 },
+    regions: { weight: 0.7, opacity: 0.55 },
+  };
+  // a opacità 0.3 o meno i contorni non servono (la mappa sotto si vede), a 0.9 o più sono pieni
+  const bordersFactor = () => Math.min(1, Math.max(0, (state.opacity - 0.3) / 0.6));
+  function styleBorders() {
+    const k = bordersFactor();
+    bordersLayer.eachLayer((l) => l.setStyle({ opacity: l.options.baseOpacity * k }));
+  }
+  fetch("borders.json")
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.statusText))))
+    .then((b) => {
+      for (const [key, st] of Object.entries(BORDER_STYLE)) {
+        if (!b[key]?.length) continue;
+        L.polyline(b[key], {
+          renderer: bordersRenderer, interactive: false, smoothFactor: 1,
+          color: "#1f2328", weight: st.weight, baseOpacity: st.opacity, opacity: st.opacity * bordersFactor(),
+        }).addTo(bordersLayer);
+      }
+    })
+    .catch(() => {}); // senza contorni la mappa funziona lo stesso
   const isoLines = L.layerGroup().addTo(map);
   const isoLabels = L.layerGroup().addTo(map);
   let isoData = []; // [{ level, bold, pts: [[lat, lon], ...] }]
@@ -767,14 +799,15 @@
     writeHash();
     renderLegend();
     renderTime();
-    if (!state.run) { clearOverlay(); current = null; renderPoints(); setStatus("Nessun dato ancora scaricato per questo modello.", true); return; }
+    if (!state.run) { setLoading(false); clearOverlay(); current = null; renderPoints(); setStatus("Nessun dato ancora scaricato per questo modello.", true); return; }
     if (!availableSteps().has(state.step)) {
+      setLoading(false);
       clearOverlay(); current = null; renderPoints();
       setStatus("");
       return;
     }
     const my = ++seq;
-    setStatus("Caricamento…");
+    setLoading(true); // spinner nella riga dell'ora: niente testo che compare e sparisce spostando il pannello
     try {
       // voci combinate: anche il campo delle linee, alla stessa ora (se manca, solo i colori)
       const cv = variable().contour_field;
@@ -798,7 +831,17 @@
       if (my !== seq) return;
       clearOverlay(); current = null; renderPoints();
       setStatus(`Errore: ${e.message}`, true);
+    } finally {
+      if (my === seq) setLoading(false);
     }
+  }
+
+  // spinner del caricamento: compare solo se l'attesa supera 150 ms (con i dati in cache non lampeggia)
+  let loadingTimer = null;
+  function setLoading(on) {
+    clearTimeout(loadingTimer);
+    if (on) loadingTimer = setTimeout(() => { ui.loading.hidden = false; }, 150);
+    else ui.loading.hidden = true;
   }
 
   // ---------- località preferite: scelte dall'utente con la ricerca, salvate nel browser (localStorage).
@@ -1173,7 +1216,10 @@
     btn: $("share"), toast: $("share-toast"), dialog: $("share-dialog"), canvas: $("share-canvas"),
     send: $("share-send"), download: $("share-download"), close: $("share-close"),
     zoomIn: $("share-zoom-in"), zoomOut: $("share-zoom-out"), ratio: $("share-ratio"),
+    points: $("share-points"), pointsRow: $("share-points-row"),
   };
+  // località nell'immagine: si decide nella finestra di condivisione (la scelta resta per le aperture successive)
+  shareUi.points.addEventListener("change", () => scheduleRender());
   let shareFile = null;
 
   function roundRect(ctx, x, y, w, h, r) {
@@ -1246,6 +1292,11 @@
       ctx.imageSmoothingEnabled = true;
     }
     // isoterme: il canvas delle linee e le etichette (testo con alone bianco, come sullo schermo)
+    const bordersCanvas = map.getPane("borders").querySelector("canvas");
+    if (bordersCanvas && bordersFactor() > 0) {
+      const r = bordersCanvas.getBoundingClientRect();
+      ctx.drawImage(bordersCanvas, r.left - cr.left, r.top - cr.top, r.width, r.height);
+    }
     const isoCanvas = map.getPane("contours").querySelector("canvas");
     if (isoCanvas && isoData.length) {
       const r = isoCanvas.getBoundingClientRect();
@@ -1367,7 +1418,7 @@
     const k = PT_SCALE;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    for (const p of snap.points) {
+    for (const p of shareUi.points.checked ? snap.points : []) {
       const px = (p.x - crop.x) * s;
       const py = (p.y - crop.y) * s;
       if (px < -40 || px > OW + 40 || py < -40 || py > OH + 40) continue;
@@ -1537,6 +1588,7 @@
     crop.x = (crop.snap.W - crop.w) / 2;
     crop.y = (crop.snap.H - cropH()) / 2;
     crop.touched = false;
+    shareUi.pointsRow.hidden = !crop.snap.points.length;
     shareUi.dialog.showModal();
     layoutView();
     setRatio(crop.ratio);
@@ -1773,6 +1825,7 @@
   ui.opacity.addEventListener("input", () => {
     state.opacity = +ui.opacity.value;
     overlay?.setOpacity(state.opacity);
+    styleBorders();
     writeHash();
   });
   ui.crisp.addEventListener("change", () => { state.crisp = ui.crisp.checked; if (current) draw(current); writeHash(); });

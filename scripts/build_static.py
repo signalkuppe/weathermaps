@@ -2,6 +2,7 @@
 
 Produce in OUT_DIR:
   index.html, app.js, style.css      la pagina, in modalità statica
+  borders.json                       contorni geografici (da scripts/make_borders.py)
   data/meta.json                     come /api/meta
   data/runs.json                     come /api/runs + istante di generazione
   data/field/{model}/{var}/{run}/{step}.json   campo "totale" (o "valore") come /api/field
@@ -39,7 +40,7 @@ def main(out_dir: Path) -> int:
     out_dir.mkdir(parents=True)
 
     # pagina: stessi file del server, marcati come statici
-    for name in ("app.js", "style.css"):
+    for name in ("app.js", "style.css", "borders.json"):
         shutil.copy(ROOT / "static" / name, out_dir / name)
     html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
     html = html.replace('<html lang="it">', '<html lang="it" data-mode="static">', 1)
