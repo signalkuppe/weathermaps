@@ -248,3 +248,24 @@ def test_arome_urls_and_blocks():
     assert [arome_mod.block(s) for s in (6, 7, 12, 48, 51)] == ["00H06H", "07H12H", "07H12H", "43H48H", "49H51H"]
     with pytest.raises(ValueError):
         arome_mod.block(54)
+
+
+# ---------- vento: metà risoluzione e rotazione della griglia Lambert (WRF)
+from app.grid import Field, halve, lambert_to_earth  # noqa: E402
+
+
+def test_halve_only_fine_grids():
+    fine = Field(values=np.arange(20, dtype=np.float32).reshape(4, 5), lat0=45, lon0=9, dlat=0.02, dlon=0.025)
+    h = halve(fine)
+    assert h.values.shape == (2, 3) and h.dlat == pytest.approx(0.04) and h.dlon == pytest.approx(0.05)
+    assert h.values[1, 2] == fine.values[2, 4] and h.lat0 == 45 and h.lon0 == 9
+    coarse = Field(values=np.zeros((4, 5), np.float32), lat0=45, lon0=9, dlat=0.1, dlon=0.1)
+    assert halve(coarse) is coarse  # ECMWF e GFS restano come sono
+
+
+def test_lambert_rotation_keeps_speed_and_turns_east_of_central_meridian():
+    u, v = np.array([10.0, 10.0]), np.array([0.0, 0.0])
+    ue, ve = lambert_to_earth(u, v, np.array([11.0, 17.0]), 11.0, 43.42, 37.21)
+    assert ue[0] == pytest.approx(10) and ve[0] == pytest.approx(0)  # sul meridiano centrale: nessuna rotazione
+    assert np.hypot(ue[1], ve[1]) == pytest.approx(10)  # la velocità non cambia
+    assert ve[1] < 0  # a est il "verso est" della griglia punta un po' a sud del vero est

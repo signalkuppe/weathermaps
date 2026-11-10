@@ -2,8 +2,9 @@
 
 **App: <https://signalkuppe.github.io/weathermaps/>** (aggiornata una volta all'ora)
 
-Mappe di precipitazione, temperatura a 850 hPa, neve e zero termico previste da otto modelli sul Nord Italia, sopra
-OpenStreetMap (all'avvio) o OpenTopoMap con il rilievo, a scelta nelle impostazioni:
+Mappe di precipitazione, temperatura a 850 hPa, neve, zero termico e vento previste da otto modelli sul Nord Italia.
+Sfondo a scelta nelle impostazioni: **Strade** (OpenStreetMap, all'avvio), **Essenziale** (fondo bianco con solo coste
+e confini sopra i colori, come le carte meteo classiche) o **Rilievo** (OpenTopoMap):
 
 | Modello | Fonte | Risoluzione | Orizzonte | Corse |
 |---|---|---|---|---|
@@ -53,19 +54,23 @@ La **mediana dei modelli** è costruita per istante di validità da un orario co
   (parametro `ore` nell'URL), con la durata sempre scritta: "Precipitazione in 24h" in legenda, nel riquadro delle
   località e nell'immagine condivisa. Sono differenze fra due totali, quindi non pesano sui dati pubblicati; oltre le
   +144h i passi sono ogni 6 ore e "3h" diventa 6h, all'inizio della corsa la cumulata parte da +0h.
+- **Colori:** sfumati per le grandezze continue (temperatura a 850 hPa, zero termico, vento), dove i valori esatti li
+  danno le linee e le etichette; a fasce nette per pioggia e neve, dove contano le soglie (1, 5, 10 mm…).
 - **Linee di livello** sopra i colori, con etichette: isoterme ogni 2 °C a 850 hPa (marcata quella di 0 °C) e isoipse
   dello zero termico ogni 250 m (marcate le migliaia). Sono calcolate nel browser dal campo (ammorbidito sulle griglie
   fini), si spengono nelle impostazioni e compaiono anche nell'immagine condivisa.
-- **Contorni geografici** sopra i colori: coste, laghi, confini di stato e di provincia (Natural Earth 1:10m), più marcati
-  quanto più alta è l'opacità, così i luoghi si riconoscono anche quando i colori coprono la mappa. Il file
-  `static/borders.json` si rigenera con `scripts/make_borders.py` se cambia `BBOX`.
+- **Contorni geografici** sopra i colori, con lo sfondo "Essenziale" oppure con l'opacità al massimo (quando la mappa di sfondo non si vede più):
+  coste, laghi, confini di stato e di provincia (Natural Earth 1:10m). Il file `static/borders.json` si scarica la
+  prima volta che servono e si rigenera con `scripts/make_borders.py` se cambia `BBOX`.
 - **Navigazione:** modello, istante (slider, frecce ←/→, spazio = play), opacità regolabile, celle nette senza
   interpolazione. Su mobile c'è una barra in basso con ora, ‹ › ▶, modello e legenda compatta.
 - **Legenda** orizzontale (titolo con unità, barra dei colori con le soglie), su desktop in basso a destra e su mobile
   nella barra.
-- **Valore sotto il cursore** (desktop), con lo zero termico nella voce combinata; resta sempre dentro la finestra.
+- **Valore sotto il cursore** (desktop), con lo zero termico nella voce combinata e, sulla mappa della T850, la quota
+  della superficie di 850 hPa in seconda riga; resta sempre dentro la finestra.
 - **Condivisione:** riquadro di ritaglio a proporzioni fisse (4:3, 1:1, 16:9) su cui si sposta e ingrandisce la mappa,
-  centrato all'apertura sulla posizione del dispositivo; intestazione con modello, corsa e ora, legenda, crediti e
+  all'apertura allo zoom minimo e centrato sulla posizione del dispositivo (la mappa si sposta lì per la foto e poi
+  torna dov'era; la posizione è salvata nel browser, arrotondata a ~100 m, e non viene inviata a nessuno); intestazione con modello, corsa e ora, legenda, crediti e
   "Realizzato da signalkuppe.com"; interruttore per includere o no le località. Si condivide l'immagine, senza testo.
 - **Stato nell'URL:** modello, grandezza, istante, modalità e opacità, quindi la vista si può condividere come link.
 - **Versione** accanto al nome dell'app, dai tag git.
@@ -107,7 +112,8 @@ funziona anche sul sito statico.
 
 - **Etichette:** a destra del cerchio se c'è posto, altrimenti a sinistra, sopra o sotto, con un triangolino verso il
   cerchio; se nessun lato è libero resta solo il cerchio. La posizione si ricalcola a ogni zoom e cambio di dati.
-- **Riquadro al click** (sul cerchio o sulla riga dell'elenco): nome, valore (e zero termico nella voce combinata) e ora,
+- **Riquadro al click** (sul cerchio o sulla riga dell'elenco): nome, valore (e zero termico nella voce combinata, direzione
+  del vento, altezza della superficie di 850 hPa sulla mappa della T850) e ora,
   con la X per chiuderlo; sempre dentro la finestra, sotto pannello e barra.
 - **Salvataggio:** nel browser (`localStorage`, chiave `weathermaps.places.v1`), quindi restano su quel browser
   e quel dispositivo; un nuovo deploy non le tocca. Si perdono cancellando i dati del sito; Safari cancella i dati dei

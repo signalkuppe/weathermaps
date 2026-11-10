@@ -430,6 +430,9 @@ input[type="range"] { accent-color: var(--accent); }
   white-space: nowrap;
 }
 .probe b { font-size: 14px; }
+/* seconda riga del tooltip: temperatura e quota di 850 hPa, più piccole */
+.probe-more { margin-top: 1px; font-size: 11px; color: var(--muted); }
+.probe-more b { font-size: 12px; color: var(--fg); }
 
 /* punti fissi */
 /* il marcatore è solo il cerchio (22x22, ancorato al centro); il valore è posizionato attorno */
@@ -592,3 +595,19 @@ input[type="range"] { accent-color: var(--accent); }
 .pt-pop-arrow { position: absolute; top: 100%; margin-left: -6px; border: 6px solid transparent; border-bottom: 0;
   border-top-color: #1d2330; }
 .pt-pop.below .pt-pop-arrow { top: auto; bottom: 100%; border-top: 0; border-bottom: 6px solid #1d2330; }
+
+/* sfondo "Essenziale": niente tessere, fondo bianco (coste e confini li disegna app.js sopra i colori) */
+.leaflet-container.base-plain { background: #fff; }
+
+/* "Sfondo": quattro scelte, la riga va a capo (etichetta sopra, pulsanti a tutta larghezza) */
+.row:has(> #base) { grid-template-columns: 1fr; gap: 4px; }
+#base button { flex: 1 1 0; padding-left: 2px; padding-right: 2px; white-space: nowrap; }
+
+/* legenda sfumata: l'ultima soglia sul bordo destro dell'ultimo tratto, alla stessa altezza delle altre */
+.legend .lg-continuous li i { border-radius: 0; }
+.legend .lg-continuous li:first-child i { border-radius: 2px 0 0 2px; }
+.legend .lg-continuous li:last-child i { border-radius: 0 2px 2px 0; }
+.legend .lg-tick-end { position: absolute; right: 0; top: 10px; transform: translateX(50%); }
+@media (max-width: 600px) { .legend .lg-tick-end { top: 8px; } }
+/* prima soglia della barra sfumata dentro il riquadro (allineata al bordo sinistro invece che centrata) */
+.legend .lg-continuous li:first-child .lg-tick:not(.lg-tick-end) { transform: none; }

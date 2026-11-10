@@ -118,6 +118,31 @@ def _field_from_handle(gid) -> Field:
     )
 
 
+HALF_RES_BELOW = 0.05  # gradi: solo le griglie più fini si dimezzano
+
+
+def halve(field: Field) -> Field:
+    """Una cella su due per lato (un quarto dei dati) se la griglia è più fine di 0,05°; altrimenti invariato."""
+    if field.dlat >= HALF_RES_BELOW and field.dlon >= HALF_RES_BELOW:
+        return field
+    return Field(values=np.ascontiguousarray(field.values[::2, ::2]), lat0=field.lat0, lon0=field.lon0,
+                 dlat=field.dlat * 2, dlon=field.dlon * 2, short_name=field.short_name,
+                 step_range=field.step_range, units=field.units)
+
+
+def lambert_to_earth(u: np.ndarray, v: np.ndarray, lons: np.ndarray, lov: float, lat1: float, lat2: float):
+    """Ruota il vento dalla griglia Lambert conforme (secante a lat1 e lat2, meridiano centrale lov) al nord
+    geografico: angolo n·(lon − lov), con n il fattore del cono (come `uvmet` di wrf-python)."""
+    p1, p2 = np.radians(lat1), np.radians(lat2)
+    if abs(lat1 - lat2) < 1e-6:
+        n = np.sin(p1)
+    else:
+        n = np.log(np.cos(p1) / np.cos(p2)) / np.log(np.tan(np.pi / 4 + p2 / 2) / np.tan(np.pi / 4 + p1 / 2))
+    a = np.radians(n * (np.asarray(lons) - lov))
+    ca, sa = np.cos(a), np.sin(a)
+    return u * ca + v * sa, v * ca - u * sa
+
+
 def select(fields: list[Field], selector: GribSelector) -> Field:
     """Sceglie il messaggio che corrisponde al selettore (es. totale `0-N`)."""
     candidates = fields

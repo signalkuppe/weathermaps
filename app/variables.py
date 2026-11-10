@@ -5,6 +5,7 @@ fetch, storage, API e frontend la trattano in modo generico.
 """
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 from typing import Callable, Literal
 
@@ -35,6 +36,11 @@ class GribSelector:
     hourly_buckets: bool = False
     # altri campi da scaricare e sommare a questo (es. neve ICON: di griglia + convettiva)
     plus: tuple["GribSelector", ...] = ()
+    # vento riferito alla griglia Lambert del modello (WRF): l'altra componente (`pair`) e la proiezione
+    # (LoV, Latin1, Latin2 in gradi) per ruotarlo verso il nord geografico; `component` è "u" o "v"
+    pair: "GribSelector | None" = None
+    lambert: tuple[float, float, float] | None = None
+    component: str | None = None
 
 
 @dataclass(frozen=True)
@@ -42,12 +48,16 @@ class ColorScale:
     thresholds: list[float]  # limiti inferiori delle classi, crescenti
     colors: list[str]  # stesso numero di thresholds, colore della classe [t_i, t_i+1)
     transparent_below: float | None = None
+    # sfumata: i colori sono punti di passaggio ai valori di `thresholds` e in mezzo si interpola (grandezze continue,
+    # i valori esatti li danno le linee); altrimenti fasce nette, una per classe (pioggia, neve)
+    continuous: bool = False
 
     def as_dict(self) -> dict:
         return {
             "thresholds": self.thresholds,
             "colors": self.colors,
             "transparent_below": self.transparent_below,
+            "continuous": self.continuous,
         }
 
 
@@ -68,6 +78,12 @@ class Variable:
     # linee di livello disegnate sopra i colori: {"label": nome nelle impostazioni, "step": distanza fra le linee,
     # "bold": [livelli in evidenza], "signed": etichette col segno "+"}
     contours: dict | None = None
+    # componente di un vettore (vento): non compare nel menu, la pagina la usa attraverso una voce di VECTORS
+    hidden: bool = False
+    # griglie più fini di 0,05°: si salva una cella su due per lato (un quarto dei dati), es. il vento
+    half_res: bool = False
+    # altre grandezze (nascoste) mostrate nel riquadro della località: [{"var": id, "label": nome}]
+    details: list | None = None
 
     @property
     def modes(self) -> list[str]:
@@ -84,6 +100,7 @@ class Variable:
             "rank": self.rank,
             "scale": self.scale.as_dict(),
             "contours": self.contours,
+            "details": self.details,
             # "mean" = mediana dei modelli, disponibile se la grandezza ha almeno due modelli
             "models": sorted(self.selectors) + (["mean"] if len(self.selectors) > 1 else []),
         }
@@ -162,23 +179,33 @@ register(
 # Scala divergente per la temperatura: freddo viola/blu, 0 °C chiaro, caldo giallo/rosso.
 # La prima classe raccoglie anche i valori sotto la prima soglia.
 T850_SCALE = ColorScale(
-    thresholds=[-20, -16, -12, -8, -4, -2, 0, 2, 4, 8, 12, 16, 20],
+    # punti di colore ogni 2 °C (le isoterme), sfumati in mezzo
+    thresholds=[-20, -18, -16, -14, -12, -10, -8, -6, -4, -2, 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20],
     colors=[
-        "#3b0f70",  # < -16
-        "#5b2a9a",  # -16..-12
-        "#3f4fc9",  # -12..-8
-        "#2f80ed",  # -8..-4
+        "#3b0f70",  # < -18
+        "#43167a",  # -18..-16
+        "#532390",  # -16..-14
+        "#5433a6",  # -14..-12
+        "#4646bd",  # -12..-10
+        "#3b5bd2",  # -10..-8
+        "#3374e4",  # -8..-6
+        "#3f91f0",  # -6..-4
         "#5fb3f5",  # -4..-2
         "#a6dcf7",  # -2..0
         "#e8f6e0",  # 0..2
         "#d9ef8b",  # 2..4
-        "#fee08b",  # 4..8
-        "#fdae61",  # 8..12
-        "#f46d43",  # 12..16
-        "#d73027",  # 16..20
-        "#a50026",  # > 20
+        "#f2e58b",  # 4..6
+        "#fed480",  # 6..8
+        "#fdba6c",  # 8..10
+        "#fb9e5a",  # 10..12
+        "#f67d4a",  # 12..14
+        "#ed5e3c",  # 14..16
+        "#de3f2e",  # 16..18
+        "#ca2427",  # 18..20
+        "#b20c26",  # > 20
     ],
     transparent_below=None,
+    continuous=True,
 )
 
 register(
@@ -199,6 +226,7 @@ register(
         decimals=1,
         rank="asc",  # classifica: prima la temperatura più bassa
         contours={"label": "Isoterme", "step": 2, "bold": [0], "signed": True},  # ogni 2 °C, lo zero più marcato
+        details=[{"var": "z850", "label": "Altezza 850 hPa"}],
     )
 )
 
@@ -275,6 +303,7 @@ HZERO_SCALE = ColorScale(
         "#d73027",  # > 4500
     ],
     transparent_below=None,
+    continuous=True,
 )
 
 
@@ -306,6 +335,105 @@ register(
 )
 
 
+# Vento: si scaricano le due componenti (verso est `u` e verso nord `v`, in km/h) come grandezze nascoste; la pagina
+# ne ricava velocità (colori) e direzione (frecce). A metà risoluzione per stare nel limite di GitHub Pages.
+# La mediana dei modelli è fatta componente per componente, così le direzioni opposte si compensano.
+# AROME escluso: il vento è nei pacchetti SP1/IP1 da indicizzare messaggio per messaggio (~9 minuti per corsa a 700 hPa).
+WIND_SCALE = ColorScale(
+    thresholds=[0, 5, 10, 20, 30, 40, 50, 60, 80, 100, 120, 150],
+    colors=[
+        "#eef6fb",  # < 5 km/h
+        "#cfe8f3",  # 5-10
+        "#a6dcf7",  # 10-20
+        "#5fb3f5",  # 20-30
+        "#7fd38b",  # 30-40
+        "#d9ef8b",  # 40-50
+        "#fee08b",  # 50-60
+        "#fdae61",  # 60-80
+        "#f46d43",  # 80-100
+        "#d73027",  # 100-120
+        "#a50026",  # 120-150
+        "#6a1b9a",  # > 150
+    ],
+    transparent_below=None,
+    continuous=True,
+)
+WRF_LAMBERT = (11.0, 43.421665, 37.21344)  # LoV, Latin1, Latin2 della griglia WRF di ItaliaMeteo
+
+
+def _ms_to_kmh(x):
+    return np.asarray(x, dtype=np.float64) * 3.6
+
+
+def _wind_component(comp: str, level: str) -> Variable:
+    """Componente `comp` ("u" o "v") del vento a `level` ("10" = 10 m dal suolo, "700" = 700 hPa)."""
+    u = comp == "u"
+    if level == "10":
+        sel = {
+            "gfs": GribSelector(var="UGRD" if u else "VGRD", level="10_m_above_ground"),
+            "ecmwf": GribSelector(param="10u" if u else "10v", levtype="sfc"),
+            "icon-d2": GribSelector(param="u_10m" if u else "v_10m", levtype="single-level"),
+            "icon-2i": GribSelector(param="U_10M" if u else "V_10M", levtype="heightAboveGround", levelist="10"),
+            "icon-ch2": GribSelector(param="U_10M" if u else "V_10M"),
+            "icon-ch1": GribSelector(param="U_10M" if u else "V_10M"),
+        }
+        wrf = ("10u", "10v", "heightAboveGround", "10")
+    else:
+        sel = {
+            "gfs": GribSelector(var="UGRD" if u else "VGRD", level=f"{level}_mb"),
+            "ecmwf": GribSelector(param="u" if u else "v", levtype="pl", levelist=level),
+            "icon-d2": GribSelector(param="u" if u else "v", levtype="pressure-level", levelist=level),
+            "icon-2i": GribSelector(param="U" if u else "V", levtype="isobaricInhPa", levelist=level),
+        }
+        wrf = ("u", "v", "isobaricInhPa", level)
+    pu, pv, lt, lv = wrf
+    mine = GribSelector(param=pu if u else pv, levtype=lt, levelist=lv, code=(0, 2, 2 if u else 3))
+    other = GribSelector(param=pv if u else pu, levtype=lt, levelist=lv, code=(0, 2, 3 if u else 2))
+    sel["wrf"] = dataclasses.replace(mine, pair=other, lambert=WRF_LAMBERT, component=comp)
+    name = "10 m" if level == "10" else f"{level} hPa"
+    return Variable(
+        id=f"{comp}{level}", label=f"Vento {name} ({'verso est' if u else 'verso nord'})", units="km/h", kind="instant",
+        selectors=sel, convert={m: _ms_to_kmh for m in sel}, scale=WIND_SCALE, decimals=0,
+        hidden=True, half_res=True,
+    )
+
+
+# Altezza della superficie di 850 hPa (m), solo per il riquadro della località sulla mappa della T850.
+# ICON dà il geopotenziale (m²/s²): diviso per g; gli altri l'altezza geopotenziale (m).
+G = 9.80665
+
+
+def _geopot_to_m(x):
+    return np.asarray(x, dtype=np.float64) / G
+
+
+register(
+    Variable(
+        id="z850", label="Altezza 850 hPa", units="m", kind="instant",
+        selectors={
+            "gfs": GribSelector(var="HGT", level="850_mb"),
+            "ecmwf": GribSelector(param="gh", levtype="pl", levelist="850"),
+            "icon-d2": GribSelector(param="fi", levtype="pressure-level", levelist="850"),
+            "icon-2i": GribSelector(param="FI", levtype="isobaricInhPa", levelist="850"),
+            "wrf": GribSelector(param="gh", levtype="isobaricInhPa", levelist="850"),
+        },
+        convert={"gfs": _identity, "ecmwf": _identity, "icon-d2": _geopot_to_m, "icon-2i": _geopot_to_m, "wrf": _identity},
+        scale=HZERO_SCALE, decimals=0, hidden=True, half_res=True,
+    )
+)
+
+
+for _lvl in ("10", "700"):
+    for _c in ("u", "v"):
+        register(_wind_component(_c, _lvl))
+
+# voci del menu per il vento: velocità a colori dalle due componenti, frecce per la direzione
+VECTORS = [
+    {"id": "wind10", "label": "Vento 10 m", "u": "u10", "v": "v10"},
+    {"id": "wind700", "label": "Vento 700 hPa", "u": "u700", "v": "v700"},
+]
+
+
 # Voci combinate del menu "Grandezza": i colori di una grandezza e le linee di livello di un'altra, alla stessa ora.
 # Non hanno dati propri (la pagina chiede i campi delle due grandezze), quindi niente download né spazio in più.
 COMBOS = [
@@ -324,6 +452,8 @@ def menu() -> list[dict]:
     """Grandezze per /api/meta: quelle scaricate più le combinate, ognuna dopo la sua `after`."""
     out = []
     for var in REGISTRY.values():
+        if var.hidden:
+            continue
         out.append(var.as_dict())
         for c in COMBOS:
             if c["after"] != var.id:
@@ -334,6 +464,11 @@ def menu() -> list[dict]:
                 out.append({**base, "id": c["id"], "label": c["label"], "base_label": base["label"],
                             "field": c["field"], "contour_field": c["contour_field"],
                             "contours": c["contours"], "models": models})
+    for vec in VECTORS:
+        u, v = REGISTRY[vec["u"]].as_dict(), REGISTRY[vec["v"]].as_dict()
+        models = [m for m in u["models"] if m in v["models"]]
+        out.append({**u, "id": vec["id"], "label": vec["label"], "kind": "vector", "rank": "desc",
+                    "vector": {"u": vec["u"], "v": vec["v"]}, "models": models})
     return out
 
 

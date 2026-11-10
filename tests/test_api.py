@@ -336,3 +336,56 @@ def test_version_from_git_describe(monkeypatch):
 
 def test_meta_has_version(client):
     assert isinstance(client.get("/api/meta").json()["version"], str)
+
+
+def test_meta_wind_vectors_and_hidden_components(client):
+    vs = {v["id"]: v for v in client.get("/api/meta").json()["variables"]}
+    assert "u10" not in vs and "v700" not in vs  # componenti nascoste
+    w = vs["wind10"]
+    assert w["kind"] == "vector" and w["vector"] == {"u": "u10", "v": "v10"} and w["units"] == "km/h"
+    assert "icon-ch1" in w["models"] and "icon-ch1" not in vs["wind700"]["models"]
+
+
+def test_mean_wind_on_half_resolution_grid(tmp_path):
+    from app import mean
+    from app.fetcher import steps_for
+
+    store = Store(data_dir=tmp_path, bbox=BOX)
+    for var_id, val in (("u10", 10.0), ("v10", -5.0)):
+        var = variables.get(var_id)
+        for model in ("gfs", "ecmwf"):
+            for s in steps_for(var, model):
+                store.save(model, "2026110900", var_id, s,
+                           Field(values=np.full((29, 53), val, np.float32), lat0=42, lon0=4, dlat=0.25, dlon=0.25))
+    mean.build_mean(store)
+    vals, grid = store.load("mean", "2026110900", "u10", 24)
+    assert grid["dlat"] == pytest.approx(mean.TARGET_DLAT * 2) and np.nanmax(vals) == pytest.approx(10)
+    assert np.nanmin(store.load("mean", "2026110900", "v10", 24)[0]) == pytest.approx(-5)
+
+
+def test_update_skips_older_run_when_newer_is_complete(tmp_path, monkeypatch):
+    """Con la corsa nuova già completa, quella precedente non si riscarica (prima succedeva a ogni giro)."""
+    from datetime import datetime, timezone
+    from app import fetcher
+    from app.fetcher import steps_for
+
+    store = Store(data_dir=tmp_path, bbox=BOX)
+    for var in variables.REGISTRY.values():
+        if "gfs" in var.selectors:
+            for s in steps_for(var, "gfs"):
+                store.save("gfs", "2026110906", var.id, s,
+                           Field(values=np.zeros((29, 53), np.float32), lat0=42, lon0=4, dlat=0.25, dlon=0.25))
+    runs = [datetime(2026, 11, 9, 6, tzinfo=timezone.utc), datetime(2026, 11, 9, 0, tzinfo=timezone.utc)]
+    monkeypatch.setattr(type(fetcher.MODELS["gfs"]), "candidate_runs", lambda self, now=None, count=2: runs)
+    calls = []
+    monkeypatch.setattr(fetcher, "_fetch_field", lambda *a, **k: calls.append(a[2]) or (_ for _ in ()).throw(AssertionError))
+    summary = fetcher._update("gfs", store, None)
+    assert calls == [] and summary["downloaded"] == 0
+    assert store.runs("gfs") == ["2026110906"]
+
+
+def test_meta_t850_detail_height_hidden(client):
+    vs = {v["id"]: v for v in client.get("/api/meta").json()["variables"]}
+    assert "z850" not in vs
+    assert vs["t850"]["details"] == [{"var": "z850", "label": "Altezza 850 hPa"}]
+    assert variables.get("z850").convert["icon-d2"](9806.65) == pytest.approx(1000)

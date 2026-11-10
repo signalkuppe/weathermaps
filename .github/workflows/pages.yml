@@ -21,7 +21,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60 # il primo giro dopo una grandezza nuova scarica molto di più
     env:
       DATA_DIR: ${{ github.workspace }}/data
       SCHEDULER_ENABLED: "0"

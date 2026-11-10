@@ -42,6 +42,8 @@
   });
   map.zoomControl.setPosition("topright");
   const bases = {
+    // "Essenziale": nessuna tessera, fondo bianco e solo coste e confini sopra i colori (stile carte meteo classiche)
+    plain: L.layerGroup(),
     osm: L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       crossOrigin: "anonymous",
       maxZoom: 19,
@@ -54,16 +56,21 @@
     }),
   };
   // sfondo: dalla sezione "Impostazioni" del pannello (niente selettore livelli di Leaflet)
-  const BASE_NAMES = { topo: "Rilievo", osm: "Strade" };
-  const baseCredit = () => (state.base === "topo" ? "© OpenTopoMap, OpenStreetMap" : "© OpenStreetMap");
+  const BASE_NAMES = { osm: "Strade", plain: "Essenziale", topo: "Rilievo" };
+  const baseCredit = () =>
+    state.base === "topo" ? "© OpenTopoMap, OpenStreetMap" : state.base === "plain" ? "Confini: Natural Earth" : "© OpenStreetMap";
   function setBase(name) {
     state.base = bases[name] ? name : "osm";
     const credit = ui.legend.querySelector(".lg-credit");
     if (credit) credit.textContent = baseCredit();
+    const osm = document.querySelector(".credits-osm"); // credito breve accanto a "Info & crediti"
+    if (osm) osm.textContent = baseCredit();
     for (const [k, layer] of Object.entries(bases)) {
       if (k === state.base) layer.addTo(map);
       else map.removeLayer(layer);
     }
+    map.getContainer().classList.toggle("base-plain", state.base === "plain");
+    if (typeof styleBorders === "function") styleBorders(); // con "Essenziale" i contorni ci sono sempre
     ui.base.replaceChildren(
       ...Object.entries(BASE_NAMES).map(([k, text]) => {
         const b = document.createElement("button");
@@ -82,6 +89,7 @@
 
   // su mobile badge e legenda diventano un solo riquadro in basso: la legenda entra nel badge
   const mobileMq = window.matchMedia("(max-width: 600px)");
+  const hoverMq = window.matchMedia("(hover: hover)"); // dispositivi col mouse: c'è il tooltip al passaggio
   const legendHome = ui.legend.parentNode;
   function placeLegend() {
     (mobileMq.matches ? ui.badge : legendHome).appendChild(ui.legend);
@@ -112,7 +120,7 @@
   const hexToRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
   const variable = () => meta.variables.find((v) => v.id === state.var);
   // grandezza dei dati (colori, località, passi): per le voci combinate è quella dei colori (es. "tp")
-  const dataVar = () => variable()?.field || state.var;
+  const dataVar = () => variable()?.field || variable()?.vector?.u || state.var;
   // nome per legenda e testi: per le combinate quello della grandezza dei colori ("Precipitazione")
   const baseLabel = () => variable().base_label || variable().label;
   // cumulate su 3, 6, 12 o 24 ore: differenza fra il totale al passo mostrato e quello `state.hours` ore prima
@@ -389,12 +397,27 @@
     const modeLabel = modePhrase();
     const num = (x) => String(x).replace("-", "−");
     const openLow = v.scale.transparent_below == null; // la prima classe include anche i valori più bassi
+    // con molte soglie (T850 ogni 2 °C) se ne scrive una su due, per non affollare la barra
+    const every = thresholds.length > 14 ? 2 : 1;
+    if (v.scale.continuous) {
+      // barra sfumata: un tratto per ogni coppia di punti di colore, soglie sui bordi (l'ultima a destra)
+      const n = thresholds.length;
+      const segs = thresholds.slice(0, -1).map((t, i) => {
+        const tick = i % every ? "" : num(t);
+        const end = i === n - 2 ? `<span class="lg-tick lg-tick-end">${(n - 1) % every ? "" : num(thresholds[n - 1])}</span>` : "";
+        return `<li><i style="background:linear-gradient(to right, ${colors[i]}, ${colors[i + 1]})"></i><span class="lg-tick">${tick}</span>${end}</li>`;
+      });
+      ui.legend.innerHTML =
+        `<h2><span class="lg-label">${baseLabel()} ${modeLabel} </span>(${v.units})${isoNote()}</h2><ol class="lg-continuous">${segs.join("")}</ol>` +
+        `<a class="lg-credit" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">${baseCredit()}</a>`;
+      return;
+    }
     const items = thresholds.map((t, i) => {
       const next = thresholds[i + 1];
       const text =
         next == null ? `> ${num(t)}` : i === 0 && openLow ? `< ${num(next)}` : `${num(t)} … ${num(next)}`;
       // tick: soglia inferiore della classe, mostrata solo nella barra compatta su mobile
-      const tick = i === 0 && openLow ? "" : num(t);
+      const tick = (i === 0 && openLow) || i % every ? "" : num(t);
       return `<li><i style="background:${colors[i]}"></i><span class="lg-text">${text}</span><span class="lg-tick">${tick}</span></li>`;
     });
     ui.legend.innerHTML =
@@ -461,10 +484,90 @@
     const cv = variable().contour_field;
     for (const j of [i + 1, i - 1, i + 2]) {
       if (s[j] == null || !avail.has(s[j])) continue;
-      getField(s[j]).catch(() => {});
+      mainField(s[j]).catch(() => {});
       if (cv) contourFieldAt(s[j]).catch(() => {});
     }
   }
+
+  // ---------- vento: le voci "Vento" chiedono le due componenti (verso est `u`, verso nord `v`, in km/h) e ne ricavano
+  // la velocità (colori, località, classifica) e la direzione (frecce)
+  function mainField(step) {
+    const vec = variable()?.vector;
+    if (!vec) return getField(step);
+    const ctx = ctxNow();
+    const key = `vec|${ctx.model}|${ctx.run}|${vec.u}|${step}`;
+    if (!cache.has(key)) {
+      const pr = Promise.all([
+        getField(step, "value", { ...ctx, var: vec.u }),
+        getField(step, "value", { ...ctx, var: vec.v }),
+      ]).then(([fu, fv]) => {
+        let max = null, min = null;
+        const values = fu.values.map((u, k) => {
+          const v = fv.values[k];
+          if (u == null || v == null) return null;
+          const s = Math.round(Math.hypot(u, v));
+          if (max == null || s > max) max = s;
+          if (min == null || s < min) min = s;
+          return s;
+        });
+        return { ...fu, var: state.var, values, u: fu.values, v: fv.values, max, min };
+      });
+      cache.set(key, pr);
+      pr.catch(() => cache.delete(key));
+    }
+    return cache.get(key);
+  }
+
+  const DIRS = ["N", "NE", "E", "SE", "S", "SO", "O", "NO"];
+  /** Da dove soffia il vento (convenzione meteo): gradi da nord in senso orario e punto cardinale. */
+  function windDirAt(f, lat, lon) {
+    const { lat0, lon0, dlat, dlon, nx, ny } = f.grid;
+    const ix = Math.round((lon - lon0) / dlon), iy = Math.round((lat - lat0) / dlat);
+    if (ix < 0 || iy < 0 || ix >= nx || iy >= ny) return null;
+    const u = f.u[iy * nx + ix], v = f.v[iy * nx + ix];
+    if (u == null || v == null || Math.hypot(u, v) < 1) return null;
+    const deg = Math.round(((Math.atan2(-u, -v) * 180) / Math.PI + 360) % 360);
+    return { deg, name: DIRS[Math.round(deg / 45) % 8] };
+  }
+
+  /** Frecce della direzione (verso dove va il vento) su una griglia regolare di pixel, ricalcolate a ogni spostamento:
+   *  sempre la stessa densità a ogni zoom. Lunghezza crescente con la velocità. */
+  map.createPane("arrows");
+  map.getPane("arrows").style.zIndex = 425;
+  map.getPane("arrows").style.pointerEvents = "none";
+  const arrowsRenderer = L.canvas({ pane: "arrows", padding: 0.1 });
+  const arrowsLayer = L.layerGroup().addTo(map);
+  const ARROW_STEP = 46; // px fra le frecce
+  function drawArrows() {
+    arrowsLayer.clearLayers();
+    const f = current;
+    if (!f?.u) return;
+    const su = sampler({ grid: f.grid, values: f.u }, false), sv = sampler({ grid: f.grid, values: f.v }, false);
+    const size = map.getSize();
+    const segs = [];
+    const toLL = (x, y) => map.containerPointToLatLng([x, y]);
+    for (let y = ARROW_STEP / 2; y < size.y; y += ARROW_STEP) {
+      for (let x = ARROW_STEP / 2; x < size.x; x += ARROW_STEP) {
+        const ll = toLL(x, y);
+        const u = su(ll.lat, ll.lng), v = sv(ll.lat, ll.lng);
+        if (u == null || v == null) continue;
+        const sp = Math.hypot(u, v);
+        if (sp < 2) continue; // calma: niente freccia
+        const len = 9 + Math.min(sp, 80) / 80 * 13; // 9–22 px
+        const dx = u / sp, dy = -v / sp; // schermo: y verso il basso
+        const x0 = x - dx * len / 2, y0 = y - dy * len / 2, x1 = x + dx * len / 2, y1 = y + dy * len / 2;
+        const h = 5, wx = -dy, wy = dx; // punta: due tratti a 30° circa
+        segs.push([toLL(x0, y0), toLL(x1, y1)]);
+        segs.push([toLL(x1 - dx * h + wx * h * 0.6, y1 - dy * h + wy * h * 0.6), toLL(x1, y1),
+          toLL(x1 - dx * h - wx * h * 0.6, y1 - dy * h - wy * h * 0.6)]);
+      }
+    }
+    if (segs.length) {
+      L.polyline(segs, { renderer: arrowsRenderer, interactive: false, color: "#1f2328", weight: 1.3, opacity: 0.8,
+        lineCap: "round", lineJoin: "round", smoothFactor: 0 }).addTo(arrowsLayer);
+    }
+  }
+  map.on("moveend", () => { if (current?.u) drawArrows(); });
 
   /** Campo delle linee nelle voci combinate al passo `step`. Con le cumulate (es. pioggia in 24h) è lo zero termico
    *  medio del periodo pesato con la precipitazione: per ogni punto, ogni sotto-intervallo fra due passi conta quanto
@@ -524,6 +627,20 @@
     const rgb = scale.colors.map(hexToRgb);
     const th = scale.thresholds;
     const below = scale.transparent_below;
+    if (scale.continuous) {
+      // sfumata: interpolazione lineare fra i due punti di colore vicini, costante oltre gli estremi
+      const n = th.length - 1;
+      return (v) => {
+        if (v == null || Number.isNaN(v)) return null;
+        if (v <= th[0]) return rgb[0];
+        if (v >= th[n]) return rgb[n];
+        let k = 0;
+        while (k + 1 < n && v >= th[k + 1]) k++;
+        const t = (v - th[k]) / (th[k + 1] - th[k]);
+        const a = rgb[k], b = rgb[k + 1];
+        return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+      };
+    }
     return (v) => {
       if (v == null || Number.isNaN(v)) return null;
       if (below != null && v < below) return null;
@@ -578,7 +695,10 @@
     const ctx = canvas.getContext("2d");
     const img = ctx.createImageData(W, H);
     const color = colorizer(variable().scale);
-    const sample = sampler(f, state.crisp);
+    // grandezze con le loro linee (T850, zero termico): colori dallo stesso campo ammorbidito delle linee, così ogni
+    // linea cade esattamente su un cambio di colore; "celle nette" mostra invece il dato grezzo
+    const own = variable().contours && !variable().contour_field && !state.crisp;
+    const sample = sampler(own ? smoothField(f) : f, state.crisp);
     const lons = new Float64Array(W);
     for (let x = 0; x < W; x++) lons[x] = west + ((x + 0.5) / W) * (east - west);
     for (let y = 0; y < H; y++) {
@@ -605,12 +725,14 @@
     }
     overlay.getElement()?.classList.toggle("crisp", state.crisp);
     drawContours(variable().contour_field ? currentContour : f);
+    drawArrows();
   }
 
   function clearOverlay() {
     if (overlay) { map.removeLayer(overlay); overlay = null; }
     currentContour = null;
     drawContours(null);
+    arrowsLayer.clearLayers();
   }
 
   // ---------- linee di livello (isoterme a 850 hPa): calcolate qui dal campo, disegnate sopra i colori
@@ -622,37 +744,37 @@
   map.getPane("contourLabels").style.pointerEvents = "none";
   const isoRenderer = L.canvas({ pane: "contours", padding: 0.5 });
 
-  // ---------- contorni geografici (coste, laghi, confini di stato e regionali, Natural Earth) sopra i colori:
-  // si riconoscono i luoghi anche quando i dati coprono la mappa. Più evidenti quanto più i colori sono opachi.
+  // ---------- contorni geografici (coste, laghi, confini di stato e di provincia, Natural Earth) sopra i colori:
+  // solo con l'opacità al massimo, quando la mappa di sfondo non si vede più (prima sarebbero linee doppie).
+  // Il file si scarica la prima volta che servono.
   map.createPane("borders");
   map.getPane("borders").style.zIndex = 410;
   map.getPane("borders").style.pointerEvents = "none";
   const bordersRenderer = L.canvas({ pane: "borders", padding: 0.5 });
-  const bordersLayer = L.layerGroup().addTo(map);
+  const bordersLayer = L.layerGroup();
   const BORDER_STYLE = {
-    coast: { weight: 1, opacity: 0.8 },
-    lakes: { weight: 1, opacity: 0.8 },
-    countries: { weight: 1.3, opacity: 0.85 },
-    regions: { weight: 0.7, opacity: 0.55 },
+    coast: { weight: 1.5, opacity: 0.85 },
+    lakes: { weight: 1.5, opacity: 0.85 },
+    countries: { weight: 2, opacity: 0.9 },
+    regions: { weight: 1.1, opacity: 0.65 },
   };
-  // a opacità 0.3 o meno i contorni non servono (la mappa sotto si vede), a 0.9 o più sono pieni
-  const bordersFactor = () => Math.min(1, Math.max(0, (state.opacity - 0.3) / 0.6));
+  // sopra i colori solo quando lo sfondo non si vede: opacità al massimo, oppure sfondo "Essenziale" (senza tessere)
+  const bordersOn = () => state.opacity >= 0.999 || state.base === "plain";
+  let bordersLoad = null;
   function styleBorders() {
-    const k = bordersFactor();
-    bordersLayer.eachLayer((l) => l.setStyle({ opacity: l.options.baseOpacity * k }));
+    if (!bordersOn()) { bordersLayer.remove(); return; }
+    bordersLayer.addTo(map);
+    bordersLoad ??= fetch("borders.json")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.statusText))))
+      .then((b) => {
+        for (const [key, st] of Object.entries(BORDER_STYLE)) {
+          if (!b[key]?.length) continue;
+          L.polyline(b[key], { renderer: bordersRenderer, interactive: false, smoothFactor: 1, color: "#1f2328", ...st })
+            .addTo(bordersLayer);
+        }
+      })
+      .catch(() => { bordersLoad = null; }); // senza contorni la mappa funziona lo stesso: si riproverà
   }
-  fetch("borders.json")
-    .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.statusText))))
-    .then((b) => {
-      for (const [key, st] of Object.entries(BORDER_STYLE)) {
-        if (!b[key]?.length) continue;
-        L.polyline(b[key], {
-          renderer: bordersRenderer, interactive: false, smoothFactor: 1,
-          color: "#1f2328", weight: st.weight, baseOpacity: st.opacity, opacity: st.opacity * bordersFactor(),
-        }).addTo(bordersLayer);
-      }
-    })
-    .catch(() => {}); // senza contorni la mappa funziona lo stesso
   const isoLines = L.layerGroup().addTo(map);
   const isoLabels = L.layerGroup().addTo(map);
   let isoData = []; // [{ level, bold, pts: [[lat, lon], ...] }]
@@ -660,7 +782,7 @@
   /** Marching squares: per ogni livello i segmenti nelle celle, poi uniti in linee (aperte o chiuse). */
   function contourLines(f, levels) {
     const { lat0, lon0, dlat, dlon, nx, ny } = f.grid;
-    const v = blurred(f.values, nx, ny, Math.min(4, Math.round(0.1 / dlon)));
+    const v = f.values; // già ammorbidito (smoothField)
     const out = [];
     for (const lvl of levels) {
       // i valori arrivano arrotondati (0,1 °C): uno esattamente uguale al livello farebbe linee a gradini lungo
@@ -725,6 +847,16 @@
     return out;
   }
 
+  /** Campo ammorbidito per linee di livello e relativi colori (calcolato una volta per campo). Sulle griglie fini
+   *  (ICON 2 km) più passate, così le linee non diventano tanti anellini; GFS (0,25°) resta com'è. */
+  function smoothField(f) {
+    if (!f._smooth) {
+      const { nx, ny, dlon } = f.grid;
+      f._smooth = { ...f, values: blurred(f.values, nx, ny, Math.min(4, Math.round(0.1 / dlon))) };
+    }
+    return f._smooth;
+  }
+
   /** Media mobile 3×3 ripetuta `passes` volte (solo per le linee, i colori restano quelli del campo): sulle griglie
    *  fini (ICON 2 km) le isoterme seguono ogni valle e diventano tanti anellini; così somigliano alle carte classiche. */
   function blurred(vals, nx, ny, passes) {
@@ -756,7 +888,7 @@
   /** Arrotonda gli spigoli (Chaikin, due passate): le griglie larghe (GFS 0,25°) non fanno linee a scalini. */
   function smooth(pts, closed) {
     let p = pts;
-    for (let it = 0; it < 2 && p.length > 2; it++) {
+    for (let it = 0; it < 1 && p.length > 2; it++) { // una passata: le linee restano sul bordo dei colori
       const q = closed ? [] : [p[0]];
       const n = p.length - 1;
       for (let i = 0; i < n; i++) {
@@ -783,7 +915,7 @@
     const levels = [];
     for (let l = Math.ceil(lo / cfg.step) * cfg.step; l <= hi; l += cfg.step) levels.push(+l.toFixed(6));
     const bold = new Set(cfg.bold || []);
-    isoData = contourLines(f, levels).map((c) => ({ ...c, bold: bold.has(c.level) }));
+    isoData = contourLines(smoothField(f), levels).map((c) => ({ ...c, bold: bold.has(c.level) }));
     for (const c of isoData) {
       L.polyline(c.pts, {
         renderer: isoRenderer, interactive: false, smoothFactor: 0.5,
@@ -869,7 +1001,7 @@
       // voci combinate: anche il campo delle linee, alla stessa ora (se manca, solo i colori)
       const cv = variable().contour_field;
       const [f, cf] = await Promise.all([
-        getField(state.step),
+        mainField(state.step),
         cv ? contourFieldAt(state.step).catch(() => null) : null,
       ]);
       if (my !== seq) return;
@@ -884,6 +1016,7 @@
       }
       setStatus(text);
       prefetch();
+      if (hoverMq.matches && extras().length) loadExtras(); // per il tooltip (sui touch solo aprendo un riquadro)
     } catch (e) {
       if (my !== seq) return;
       clearOverlay(); current = null; renderPoints();
@@ -1159,6 +1292,7 @@
   pop.setAttribute("role", "dialog");
   document.body.append(pop);
   let popIdx = null;
+  const detailFields = new Map(); // campi del dettaglio già scaricati (null = non disponibile)
   const POP_MARGIN = 8; // distanza minima dai bordi della finestra
   const POP_GAP = 16; // distanza dal centro del cerchio alla punta della freccia
 
@@ -1177,6 +1311,34 @@
     pointMarkers.forEach((m, i) => m.getElement()?.classList.toggle("pt-popped", i === popIdx));
   }
 
+  // nome breve per la seconda riga del tooltip
+  const SHORT = { z850: "quota 850" };
+  /** Grandezze in più della grandezza mostrata (`details`, es. l'altezza di 850 hPa sulla mappa della T850): nel
+   *  riquadro della località e nella seconda riga del tooltip; si scaricano con l'ora mostrata e restano in detailFields. */
+  const extras = () => variable()?.details || [];
+  const extraKey = (d) => `${state.model}|${state.run}|${d.var}|${state.step}`;
+  function loadExtras() {
+    for (const d of extras()) {
+      const key = extraKey(d);
+      if (detailFields.has(key)) continue;
+      detailFields.set(key, undefined); // in arrivo
+      const step = state.step;
+      getField(step, "value", { ...ctxNow(), var: d.var }).catch(() => null).then((f) => {
+        detailFields.set(key, f);
+        if (popIdx != null && state.step === step) renderPlacePop();
+      });
+    }
+  }
+  /** Valore formattato di una grandezza in più nel punto: undefined = ancora in arrivo, null = non disponibile. */
+  function extraValue(d, lat, lon) {
+    const f = detailFields.get(extraKey(d));
+    if (f === undefined) return undefined;
+    const x = f ? valueAt(f, lat, lon) : null;
+    if (x == null) return null;
+    const dec = meta.variables.find((y) => y.id === d.var)?.decimals ?? 0;
+    return `${x.toFixed(dec)} ${f.units}`;
+  }
+
   function renderPlacePop() {
     const p = places[popIdx];
     if (popIdx == null || !p || !meta || !variable()) { closePlacePop(); return; }
@@ -1188,6 +1350,16 @@
     if (v.contour_field && currentContour) {
       const z = valueAt(currentContour, p.lat, p.lon);
       rows.push([contourName(), z == null ? "—" : `${Math.round(z)} ${currentContour.units}`]);
+    }
+    if (current?.u) {
+      const d = windDirAt(current, p.lat, p.lon);
+      rows.push(["Direzione", d == null ? "—" : `da ${d.name} (${d.deg}°)`]);
+    }
+    // grandezze in più (sulla mappa della T850 l'altezza della superficie di 850 hPa)
+    loadExtras();
+    for (const d of extras()) {
+      const x = extraValue(d, p.lat, p.lon);
+      rows.push([d.label, x === undefined ? "…" : x ?? "—"]);
     }
     const foot = state.run && state.step != null ? fmtLocal(new Date(runDate(state.run).getTime() + state.step * 3600e3)) : "";
     pop.innerHTML =
@@ -1202,16 +1374,16 @@
     placePlacePop();
   }
 
-  /** Posizione: centrata sul cerchio, sopra (o sotto), spostata di lato quanto serve per restare nella finestra. */
+  /** Posizione: centrata sul punto, sopra (o sotto), spostata di lato quanto serve per restare nella finestra. */
   function placePlacePop() {
     if (popIdx == null || pop.hidden) return;
-    const m = pointMarkers[popIdx];
-    if (!m) { closePlacePop(); return; }
+    const p = places[popIdx];
+    if (!p) { closePlacePop(); return; }
     const mr = map.getContainer().getBoundingClientRect();
-    const c = map.latLngToContainerPoint(m.getLatLng());
+    const c = map.latLngToContainerPoint([p.lat, p.lon]);
     const x = mr.left + c.x, y = mr.top + c.y;
     const W = window.innerWidth, H = window.innerHeight;
-    // cerchio fuori dalla finestra: niente riquadro appeso al nulla
+    // punto fuori dalla finestra: niente riquadro appeso al nulla
     if (x < 0 || x > W || y < 0 || y > H) { pop.style.visibility = "hidden"; return; }
     pop.style.visibility = "";
     const w = pop.offsetWidth, h = pop.offsetHeight;
@@ -1222,7 +1394,7 @@
     pop.style.left = `${left}px`;
     pop.style.top = `${top}px`;
     pop.classList.toggle("below", below);
-    // la freccia resta sul cerchio anche quando il riquadro è spostato di lato
+    // la freccia resta sul punto anche quando il riquadro è spostato di lato
     pop.querySelector(".pt-pop-arrow").style.left = `${Math.min(Math.max(x - left, 12), w - 12)}px`;
   }
   map.on("move zoom", placePlacePop);
@@ -1350,9 +1522,14 @@
     }
     // isoterme: il canvas delle linee e le etichette (testo con alone bianco, come sullo schermo)
     const bordersCanvas = map.getPane("borders").querySelector("canvas");
-    if (bordersCanvas && bordersFactor() > 0) {
+    if (bordersCanvas && bordersOn()) {
       const r = bordersCanvas.getBoundingClientRect();
       ctx.drawImage(bordersCanvas, r.left - cr.left, r.top - cr.top, r.width, r.height);
+    }
+    const arrowsCanvas = map.getPane("arrows").querySelector("canvas");
+    if (arrowsCanvas && current?.u) {
+      const r = arrowsCanvas.getBoundingClientRect();
+      ctx.drawImage(arrowsCanvas, r.left - cr.left, r.top - cr.top, r.width, r.height);
     }
     const isoCanvas = map.getPane("contours").querySelector("canvas");
     if (isoCanvas && isoData.length) {
@@ -1402,7 +1579,8 @@
     const valid = new Date(runDate(state.run).getTime() + s * 3600e3);
     const modeText = state.mode === "interval" ? ` in ${intervalHours(s)}h (+${s - intervalHours(s)}h → +${s}h)` : state.mode === "total" ? " totale" : "";
     const runText = state.model === "mean" ? `dalle ${cycle(state.run)} ${fmtRunDay(state.run)}` : `corsa ${cycle(state.run)} ${fmtRunDay(state.run)}`;
-    const baseAttr = map.hasLayer(bases.topo) ? "Mappa © OpenTopoMap (CC-BY-SA), dati © OpenStreetMap" : "Mappa © OpenStreetMap contributors";
+    const baseAttr = map.hasLayer(bases.topo) ? "Mappa © OpenTopoMap (CC-BY-SA), dati © OpenStreetMap"
+      : state.base === "plain" ? "Confini: Natural Earth" : "Mappa © OpenStreetMap contributors";
     return {
       v,
       title: `${modelLabel()} · ${runText}`,
@@ -1543,15 +1721,26 @@
     ctx.font = `600 16px ${FONT}`;
     ctx.fillText(texts.v.units, 24, OH - BAND + 30);
     const lx = 24 + ctx.measureText(texts.v.units).width + 14;
-    const cw = Math.min(64, (OW - lx - 24) / thresholds.length);
+    const cont = !!texts.v.scale.continuous;
+    const nseg = cont ? thresholds.length - 1 : thresholds.length;
+    const cw = Math.min(64, (OW - lx - 24) / nseg);
     const ly = OH - BAND + 16;
+    const every = thresholds.length > 14 ? 2 : 1; // come nella legenda della pagina
     ctx.font = `500 15px ${FONT}`;
     thresholds.forEach((t, i) => {
-      ctx.fillStyle = colors[i];
-      ctx.fillRect(lx + i * cw, ly, cw, 16);
+      if (i < nseg) {
+        if (cont) {
+          const g = ctx.createLinearGradient(lx + i * cw, 0, lx + (i + 1) * cw, 0);
+          g.addColorStop(0, colors[i]);
+          g.addColorStop(1, colors[i + 1]);
+          ctx.fillStyle = g;
+        } else ctx.fillStyle = colors[i];
+        ctx.fillRect(lx + i * cw, ly, cw + (cont ? 0.5 : 0), 16);
+      }
       ctx.fillStyle = "#3d4656";
-      ctx.textAlign = i === 0 ? "left" : "center";
-      if (!(i === 0 && texts.v.scale.transparent_below == null)) ctx.fillText(String(t).replace("-", "−"), lx + i * cw, ly + 36);
+      ctx.textAlign = i === 0 ? "left" : i === thresholds.length - 1 && cont ? "right" : "center";
+      const skip = (i === 0 && !cont && texts.v.scale.transparent_below == null) || i % every;
+      if (!skip) ctx.fillText(String(t).replace("-", "−"), lx + i * cw, ly + 36);
     });
     // autore in basso a destra, sulla riga della legenda (la barra arriva al massimo a ~900 px)
     ctx.textAlign = "right";
@@ -1636,38 +1825,74 @@
     return makeShareFile();
   }
 
-  function openShare() {
+  // vista della mappa prima della condivisione: la mappa si centra per un attimo sulla posizione e poi ci torna
+  let shareRestore = null;
+
+  async function openShare() {
+    // la mappa si centra sulla posizione del dispositivo (stesso zoom), così il riquadro più grande parte da lì
+    const pos = await knownPosition();
+    shareRestore = null;
+    if (pos && inBox(pos.lat, pos.lon)) {
+      shareRestore = { center: map.getCenter(), zoom: map.getZoom() };
+      map.setView([pos.lat, pos.lon], map.getZoom(), { animate: false });
+      await tilesReady();
+    }
     crop.snap = snapshotMap();
     crop.texts = shareTexts();
-    // all'apertura il riquadro più grande che sta nella mappa, centrato (la proporzione resta l'ultima scelta)
+    // all'apertura il riquadro più grande che sta nella mappa (zoom minimo), centrato sulla posizione se c'è,
+    // altrimenti sulla mappa (la proporzione resta l'ultima scelta)
     [outCanvas.width, outCanvas.height] = RATIOS[crop.ratio];
     crop.w = maxCropW();
-    crop.x = (crop.snap.W - crop.w) / 2;
-    crop.y = (crop.snap.H - cropH()) / 2;
+    const c = shareRestore ? map.latLngToContainerPoint([pos.lat, pos.lon]) : { x: crop.snap.W / 2, y: crop.snap.H / 2 };
+    crop.x = c.x - crop.w / 2;
+    crop.y = c.y - cropH() / 2;
+    clampCrop();
     crop.touched = false;
     shareUi.pointsRow.hidden = !crop.snap.points.length;
     shareUi.dialog.showModal();
     layoutView();
     setRatio(crop.ratio);
-    centerCropOnMe();
+  }
+  // alla chiusura (X, Esc, dopo la condivisione) la mappa torna dov'era
+  shareUi.dialog.addEventListener("close", () => {
+    if (shareRestore) map.setView(shareRestore.center, shareRestore.zoom, { animate: false });
+    shareRestore = null;
+  });
+
+  /** Aspetta le tessere dello sfondo dopo lo spostamento (al massimo 2 s) e un paio di frame per le linee. */
+  function tilesReady() {
+    return new Promise((resolve) => {
+      const layer = bases[state.base];
+      const done = () => { layer.off("load", done); clearTimeout(t); requestAnimationFrame(() => requestAnimationFrame(resolve)); };
+      const t = setTimeout(done, 2000);
+      if (!layer.isLoading?.()) done(); else layer.once("load", done);
+    });
   }
 
-  // Posizione del dispositivo per centrare il riquadro proposto: resta nel browser, non viene inviata a nessuno.
-  // Si usa una posizione recente (fino a 10 minuti) per non richiederla a ogni apertura.
-  function centerCropOnMe() {
-    if (!navigator.geolocation) return;
-    const snap = crop.snap;
-    navigator.geolocation.getCurrentPosition((pos) => {
-      if (!shareUi.dialog.open || crop.snap !== snap || crop.touched) return;
-      // il riquadro si sposta solo se la posizione cade nella mappa fotografata
-      const pt = map.latLngToContainerPoint([pos.coords.latitude, pos.coords.longitude]);
-      if (pt.x < 0 || pt.y < 0 || pt.x > snap.W || pt.y > snap.H) return;
-      crop.x = pt.x - crop.w / 2;
-      crop.y = pt.y - cropH() / 2;
-      clampCrop();
-      scheduleRender();
-    }, () => { /* permesso negato o posizione non disponibile: resta centrato sulla mappa */ },
-    { enableHighAccuracy: false, maximumAge: 10 * 60e3, timeout: 8000 });
+  // ---------- posizione del dispositivo: salvata nel browser (localStorage, arrotondata a ~100 m) e mai inviata a
+  // nessuno. Si usa subito quella salvata e intanto la si aggiorna per la volta dopo; la prima volta si aspetta il
+  // browser (che chiede il permesso), al massimo 8 secondi.
+  const POS_KEY = "weathermaps.pos.v1";
+  function savedPosition() {
+    try {
+      const d = JSON.parse(localStorage.getItem(POS_KEY) || "null");
+      return d && Number.isFinite(d.lat) && Number.isFinite(d.lon) ? d : null;
+    } catch { return null; }
+  }
+  function refreshPosition() {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) { resolve(null); return; }
+      navigator.geolocation.getCurrentPosition((p) => {
+        const pos = { lat: +p.coords.latitude.toFixed(3), lon: +p.coords.longitude.toFixed(3) };
+        try { localStorage.setItem(POS_KEY, JSON.stringify(pos)); } catch { /* storage non disponibile */ }
+        resolve(pos);
+      }, () => resolve(null), { enableHighAccuracy: false, maximumAge: 10 * 60e3, timeout: 8000 });
+    });
+  }
+  async function knownPosition() {
+    const saved = savedPosition();
+    const fresh = refreshPosition();
+    return saved || (await fresh);
   }
   new ResizeObserver(() => {
     if (shareUi.dialog.open && crop.snap) { layoutView(); scheduleRender(); }
@@ -1766,12 +1991,14 @@
   shareUi.btn.addEventListener("click", async () => {
     if (!current) { toast("Niente da condividere: scegli un istante con dati."); return; }
     shareUi.btn.disabled = true;
+    setLoading(true);
     try {
       // modale con ritaglio: il clic su "Condividi" è un gesto nuovo, valido per la condivisione nativa
-      openShare();
+      await openShare();
     } catch (e) {
       toast(`Impossibile creare l'immagine: ${e.message}`);
     } finally {
+      setLoading(false);
       shareUi.btn.disabled = false;
     }
   });
@@ -1798,11 +2025,19 @@
     else {
       const v = current.values[iy * nx + ix];
       text = v == null ? "—" : `<b>${v.toFixed(variable().decimals)}</b> ${current.units}`;
+      const d = current.u ? windDirAt(current, e.latlng.lat, e.latlng.lng) : null;
+      if (d) text += ` da ${d.name}`;
     }
     if (currentContour) {
       const z = valueAt(currentContour, e.latlng.lat, e.latlng.lng);
       if (z != null) text += ` · ${contourName().toLowerCase()} <b>${Math.round(z)}</b> ${currentContour.units}`;
     }
+    // seconda riga: le grandezze in più (sulla mappa della T850 la quota della superficie di 850 hPa)
+    const more = extras()
+      .map((d) => [d, extraValue(d, e.latlng.lat, e.latlng.lng)])
+      .filter(([, x]) => x)
+      .map(([d, x]) => `${SHORT[d.var] || d.label} <b>${x.replace(/ (\S+)$/, "</b> $1")}`);
+    if (more.length) text += `<div class="probe-more">${more.join(" · ")}</div>`;
     ui.probe.innerHTML = text;
     // a destra del mouse, a sinistra se non ci sta; sempre dentro la finestra (8px dai bordi)
     ui.probe.hidden = false;
@@ -1939,9 +2174,10 @@
       if (map.getZoom() < map.getMinZoom()) map.setZoom(map.getMinZoom(), { animate: false });
       map.panInsideBounds(box, { animate: false });
     });
-    setBase("osm"); // all'avvio sempre OpenStreetMap; il rilievo si sceglie in "Impostazioni"
+    setBase("osm"); // all'avvio sempre OpenStreetMap; gli altri sfondi si scelgono in "Impostazioni"
 
     ui.opacity.value = state.opacity;
+    styleBorders(); // opacità al massimo dall'URL: contorni subito
     ui.crisp.checked = state.crisp;
     ui.iso.checked = state.iso;
     setupVars();

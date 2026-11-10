@@ -12,7 +12,7 @@ import numpy as np
 
 from . import variables
 from .config import STEPS
-from .grid import Field
+from .grid import Field, halve, lambert_to_earth
 from . import mean
 from .sources import NotAvailable, ecmwf, gfs, icon_2i, icon_d2, make_client, run_id
 from .sources.meteohub import wrf  # MOLOCH (meteohub.moloch) è pronto ma escluso per ora: download troppo lento
@@ -96,6 +96,15 @@ def _fetch_field(source, client, run: datetime, step: int, var, bbox) -> Field:
         if other.values.shape != field.values.shape:
             raise ValueError(f"{source.MODEL.id}: griglie diverse fra {sel.param} e {extra.param}")
         field.values = (field.values + other.values).astype(np.float32)
+    if sel.pair is not None and sel.lambert:
+        # vento riferito alla griglia Lambert (WRF): serve anche l'altra componente per ruotarlo verso nord
+        alt = dataclasses.replace(var, selectors={**var.selectors, source.MODEL.id: sel.pair})
+        other = _fetch_with_retry(source, client, run, step, alt, bbox)
+        if other.values.shape != field.values.shape:
+            raise ValueError(f"{source.MODEL.id}: griglie diverse fra le componenti del vento")
+        u, v = (field.values, other.values) if sel.component == "u" else (other.values, field.values)
+        ue, ve = lambert_to_earth(u, v, field.lons()[None, :], *sel.lambert)
+        field.values = (ue if sel.component == "u" else ve).astype(np.float32)
     return field
 
 
@@ -105,12 +114,17 @@ def complete_vars(store: Store, model_id: str, rid: str) -> list[str]:
             if model_id in var.selectors and set(steps_for(var, model_id)) <= set(store.steps(model_id, rid, var.id))]
 
 
+def is_complete(store: Store, model_id: str, rid: str) -> bool:
+    """Tutte le grandezze del modello hanno tutti i passi attesi nella corsa."""
+    n_vars = sum(model_id in v.selectors for v in variables.REGISTRY.values())
+    return len(complete_vars(store, model_id, rid)) == n_vars
+
+
 def latest_complete(store: Store, model_id: str) -> str | None:
     """Corsa da mostrare: l'ultima con tutte le grandezze complete. Se nessuna lo è (per esempio una grandezza che
     la sorgente non fornisce più), l'ultima con almeno una grandezza completa, così il modello non sparisce."""
-    n_vars = sum(model_id in v.selectors for v in variables.REGISTRY.values())
     runs = store.runs(model_id)
-    full = next((rid for rid in runs if len(complete_vars(store, model_id, rid)) == n_vars), None)
+    full = next((rid for rid in runs if is_complete(store, model_id, rid)), None)
     return full or next((rid for rid in runs if complete_vars(store, model_id, rid)), None)
 
 
@@ -154,6 +168,10 @@ def _update(model_id: str, store: Store, now: datetime | None) -> dict:
         candidates = model.candidate_runs(now, count=2)  # la nuova e, se ancora serve, quella prima
         for run in candidates:
             rid = run_id(run)
+            # c'è già una corsa più nuova completa: questa (già cancellata o da cancellare) non serve più.
+            # Senza questo controllo la corsa precedente si riscaricherebbe per intero a ogni giro.
+            if any(r > rid and is_complete(store, model_id, r) for r in store.runs(model_id)):
+                continue
             for var in variables.REGISTRY.values():
                 if model_id not in var.selectors:
                     continue
@@ -169,7 +187,10 @@ def _update(model_id: str, store: Store, now: datetime | None) -> dict:
                         summary["errors"] += 1
                         log.error("%s %s %s +%dh: %s", model_id, rid, var.id, step, exc)
                         break
-                    store.save(model_id, rid, var.id, step, _convert(var, model_id, field))
+                    field = _convert(var, model_id, field)
+                    if var.half_res:
+                        field = halve(field)
+                    store.save(model_id, rid, var.id, step, field)
                     got += 1
                     STATUS[model_id]["downloaded"] += 1  # avanzamento visibile durante l'aggiornamento
                     time.sleep(REQUEST_PAUSE.get(model_id, 0))

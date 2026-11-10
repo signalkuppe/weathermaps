@@ -103,6 +103,9 @@ def _build(store: Store) -> dict:
     rid0 = run_id(t0)
     for var in variables.REGISTRY.values():
         chosen = {m: latest[m] for m in var.selectors if m in latest}
+        # griglia comune: per le grandezze a metà risoluzione (vento) una cella su due per lato
+        k = 2 if var.half_res else 1
+        vlats, vlons = tlats[::k], tlons[::k]
         if len(chosen) < 2:
             continue
         have = {m: set(store.steps(m, r, var.id)) for m, r in chosen.items()}
@@ -119,15 +122,15 @@ def _build(store: Store) -> dict:
 
         def member(m: str, step: int) -> np.ndarray:
             if step == 0:
-                return np.zeros((ny, nx), dtype=np.float32)
+                return np.zeros((len(vlats), len(vlons)), dtype=np.float32)
             key = (m, step)
             if key not in cache:
                 vals, grid = store.load(m, chosen[m], var.id, step)
-                cache[key] = bilinear(vals, grid, tlats, tlons)
+                cache[key] = bilinear(vals, grid, vlats, vlons)
             return cache[key]
 
-        cum = np.zeros((ny, nx), dtype=np.float32)
-        ever = np.zeros((ny, nx), dtype=bool)
+        cum = np.zeros((len(vlats), len(vlons)), dtype=np.float32)
+        ever = np.zeros((len(vlats), len(vlons)), dtype=bool)
         last = 0  # ultimo passo incluso nella somma (pioggia)
         written: dict[int, list[str]] = {}
         for s in [x for x in STEPS if x <= MODEL.max_step]:
@@ -155,8 +158,8 @@ def _build(store: Store) -> dict:
                 last = s
             else:
                 out = m_val.astype(np.float32)
-            store.save("mean", rid0, var.id, s, Field(values=out, lat0=float(tlats[0]), lon0=float(tlons[0]),
-                                                      dlat=TARGET_DLAT, dlon=TARGET_DLON))
+            store.save("mean", rid0, var.id, s, Field(values=out, lat0=float(vlats[0]), lon0=float(vlons[0]),
+                                                      dlat=TARGET_DLAT * k, dlon=TARGET_DLON * k))
             written[s] = used
 
         # passi di una versione precedente non più calcolabili
