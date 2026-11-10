@@ -2109,7 +2109,10 @@
     dialog: $("chart-dialog"), body: $("chart-body"), title: $("chart-title"), sub: $("chart-sub"), close: $("chart-close"),
   };
   let chartData = null;
-  const CHART_L = 46; // margine sinistro dei grafici (numeri dell'asse): anche il titolo della finestra parte da qui
+  // margine uguale su tutti i lati (come --cm in style.css): a sinistra coincide con lo spazio dei numeri dell'asse,
+  // così titolo della finestra e titoli dei grafici partono alla stessa distanza dal bordo che i grafici hanno a destra
+  const CHART_AXIS = 40; // spazio dei numeri dell'asse dentro l'SVG, a sinistra del grafico
+  const CHART_R = 14; // dentro l'SVG, a destra (l'ultima ora sull'asse non viene tagliata)
   chartUi.close.addEventListener("click", () => chartUi.dialog.close());
 
   /** Serie nel punto: dal server (api/series) o, nel sito statico, dal riquadro di 2°×2° che lo contiene. */
@@ -2139,7 +2142,8 @@
 
   async function openChart(p) {
     chartUi.title.textContent = p.name;
-    chartUi.sub.textContent = `${modelLabel()} · ${state.model === "mean" ? "dalle" : "corsa"} ${cycle(state.run)} ${fmtRunDay(state.run)}`;
+    const m = meta.models.find((x) => x.id === state.model);
+    chartUi.sub.innerHTML = `${m ? modelIcon(m) : ""}<span>${modelLabel()} · ${state.model === "mean" ? "dalle" : "corsa"} ${cycle(state.run)} ${fmtRunDay(state.run)}</span>`;
     chartUi.body.innerHTML = '<div class="chart-empty">Caricamento…</div>';
     chartData = null;
     chartUi.dialog.showModal();
@@ -2164,17 +2168,18 @@
     ".ch-zero{stroke:#5d6677;stroke-width:1}text{font-variant-numeric:tabular-nums}",
   ].join("");
   async function makeChartFile() {
-    const EW = 1032, PAD = 24, TOP = 78, FOOT = 44, K = 2; // larghezza del grafico, margini, scala (nitidezza)
+    const M = 48, EW = 1032, K = 2; // margine uguale su tutti i lati, larghezza dell'SVG, scala (nitidezza)
     const g = drawChart(EW);
     if (!g) throw new Error("niente da condividere");
     const svgText = `<svg xmlns="http://www.w3.org/2000/svg" width="${g.W}" height="${g.H}" viewBox="0 0 ${g.W} ${g.H}"><style>${CHART_CSS}</style>${g.markup}</svg>`;
-    const img = await new Promise((resolve, reject) => {
+    const [img, flag] = await Promise.all([new Promise((resolve, reject) => {
       const im = new Image();
       im.onload = () => resolve(im);
       im.onerror = () => reject(new Error("grafico non convertibile in immagine"));
       im.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgText)}`;
-    });
-    const cw = g.W + PAD * 2, chh = TOP + g.H + FOOT;
+    }), loadFlag(state.model)]);
+    const TOP = M + 78; // titolo, sottotitolo e spazio prima dei grafici
+    const cw = M + g.W - CHART_R + M, chh = TOP + g.H + 28 + M;
     const cv = document.createElement("canvas");
     cv.width = cw * K; cv.height = chh * K;
     const ctx = cv.getContext("2d");
@@ -2183,25 +2188,31 @@
     ctx.fillRect(0, 0, cw, chh);
     ctx.textBaseline = "alphabetic";
     ctx.fillStyle = "#1d2330";
-    ctx.font = `700 24px ${FONT}`;
     ctx.font = `700 28px ${FONT}`;
-    ctx.fillText(chartUi.title.textContent, PAD + CHART_L, 42); // allineati ai titoli dei grafici
+    ctx.fillText(chartUi.title.textContent, M, M + 22); // allineati ai titoli dei grafici
+    let sx = M;
+    if (flag) { // bandiera del modello (icona a livelli per la mediana) prima del sottotitolo
+      const fh = 15, fw = Math.round(fh * (flag.naturalWidth / flag.naturalHeight || 4 / 3));
+      ctx.drawImage(flag, M, M + 37, fw, fh);
+      if (flag.dataset.border) { ctx.strokeStyle = "rgba(29,35,48,0.25)"; ctx.lineWidth = 1; ctx.strokeRect(M + 0.5, M + 37.5, fw - 1, fh - 1); }
+      sx += fw + 8;
+    }
     ctx.fillStyle = "#5d6677";
     ctx.font = `500 15px ${FONT}`;
-    ctx.fillText(chartUi.sub.textContent, PAD + CHART_L, 64);
-    ctx.drawImage(img, PAD, TOP, g.W, g.H);
+    ctx.fillText(chartUi.sub.textContent, sx, M + 50);
+    ctx.drawImage(img, M, TOP, g.W, g.H);
     ctx.font = `400 12px ${FONT}`;
     const attr = shareTexts().attr;
-    ctx.fillText(attr.slice(Math.max(0, attr.indexOf("Dati:"))), PAD + CHART_L, chh - 16, cw - PAD * 2 - CHART_L - 230); // niente crediti della mappa
+    ctx.fillText(attr.slice(Math.max(0, attr.indexOf("Dati:"))), M, chh - M, cw - M * 2 - 230); // niente crediti della mappa
     ctx.textAlign = "right";
     ctx.font = `700 14px ${FONT}`;
     ctx.fillStyle = "#1d2330";
     const site = "signalkuppe.com";
-    ctx.fillText(site, cw - PAD, chh - 16);
+    ctx.fillText(site, cw - M, chh - M);
     const sw = ctx.measureText(site).width;
     ctx.font = `400 14px ${FONT}`;
     ctx.fillStyle = "#5d6677";
-    ctx.fillText("Realizzato da ", cw - PAD - sw, chh - 16);
+    ctx.fillText("Realizzato da ", cw - M - sw, chh - M);
     const blob = await new Promise((resolve) => cv.toBlob(resolve, "image/jpeg", 0.92));
     const slug = chartUi.title.textContent.toLowerCase().normalize("NFD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
     return new File([blob], `weathermaps-grafico-${slug || "localita"}-${state.model}-${chartData.run}.jpg`, { type: "image/jpeg" });
@@ -2249,8 +2260,8 @@
     const V = series.vars;
     const t0 = runDate(run).getTime();
     const W = exportW || Math.max(280, chartUi.body.clientWidth);
-    const L = CHART_L, R = 14, pw = W - L - R;
-    const PH = 78, HEAD = 22, GAP = 16, AXIS = 34; // altezza grafico, titolo, spazio fra pannelli, asse dei tempi
+    const L = CHART_AXIS, R = CHART_R, pw = W - L - R;
+    const PH = 78, HEAD = 30, GAP = 16, AXIS = 34; // altezza grafico, titolo, spazio fra pannelli, asse dei tempi
     const steps = [...new Set(Object.values(V).flatMap((v) => v.steps))].sort((a, b) => a - b);
     if (!steps.length) {
       if (exportW) return null;
@@ -2305,7 +2316,7 @@
       lo = Math.min(lo, ticks[0]); hi = Math.max(hi, ticks[ticks.length - 1]);
       const Y = (y) => bot - ((y - lo) / (hi - lo || 1)) * PH;
       p.Y = Y; p.top = top; p.bot = bot;
-      svg.push(`<text class="ch-title" x="${L}" y="${top - 8}">${p.title} <tspan class="ch-note">(${p.unit})${p.note ? " · " + p.note : ""}</tspan></text>`);
+      svg.push(`<text class="ch-title" x="0" y="${top - 14}">${p.title} <tspan class="ch-note">(${p.unit})${p.note ? " · " + p.note : ""}</tspan></text>`);
       for (const t of ticks) {
         svg.push(`<line class="ch-grid" x1="${L}" x2="${L + pw}" y1="${Y(t)}" y2="${Y(t)}"/>`);
         svg.push(`<text class="ch-tick" x="${L - 6}" y="${Y(t) + 3.5}" text-anchor="end">${fmt(t, Math.abs(t) < 10 && t % 1 ? 1 : 0)}</text>`);
@@ -2366,7 +2377,7 @@
       const rows = panels.map((p) => {
         const d = p.data.find((e) => (p.kind === "bar" ? e.b : e.x) === st);
         if (!d) return "";
-        const extra = p.arrows && d.y != null ? ` da ${dirName(d.u, d.v)}`
+        const extra = p.arrows && d.y != null ? (dirName(d.u, d.v) ? ` da ${dirName(d.u, d.v)}` : "")
           : p.kind === "bar" && d.cum != null ? ` · tot <b>${fmt(d.cum, p.dec)}</b> ${p.unit}` : ""; // cumulata dall'inizio
         return `<div>${p.tip(d)} <b>${fmt(d.y, p.dec)}</b> ${p.unit}${extra}</div>`;
       }).join("");

@@ -613,9 +613,12 @@ input[type="range"] { accent-color: var(--accent); }
 .legend .lg-continuous li:first-child .lg-tick:not(.lg-tick-end) { transform: none; }
 
 /* meteogramma: pannelli uno sotto l'altro con lo stesso asse dei tempi, lettura dei valori al passaggio */
-.chart-head { min-width: 0; padding-left: 46px; } /* allineato ai titoli dei grafici (CHART_L in app.js) */
+.chart-head { min-width: 0; }
 .chart-head h2 { font-size: 22px; line-height: 1.2; }
-.chart-sub { margin-top: 2px; }
+.chart-sub { margin-top: 3px; display: flex; align-items: center; gap: 7px; min-width: 0; }
+.chart-sub span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chart-sub .fi { flex: none; width: 18px; height: 13.5px; border-radius: 2px; box-shadow: 0 0 0 1px rgba(29, 35, 48, 0.2); }
+.chart-sub svg { flex: none; width: 15px; height: 15px; }
 .chart-sub { font-size: 12px; color: var(--muted); }
 .chart-body { flex: 1; min-height: 0; overflow-y: auto; position: relative; touch-action: pan-y; padding-top: 30px; }
 .chart-body svg { display: block; width: 100%; font: 11px system-ui, sans-serif; font-variant-numeric: tabular-nums;
@@ -639,13 +642,15 @@ input[type="range"] { accent-color: var(--accent); }
 .pt-pop-chart:hover { background: rgba(255, 255, 255, 0.12); }
 
 /* finestra del grafico: margini più ampi della condivisione (titolo e grafico non incollati ai bordi) */
-.chart-dialog { padding: max(18px, env(safe-area-inset-top)) 28px max(16px, env(safe-area-inset-bottom)); gap: 26px; }
+/* margine uguale su tutti i lati (--cm), dal bordo al contenuto più esterno: a sinistra intestazione, titoli e numeri
+   dell'asse; a destra il grafico (padding più i 14 px interni dell'SVG, CHART_R in app.js) */
+.chart-dialog { --cm: 40px; padding: max(var(--cm), env(safe-area-inset-top)) calc(var(--cm) - 14px) max(var(--cm), env(safe-area-inset-bottom)) var(--cm); gap: 26px; }
 .chart-dialog .share-head { align-items: flex-start; }
-.chart-actions { display: flex; align-items: center; gap: 4px; margin-right: -8px; }
+.chart-actions { display: flex; align-items: center; gap: 4px; margin: -9px 5px 0 0; } /* icone sul margine */
 .chart-actions .share-x { margin-right: 0; }
 .chart-share { color: var(--accent); }
 .chart-share:disabled { opacity: 0.5; cursor: progress; }
-@media (max-width: 600px) { .chart-dialog { padding-left: 20px; padding-right: 20px; } }
+@media (max-width: 600px) { .chart-dialog { --cm: 20px; } }
 
 /* avviso nel pannello quando la combinazione scelta non ha dati; la mappa intanto è in scala di grigi */
 .nodata { display: grid; gap: 2px; padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(194, 65, 12, 0.35);
