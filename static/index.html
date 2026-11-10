@@ -41,8 +41,8 @@
         <select id="var"></select>
       </label>
       <div class="run-block">
-        <div class="run-head"><span>Corsa</span><span id="run-age" class="run-age"></span></div>
-        <div id="run" class="runs" role="radiogroup" aria-label="Corsa del modello"></div>
+        <!-- si mostra solo l'ultima corsa completa; quella in arrivo compare nell'avviso sotto -->
+        <div class="run-head"><span>Corsa</span><span id="run" class="run-line"></span><span id="run-age" class="run-age"></span></div>
         <div id="run-live" class="run-live" hidden>
           <span id="run-live-text"></span>
           <button id="refresh" class="refresh-btn" type="button" title="Controlla subito se sono usciti nuovi passi">↻ Aggiorna</button>
@@ -93,9 +93,9 @@
             <input id="crisp" type="checkbox">
             <span>Celle nette (senza interpolazione)</span>
           </label>
-          <label class="row check">
-            <input id="labels" type="checkbox">
-            <span>Etichette sopra i dati</span>
+          <label class="row check" id="iso-row" hidden>
+            <input id="iso" type="checkbox" checked>
+            <span id="iso-text">Isoterme</span>
           </label>
         </div>
       </details>

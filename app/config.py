@@ -69,7 +69,6 @@ DEFAULT_BBOX = "42,49,4,17"
 # Passi comuni a GFS e ECMWF: 3h fino a 144h, poi 6h fino a 192h.
 STEPS: list[int] = list(range(3, 145, 3)) + list(range(150, 193, 6))
 
-RETENTION = int(os.environ.get("RETENTION", "2"))  # corsa attuale + precedente
 HTTP_TIMEOUT = float(os.environ.get("HTTP_TIMEOUT", "30"))
 SCHEDULER_INTERVAL_MIN = int(os.environ.get("SCHEDULER_INTERVAL_MIN", "10"))
 

@@ -53,7 +53,7 @@ def meta(request: Request):
             "steps": STEPS,
             "version": get_version(),
             "models": [m.as_dict() for m in MODELS.values()],
-            "variables": [v.as_dict() for v in variables.REGISTRY.values()],
+            "variables": variables.menu(),
         },
         headers={"Cache-Control": "max-age=300"},
     )
@@ -61,30 +61,44 @@ def meta(request: Request):
 
 @router.get("/runs")
 def runs(request: Request):
+    """Per modello: la corsa da mostrare (l'ultima completa) e, se c'è, quella più nuova ancora in arrivo
+    (marcata `incoming`: serve solo per l'avviso, i suoi campi non si mostrano né si pubblicano)."""
     store = _store(request)
     out: dict[str, list] = {}
     for model_id in MODELS:
+        all_runs = store.runs(model_id)
+        current = all_runs[0] if model_id == "mean" and all_runs else fetcher.latest_complete(store, model_id)
         items = []
-        for rid in store.runs(model_id):
-            vars_out = {}
-            for var_id in store.variables(model_id, rid):
-                if var_id not in variables.REGISTRY:
-                    continue
-                expected = steps_for(variables.REGISTRY[var_id], model_id)
-                have = store.steps(model_id, rid, var_id)
-                if not have:
-                    continue
-                info = {"steps": have, "complete": set(expected) <= set(have)}
-                if model_id == "mean":
-                    # la media è calcolata da corse complete: non è mai "in arrivo"
-                    info["complete"] = True
-                    m = mean_mod.members_info(store, rid, var_id)
-                    info["members"] = (m or {}).get("members", {})
-                vars_out[var_id] = info
-            if vars_out:
-                items.append({"run": rid, "variables": vars_out})
+        if current:
+            item = _run_item(store, model_id, current)
+            if item:
+                items.append(item)
+            newer = [rid for rid in all_runs if rid > current]
+            if newer and model_id != "mean":
+                item = _run_item(store, model_id, newer[0])
+                if item:
+                    items.append({**item, "incoming": True})
         out[model_id] = items
     return JSONResponse(out, headers={"Cache-Control": "max-age=120"})
+
+
+def _run_item(store: Store, model_id: str, rid: str) -> dict | None:
+    vars_out = {}
+    for var_id in store.variables(model_id, rid):
+        if var_id not in variables.REGISTRY:
+            continue
+        expected = steps_for(variables.REGISTRY[var_id], model_id)
+        have = store.steps(model_id, rid, var_id)
+        if not have:
+            continue
+        info = {"steps": have, "complete": set(expected) <= set(have), "expected": len(expected)}
+        if model_id == "mean":
+            # la mediana è calcolata da corse complete: non è mai "in arrivo"
+            info["complete"] = True
+            m = mean_mod.members_info(store, rid, var_id)
+            info["members"] = (m or {}).get("members", {})
+        vars_out[var_id] = info
+    return {"run": rid, "variables": vars_out} if vars_out else None
 
 
 def _round_list(values: np.ndarray, decimals: int) -> list:
@@ -155,5 +169,5 @@ def field(
         info = mean_mod.members_info(store, run, var) or {}
         body["members"] = info.get("steps", {}).get(str(step), [])
         body["member_runs"] = info.get("members", {})
-        cache = "public, max-age=300"  # la media si ricalcola quando arrivano nuovi dati
+        cache = "public, max-age=300"  # la mediana si ricalcola quando arrivano nuovi dati
     return JSONResponse(body, headers={"Cache-Control": cache})

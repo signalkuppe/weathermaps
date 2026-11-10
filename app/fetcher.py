@@ -1,6 +1,7 @@
 """Scarica i passi mancanti delle ultime corse, per ogni modello e grandezza registrata."""
 from __future__ import annotations
 
+import dataclasses
 import logging
 import threading
 import time
@@ -10,7 +11,7 @@ import httpx
 import numpy as np
 
 from . import variables
-from .config import RETENTION, STEPS
+from .config import STEPS
 from .grid import Field
 from . import mean
 from .sources import NotAvailable, ecmwf, gfs, icon_2i, icon_d2, make_client, run_id
@@ -22,7 +23,7 @@ from .store import Store
 log = logging.getLogger("weathermaps.fetcher")
 
 SOURCES = {src.MODEL.id: src for src in (gfs, ecmwf, icon_2i, wrf, icon_d2, arome, icon_ch2, icon_ch1)}
-# modelli mostrati: le sorgenti più la media (calcolata, non scaricata)
+# modelli mostrati: le sorgenti più la mediana (calcolata, non scaricata)
 MODELS = {**{m.MODEL.id: m.MODEL for m in SOURCES.values()}, mean.MODEL.id: mean.MODEL}
 
 # pausa fra richieste per non stressare i server pubblici
@@ -85,6 +86,43 @@ def _fetch_with_retry(source, client, run: datetime, step: int, var, bbox) -> Fi
     raise RuntimeError("unreachable")
 
 
+def _fetch_field(source, client, run: datetime, step: int, var, bbox) -> Field:
+    """Scarica il campo; con selettori `plus` scarica anche gli altri campi e li somma (es. neve ICON)."""
+    sel = var.selectors[source.MODEL.id]
+    field = _fetch_with_retry(source, client, run, step, var, bbox)
+    for extra in sel.plus:
+        alt = dataclasses.replace(var, selectors={**var.selectors, source.MODEL.id: extra})
+        other = _fetch_with_retry(source, client, run, step, alt, bbox)
+        if other.values.shape != field.values.shape:
+            raise ValueError(f"{source.MODEL.id}: griglie diverse fra {sel.param} e {extra.param}")
+        field.values = (field.values + other.values).astype(np.float32)
+    return field
+
+
+def complete_vars(store: Store, model_id: str, rid: str) -> list[str]:
+    """Grandezze del modello che nella corsa hanno tutti i passi attesi."""
+    return [var.id for var in variables.REGISTRY.values()
+            if model_id in var.selectors and set(steps_for(var, model_id)) <= set(store.steps(model_id, rid, var.id))]
+
+
+def latest_complete(store: Store, model_id: str) -> str | None:
+    """Corsa da mostrare: l'ultima con tutte le grandezze complete. Se nessuna lo è (per esempio una grandezza che
+    la sorgente non fornisce più), l'ultima con almeno una grandezza completa, così il modello non sparisce."""
+    n_vars = sum(model_id in v.selectors for v in variables.REGISTRY.values())
+    runs = store.runs(model_id)
+    full = next((rid for rid in runs if len(complete_vars(store, model_id, rid)) == n_vars), None)
+    return full or next((rid for rid in runs if complete_vars(store, model_id, rid)), None)
+
+
+def runs_to_keep(store: Store, model_id: str, candidates: list[str]) -> set[str]:
+    """Si tiene la corsa da mostrare più le candidate più nuove di lei (ancora in arrivo). Se non c'è nessuna corsa
+    da mostrare non si cancella nulla: meglio dati vecchi che nessun dato se i download falliscono."""
+    current = latest_complete(store, model_id)
+    if current is None:
+        return set(store.runs(model_id))
+    return {current} | {rid for rid in candidates if rid > current}
+
+
 def update_model(model_id: str, store: Store | None = None, now: datetime | None = None) -> dict:
     """Aggiorna le ultime corse di un modello. Idempotente; ritorna un riepilogo."""
     lock = _locks[model_id]
@@ -113,7 +151,8 @@ def _update(model_id: str, store: Store, now: datetime | None) -> dict:
     model = MODELS[model_id]
     summary = {"model": model_id, "downloaded": 0, "errors": 0, "runs": {}}
     with make_client() as client:
-        for run in model.candidate_runs(now, count=RETENTION):
+        candidates = model.candidate_runs(now, count=2)  # la nuova e, se ancora serve, quella prima
+        for run in candidates:
             rid = run_id(run)
             for var in variables.REGISTRY.values():
                 if model_id not in var.selectors:
@@ -122,7 +161,7 @@ def _update(model_id: str, store: Store, now: datetime | None) -> dict:
                 got = 0
                 for step in todo:
                     try:
-                        field = _fetch_with_retry(source, client, run, step, var, store.bbox)
+                        field = _fetch_field(source, client, run, step, var, store.bbox)
                     except NotAvailable:
                         # i passi escono in ordine: i successivi non ci sono ancora
                         break
@@ -138,7 +177,7 @@ def _update(model_id: str, store: Store, now: datetime | None) -> dict:
                     log.info("%s %s %s: scaricati %d passi", model_id, rid, var.id, got)
                 summary["downloaded"] += got
                 summary["runs"][f"{rid}/{var.id}"] = len(store.steps(model_id, rid, var.id))
-    removed = store.purge(model_id, RETENTION)
+    removed = store.purge_superseded(model_id, runs_to_keep(store, model_id, [run_id(r) for r in candidates]))
     if removed:
         log.info("%s: rimosse corse vecchie %s", model_id, removed)
     return summary

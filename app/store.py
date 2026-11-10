@@ -78,10 +78,16 @@ class Store:
 
     # ---- pulizia
     def purge(self, model: str, retention: int) -> list[str]:
+        """Tiene le `retention` corse più recenti."""
+        return self.purge_superseded(model, set(self.runs(model)[:retention]))
+
+    def purge_superseded(self, model: str, keep: set[str]) -> list[str]:
+        """Cancella le corse del modello che non sono in `keep`."""
         removed = []
-        for run in self.runs(model)[retention:]:
-            shutil.rmtree(self.root / model / run, ignore_errors=True)
-            removed.append(run)
+        for run in self.runs(model):
+            if run not in keep:
+                shutil.rmtree(self.root / model / run, ignore_errors=True)
+                removed.append(run)
         return removed
 
     def purge_other_bboxes(self) -> list[str]:

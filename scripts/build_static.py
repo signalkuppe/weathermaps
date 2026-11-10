@@ -58,6 +58,8 @@ def main(out_dir: Path) -> int:
         size += write_json(out_dir / "data" / "runs.json", runs_out)
         for model, items in runs.items():
             for item in items:
+                if item.get("incoming"):  # corsa ancora in arrivo: solo l'avviso, i campi non si pubblicano
+                    continue
                 for var, info in item["variables"].items():
                     for step in info["steps"]:
                         r = client.get("/api/field", params={"model": model, "var": var, "run": item["run"], "step": step})

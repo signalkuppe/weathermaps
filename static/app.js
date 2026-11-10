@@ -8,7 +8,7 @@
     model: $("model"), varSel: $("var"), varRow: $("var-row"), run: $("run"),
     mode: $("mode"), modeRow: $("mode-row"), step: $("step"), prev: $("prev"),
     next: $("next"), play: $("play"), opacity: $("opacity"), crisp: $("crisp"),
-    valid: $("valid"), range: $("range"), status: $("status"), attrib: $("attrib"), base: $("base"), labels: $("labels"), legend: $("legend"),
+    valid: $("valid"), range: $("range"), status: $("status"), attrib: $("attrib"), base: $("base"), iso: $("iso"), isoRow: $("iso-row"), isoText: $("iso-text"), legend: $("legend"),
     probe: $("probe"), panel: $("panel"), collapse: $("collapse"),
     badge: $("badge"), badgeText: $("badge-text"), mPlay: $("m-play"), runAge: $("run-age"),
     runLive: $("run-live"), runLiveText: $("run-live-text"), refresh: $("refresh"), runLiveNote: $("run-live-note"),
@@ -17,14 +17,15 @@
     modelInfo: $("model-info"), modelInfoBtn: $("model-info-btn"),
   };
 
-  // runPinned: la corsa è stata scelta a mano; altrimenti si segue sempre l'ultima disponibile
-  const state = { model: null, var: null, run: null, runPinned: false, step: null, mode: null, opacity: 0.55, crisp: false, base: "osm" };
+  // run: sempre l'ultima corsa completa del modello (non si sceglie più a mano)
+  const state = { model: null, var: null, run: null, step: null, mode: null, opacity: 0.55, crisp: false, iso: true, base: "osm" };
   // "static": sito pubblicato su GitHub Pages (file JSON pre-generati, nessun server)
   const STATIC = document.documentElement.dataset.mode === "static";
   let publishedAt = null; // solo statico: quando sono stati pubblicati i dati
   let meta = null;
   let runs = null;
   let current = null; // risposta /api/field mostrata
+  let currentContour = null; // campo delle linee nelle voci combinate (es. zero termico sopra la pioggia)
   let overlay = null;
   let playTimer = null;
   const cache = new Map();
@@ -52,17 +53,7 @@
       attribution: 'Mappa &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA), dati &copy; OpenStreetMap',
     }),
   };
-  map.createPane("labels");
-  map.getPane("labels").style.zIndex = 450;
-  map.getPane("labels").style.pointerEvents = "none";
-  const labels = L.tileLayer("https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png", {
-    crossOrigin: "anonymous",
-    pane: "labels",
-    subdomains: "abcd",
-    maxZoom: 19,
-    attribution: '&copy; <a href="https://carto.com/attributions">CARTO</a>',
-  });
-  // sfondo ed etichette: dalla sezione "Impostazioni" del pannello (niente selettore livelli di Leaflet)
+  // sfondo: dalla sezione "Impostazioni" del pannello (niente selettore livelli di Leaflet)
   const BASE_NAMES = { topo: "Rilievo", osm: "Strade" };
   const baseCredit = () => (state.base === "topo" ? "© OpenTopoMap, OpenStreetMap" : "© OpenStreetMap");
   function setBase(name) {
@@ -84,10 +75,6 @@
       }),
     );
   }
-  ui.labels.addEventListener("change", () => {
-    if (ui.labels.checked) labels.addTo(map);
-    else map.removeLayer(labels);
-  });
   // attribuzione della mappa sempre nel pannello, nella sezione "Info & crediti" (dove ci sono anche le fonti
   // dei dati dei modelli, in index.html); Leaflet continua ad aggiornarla da solo. Un credito breve, sempre
   // visibile anche a pannello ridotto (obbligatorio), sta in piccolo nella legenda: vedi baseCredit.
@@ -124,13 +111,30 @@
   const fmtUTC = (d) => d.toLocaleString("it-IT", { timeZone: "UTC", hour: "2-digit", minute: "2-digit" });
   const hexToRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
   const variable = () => meta.variables.find((v) => v.id === state.var);
+  // grandezza dei dati (colori, località, passi): per le voci combinate è quella dei colori (es. "tp")
+  const dataVar = () => variable()?.field || state.var;
+  // nome per legenda e testi: per le combinate quello della grandezza dei colori ("Precipitazione")
+  const baseLabel = () => variable().base_label || variable().label;
+  // durata dell'intervallo che finisce al passo mostrato (3h, poi 6h oltre le +144h): sempre scritta, mai "intervallo" e basta
+  const intervalHours = (s = state.step) => {
+    const all = steps();
+    const i = all.indexOf(s);
+    return i > 0 ? s - all[i - 1] : s;
+  };
+  // "in 3h" / "totale" / "" (grandezze istantanee), dopo il nome della grandezza
+  const modePhrase = () => (state.mode === "interval" ? `in ${intervalHours()}h` : state.mode === "total" ? "totale" : "");
+  // voci combinate: cosa sono le linee ("· linee zero termico ogni 250 m"), in legenda e nell'immagine condivisa
+  const isoNote = () => {
+    const c = variable().contour_field && variable().contours;
+    return c && state.iso ? ` · linee ${c.label.toLowerCase()} ogni ${c.step} ${c.units}` : "";
+  };
   // passi del modello scelto: lo slider si ferma all'orizzonte del modello (es. ICON-CH2 a +120h)
   const steps = () => {
     const max = meta.models.find((m) => m.id === state.model)?.max_step ?? Infinity;
     return meta.steps.filter((s) => s <= max);
   };
   const runInfo = () => (runs[state.model] || []).find((r) => r.run === state.run);
-  const availableSteps = () => new Set(runInfo()?.variables[state.var]?.steps || []);
+  const availableSteps = () => new Set(runInfo()?.variables[dataVar()]?.steps || []);
 
   function setStatus(text, warn = false) {
     ui.status.textContent = text || "";
@@ -141,23 +145,22 @@
   function readHash() {
     const p = new URLSearchParams(location.hash.slice(1));
     for (const k of ["model", "var", "mode"]) if (p.get(k)) state[k] = p.get(k);
-    // "corsa" = corsa fissata a mano (il vecchio parametro "run" viene ignorato di proposito)
-    if (p.get("corsa")) { state.run = p.get("corsa"); state.runPinned = true; }
+    // i parametri "corsa"/"run" dei link vecchi si ignorano: si mostra sempre l'ultima corsa completa
     if (p.get("step")) state.step = +p.get("step");
     if (p.get("opacity")) state.opacity = Math.min(1, Math.max(0.1, +p.get("opacity")));
     if (p.get("crisp")) state.crisp = p.get("crisp") === "1";
+    if (p.get("iso")) state.iso = p.get("iso") !== "0";
   }
   function writeHash() {
     const p = new URLSearchParams();
     for (const k of ["model", "var", "step", "mode", "opacity"]) if (state[k] != null) p.set(k, state[k]);
-    // la corsa va nell'URL solo se scelta a mano: un link "normale" mostra sempre l'ultima
-    if (state.runPinned && state.run) p.set("corsa", state.run);
     if (state.crisp) p.set("crisp", "1");
+    if (!state.iso) p.set("iso", "0");
     history.replaceState(null, "", "#" + p.toString());
   }
 
   // ---------- popolamento controlli
-  // bandiere: libreria flag-icons (tutte in formato 4:3, stessa larghezza); per la media un'icona Lucide "layers" (ISC)
+  // bandiere: libreria flag-icons (tutte in formato 4:3, stessa larghezza); per la mediana un'icona Lucide "layers" (ISC)
   const LAYERS_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/></svg>';
   const modelIcon = (m) =>
     m.country ? `<span class="fi fi-${m.country}"></span>` : m.id === "mean" ? LAYERS_ICON : "";
@@ -227,6 +230,7 @@
         const b = document.createElement("button");
         b.type = "button";
         b.textContent = labels[m] || m;
+        b.dataset.mode = m;
         b.setAttribute("aria-pressed", String(m === state.mode));
         b.addEventListener("click", () => { state.mode = m; setupModes(); update(); });
         return b;
@@ -235,72 +239,50 @@
     ui.modeRow.hidden = v.modes.length < 2;
   }
 
+  /** Corsa da mostrare: l'ultima completa (le corse ancora in arrivo non si mostrano). */
   function runList() {
-    return (runs[state.model] || []).filter((r) => r.variables[state.var]);
+    return (runs[state.model] || []).filter((r) => !r.incoming && r.variables[dataVar()]);
   }
+  /** Corsa più nuova ancora in arrivo, solo per l'avviso. */
+  const incomingRun = () => (runs[state.model] || []).find((r) => r.incoming && r.variables[dataVar()]);
 
-  /** Ritorna true se la corsa selezionata è cambiata. */
+  /** Ritorna true se la corsa mostrata è cambiata. */
   function setupRuns() {
     const before = state.run;
-    const list = runList();
-    if (!list.length) {
-      ui.run.replaceChildren(Object.assign(document.createElement("span"), { className: "runs-empty", textContent: "nessuna corsa disponibile" }));
-      state.run = null;
+    const r = runList()[0];
+    state.run = r ? r.run : null;
+    if (!r) {
+      ui.run.textContent = "nessuna corsa disponibile";
       ui.runAge.textContent = "";
-      return before !== state.run;
+    } else {
+      ui.run.innerHTML = `<strong>${cycle(r.run)}</strong> ${fmtRunDay(r.run)}`;
+      ui.run.title = `Corsa delle ${cycle(r.run)} del ${fmtRunDay(r.run)}: l'ultima completa`;
+      const sel = r.variables[dataVar()];
+      // testo corto: la riga "Corsa" sta su una sola riga anche nel pannello stretto; quello lungo nel tooltip
+      const n = sel?.members ? Object.keys(sel.members).length : 0;
+      ui.runAge.textContent = state.model === "mean" && n ? `${n} modelli` : fmtAge(r.run);
+      ui.runAge.title = state.model === "mean" && n ? `Mediana di ${n} modelli` : `Emessa ${fmtAge(r.run)}`;
     }
-    const latest = list[0].run;
-    if (!state.runPinned || !list.find((r) => r.run === state.run)) {
-      state.run = latest;
-      state.runPinned = false;
-    }
-    ui.run.replaceChildren(
-      ...list.map((r) => {
-        const info = r.variables[state.var];
-        const b = document.createElement("button");
-        b.type = "button";
-        b.setAttribute("role", "radio");
-        b.setAttribute("aria-checked", String(r.run === state.run));
-        b.className = "run-btn";
-        const partial = info.complete ? "" : `<em>${info.steps.length}/${steps().length} passi</em>`;
-        const tag = r.run === latest ? '<i class="latest">ultima</i>' : "";
-        b.innerHTML = `<strong>${cycle(r.run)}</strong><small>${fmtRunDay(r.run)}</small>${tag}${partial}`;
-        b.title = `Corsa delle ${cycle(r.run)} del ${fmtRunDay(r.run)}${info.complete ? "" : " (ancora in arrivo)"}`;
-        b.addEventListener("click", () => {
-          state.run = r.run;
-          state.runPinned = r.run !== latest;
-          setupRuns();
-          setupSteps();
-          update();
-        });
-        return b;
-      }),
-    );
-    const sel = list.find((r) => r.run === state.run)?.variables[state.var];
-    ui.runAge.textContent =
-      state.model === "mean" && sel?.members
-        ? `media di ${Object.keys(sel.members).length} modelli`
-        : `emessa ${fmtAge(state.run)}`;
-    renderRunLive(list[0]);
+    renderRunLive(incomingRun());
     return before !== state.run;
   }
 
   // ---------- corsa in arrivo: stato + pulsante "Aggiorna"
   let refreshing = false;
 
-  function renderRunLive(latest) {
-    const info = latest?.variables[state.var];
-    const partial = info && !info.complete;
-    ui.runLive.hidden = !partial && !refreshing;
-    if (partial) ui.runLiveText.textContent = `${cycle(latest.run)} in arrivo · ${info.steps.length}/${steps().length} passi`;
-    else if (latest) ui.runLiveText.textContent = `Corsa ${cycle(latest.run)} completa`;
+  /** Avviso della corsa in arrivo: si mostra quando sarà completa, intanto se ne vede l'avanzamento. */
+  function renderRunLive(incoming) {
+    const info = incoming?.variables[dataVar()];
+    ui.runLive.hidden = !info && !refreshing;
+    if (info) ui.runLiveText.textContent = `${cycle(incoming.run)} in arrivo · ${info.steps.length}/${info.expected ?? steps().length} passi`;
+    else if (state.run) ui.runLiveText.textContent = `Corsa ${cycle(state.run)} aggiornata`;
   }
 
-  /** Passi scaricati dell'ultima corsa del modello, su tutte le grandezze. */
+  /** Corsa mostrata e passi scaricati (anche della corsa in arrivo), su tutte le grandezze. */
   function latestSnapshot(model) {
-    const r = (runs[model] || [])[0];
-    if (!r) return { run: null, n: 0 };
-    return { run: r.run, n: Object.values(r.variables).reduce((a, v) => a + v.steps.length, 0) };
+    const list = runs[model] || [];
+    const n = list.reduce((a, r) => a + Object.values(r.variables).reduce((b, v) => b + v.steps.length, 0), 0);
+    return { run: list.find((r) => !r.incoming)?.run || null, n };
   }
 
   async function doRefresh() {
@@ -332,7 +314,7 @@
       ui.refresh.disabled = false;
       ui.refresh.textContent = "↻ Aggiorna";
       ui.runLiveNote.textContent = note;
-      if (state.model === model) renderRunLive(runList()[0]);
+      if (state.model === model) renderRunLive(incomingRun());
       return;
     }
     try {
@@ -370,7 +352,7 @@
     ui.refresh.disabled = false;
     ui.refresh.textContent = "↻ Aggiorna";
     ui.runLiveNote.textContent = note;
-    if (state.model === model) renderRunLive(runList()[0]);
+    if (state.model === model) renderRunLive(incomingRun());
   }
   ui.refresh.addEventListener("click", doRefresh);
 
@@ -387,7 +369,7 @@
   function renderLegend() {
     const v = variable();
     const { thresholds, colors } = v.scale;
-    const modeLabel = state.mode === "interval" ? "nell'intervallo" : state.mode === "total" ? "totale" : "";
+    const modeLabel = modePhrase();
     const num = (x) => String(x).replace("-", "−");
     const openLow = v.scale.transparent_below == null; // la prima classe include anche i valori più bassi
     const items = thresholds.map((t, i) => {
@@ -399,12 +381,12 @@
       return `<li><i style="background:${colors[i]}"></i><span class="lg-text">${text}</span><span class="lg-tick">${tick}</span></li>`;
     });
     ui.legend.innerHTML =
-      `<h2><span class="lg-label">${v.label} ${modeLabel} </span>(${v.units})</h2><ol>${items.join("")}</ol>` +
+      `<h2><span class="lg-label">${baseLabel()} ${modeLabel} </span>(${v.units})${isoNote()}</h2><ol>${items.join("")}</ol>` +
       `<a class="lg-credit" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">${baseCredit()}</a>`;
   }
 
   // ---------- dati
-  const ctxNow = () => ({ model: state.model, var: state.var, run: state.run });
+  const ctxNow = () => ({ model: state.model, var: dataVar(), run: state.run });
 
   function fieldUrl(step, mode, ctx) {
     if (STATIC) return `data/field/${ctx.model}/${ctx.var}/${ctx.run}/${step}.json`;
@@ -460,7 +442,12 @@
     const s = steps();
     const i = s.indexOf(state.step);
     const avail = availableSteps();
-    for (const j of [i + 1, i - 1, i + 2]) if (s[j] != null && avail.has(s[j])) getField(s[j]).catch(() => {});
+    const cv = variable().contour_field;
+    for (const j of [i + 1, i - 1, i + 2]) {
+      if (s[j] == null || !avail.has(s[j])) continue;
+      getField(s[j]).catch(() => {});
+      if (cv) getField(s[j], "value", { ...ctxNow(), var: cv }).catch(() => {});
+    }
   }
 
   // ---------- rendering
@@ -556,11 +543,196 @@
       overlay.setBounds(bounds);
     }
     overlay.getElement()?.classList.toggle("crisp", state.crisp);
+    drawContours(variable().contour_field ? currentContour : f);
   }
 
   function clearOverlay() {
     if (overlay) { map.removeLayer(overlay); overlay = null; }
+    currentContour = null;
+    drawContours(null);
   }
+
+  // ---------- linee di livello (isoterme a 850 hPa): calcolate qui dal campo, disegnate sopra i colori
+  map.createPane("contours");
+  map.getPane("contours").style.zIndex = 420;
+  map.getPane("contours").style.pointerEvents = "none";
+  map.createPane("contourLabels");
+  map.getPane("contourLabels").style.zIndex = 430;
+  map.getPane("contourLabels").style.pointerEvents = "none";
+  const isoRenderer = L.canvas({ pane: "contours", padding: 0.5 });
+  const isoLines = L.layerGroup().addTo(map);
+  const isoLabels = L.layerGroup().addTo(map);
+  let isoData = []; // [{ level, bold, pts: [[lat, lon], ...] }]
+
+  /** Marching squares: per ogni livello i segmenti nelle celle, poi uniti in linee (aperte o chiuse). */
+  function contourLines(f, levels) {
+    const { lat0, lon0, dlat, dlon, nx, ny } = f.grid;
+    const v = blurred(f.values, nx, ny, Math.min(4, Math.round(0.1 / dlon)));
+    const out = [];
+    for (const lvl of levels) {
+      // i valori arrivano arrotondati (0,1 °C): uno esattamente uguale al livello farebbe linee a gradini lungo
+      // le celle; il livello si sposta di un'inezia così nessun valore lo tocca
+      const L0 = lvl + 1e-4;
+      const pos = new Map(); // id del lato -> [lat, lon] dell'attraversamento
+      const segA = [], segB = [];
+      const cross = (id, ya, xa, va, yb, xb, vb) => {
+        if (!pos.has(id)) {
+          const t = (L0 - va) / (vb - va);
+          pos.set(id, [lat0 + (ya + (yb - ya) * t) * dlat, lon0 + (xa + (xb - xa) * t) * dlon]);
+        }
+        return id;
+      };
+      for (let y = 0; y < ny - 1; y++) {
+        for (let x = 0; x < nx - 1; x++) {
+          const a = v[y * nx + x], b = v[y * nx + x + 1], c = v[(y + 1) * nx + x + 1], d = v[(y + 1) * nx + x];
+          if (a == null || b == null || c == null || d == null) continue;
+          const sa = a >= L0, sb = b >= L0, sc = c >= L0, sd = d >= L0;
+          if (sa === sb && sb === sc && sc === sd) continue;
+          // lati: 0 = a-b (basso), 1 = b-c (destra), 2 = d-c (alto), 3 = a-d (sinistra)
+          const e = [];
+          if (sa !== sb) e[0] = cross((y * nx + x) * 2, y, x, a, y, x + 1, b);
+          if (sb !== sc) e[1] = cross((y * nx + x + 1) * 2 + 1, y, x + 1, b, y + 1, x + 1, c);
+          if (sd !== sc) e[2] = cross(((y + 1) * nx + x) * 2, y + 1, x, d, y + 1, x + 1, c);
+          if (sa !== sd) e[3] = cross((y * nx + x) * 2 + 1, y, x, a, y + 1, x, d);
+          const ids = e.map((id, i) => [i, id]).filter((z) => z[1] !== undefined);
+          if (ids.length === 2) { segA.push(ids[0][1]); segB.push(ids[1][1]); continue; }
+          // sella: decide il valore al centro della cella
+          const center = (a + b + c + d) / 4 >= L0;
+          if (center === sa) { segA.push(e[0], e[2]); segB.push(e[1], e[3]); }
+          else { segA.push(e[0], e[1]); segB.push(e[3], e[2]); }
+        }
+      }
+      // unione dei segmenti che condividono un lato
+      const at = new Map();
+      const link = (id, k) => { const l = at.get(id); if (l) l.push(k); else at.set(id, [k]); };
+      for (let k = 0; k < segA.length; k++) { link(segA[k], k); link(segB[k], k); }
+      const used = new Uint8Array(segA.length);
+      const walk = (start, k0) => {
+        const ids = [];
+        let id = start, k = k0;
+        while (k !== undefined) {
+          used[k] = 1;
+          id = segA[k] === id ? segB[k] : segA[k];
+          ids.push(id);
+          k = (at.get(id) || []).find((j) => !used[j]);
+        }
+        return ids;
+      };
+      for (let k = 0; k < segA.length; k++) {
+        if (used[k]) continue;
+        used[k] = 1;
+        const fwd = (() => { const n = (at.get(segB[k]) || []).find((j) => !used[j]); return n === undefined ? [] : walk(segB[k], n); })();
+        const back = (() => { const n = (at.get(segA[k]) || []).find((j) => !used[j]); return n === undefined ? [] : walk(segA[k], n); })();
+        const ids = [...back.reverse(), segA[k], segB[k], ...fwd];
+        const closed = ids[0] === ids[ids.length - 1];
+        if (ids.length < (closed ? 12 : 4)) continue; // frammenti e anelli minuscoli: solo rumore
+        out.push({ level: lvl, pts: smooth(ids.map((id) => pos.get(id)), closed) });
+      }
+    }
+    return out;
+  }
+
+  /** Media mobile 3×3 ripetuta `passes` volte (solo per le linee, i colori restano quelli del campo): sulle griglie
+   *  fini (ICON 2 km) le isoterme seguono ogni valle e diventano tanti anellini; così somigliano alle carte classiche. */
+  function blurred(vals, nx, ny, passes) {
+    let a = vals;
+    for (let it = 0; it < passes; it++) {
+      const b = new Array(a.length);
+      for (let y = 0; y < ny; y++) {
+        for (let x = 0; x < nx; x++) {
+          if (a[y * nx + x] == null) { b[y * nx + x] = null; continue; }
+          let sum = 0, n = 0;
+          for (let dy = -1; dy <= 1; dy++) {
+            const yy = y + dy;
+            if (yy < 0 || yy >= ny) continue;
+            for (let dx = -1; dx <= 1; dx++) {
+              const xx = x + dx;
+              if (xx < 0 || xx >= nx) continue;
+              const w = a[yy * nx + xx];
+              if (w != null) { sum += w; n++; }
+            }
+          }
+          b[y * nx + x] = sum / n;
+        }
+      }
+      a = b;
+    }
+    return a;
+  }
+
+  /** Arrotonda gli spigoli (Chaikin, due passate): le griglie larghe (GFS 0,25°) non fanno linee a scalini. */
+  function smooth(pts, closed) {
+    let p = pts;
+    for (let it = 0; it < 2 && p.length > 2; it++) {
+      const q = closed ? [] : [p[0]];
+      const n = p.length - 1;
+      for (let i = 0; i < n; i++) {
+        const [a, b] = [p[i], p[i + 1]];
+        q.push([0.75 * a[0] + 0.25 * b[0], 0.75 * a[1] + 0.25 * b[1]], [0.25 * a[0] + 0.75 * b[0], 0.25 * a[1] + 0.75 * b[1]]);
+      }
+      if (closed) q.push(q[0]); else q.push(p[n]);
+      p = q;
+    }
+    return p;
+  }
+
+  function drawContours(f) {
+    isoLines.clearLayers();
+    isoLabels.clearLayers();
+    isoData = [];
+    const cfg = variable()?.contours;
+    ui.isoRow.hidden = !cfg;
+    if (cfg) ui.isoText.textContent = `${cfg.label} (ogni ${cfg.step} ${cfg.units || variable().units})`;
+    if (!f || !cfg || !state.iso) return;
+    let lo = Infinity, hi = -Infinity;
+    for (const x of f.values) if (x != null) { if (x < lo) lo = x; if (x > hi) hi = x; }
+    if (!(hi > lo)) return;
+    const levels = [];
+    for (let l = Math.ceil(lo / cfg.step) * cfg.step; l <= hi; l += cfg.step) levels.push(+l.toFixed(6));
+    const bold = new Set(cfg.bold || []);
+    isoData = contourLines(f, levels).map((c) => ({ ...c, bold: bold.has(c.level) }));
+    for (const c of isoData) {
+      L.polyline(c.pts, {
+        renderer: isoRenderer, interactive: false, smoothFactor: 0.5,
+        color: "#1f2328", weight: c.bold ? 2 : 0.9, opacity: c.bold ? 0.85 : 0.55,
+      }).addTo(isoLines);
+    }
+    placeContourLabels();
+  }
+
+  /** Etichette lungo le linee, a distanza fissa in pixel (si ricalcolano allo zoom), senza sovrapporsi. */
+  function placeContourLabels() {
+    isoLabels.clearLayers();
+    if (!isoData.length) return;
+    const FIRST = 90, EVERY = 320, CELL = 46;
+    const taken = new Set();
+    const free = (p) => {
+      const cx = Math.floor(p.x / CELL), cy = Math.floor(p.y / CELL);
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) if (taken.has(`${cx + dx},${cy + dy}`)) return false;
+      taken.add(`${cx},${cy}`);
+      return true;
+    };
+    const signed = !!variable()?.contours?.signed;
+    const fmt = (l) => (signed && l > 0 ? `+${l}` : `${l}`).replace("-", "−");
+    // prima le linee in evidenza, poi le più lunghe
+    const order = [...isoData].sort((a, b) => (b.bold - a.bold) || (b.pts.length - a.pts.length));
+    for (const c of order) {
+      let dist = 0, next = FIRST, prev = null;
+      for (const ll of c.pts) {
+        const p = map.latLngToLayerPoint(ll);
+        if (prev) dist += p.distanceTo(prev);
+        prev = p;
+        if (dist < next) continue;
+        next = dist + EVERY;
+        if (!free(p)) continue;
+        L.marker(ll, {
+          pane: "contourLabels", interactive: false, keyboard: false,
+          icon: L.divIcon({ className: `iso-lbl${c.bold ? " iso-bold" : ""}`, html: `<span>${fmt(c.level)}</span>`, iconSize: null }),
+        }).addTo(isoLabels);
+      }
+    }
+  }
+  map.on("zoomend", placeContourLabels);
 
   function renderTime() {
     const s = state.step;
@@ -582,7 +754,10 @@
     const i = steps().indexOf(s);
     const prev = i > 0 ? steps()[i - 1] : 0;
     const utc = `${fmtUTC(valid)} UTC`;
-    if (state.mode === "interval") ui.range.textContent = `${utc} · pioggia fra +${prev}h e +${s}h (${s - prev}h)`;
+    // il pulsante dice quanto è lungo l'intervallo al passo mostrato ("Intervallo 3h")
+    const ib = ui.mode.querySelector('[data-mode="interval"]');
+    if (ib) ib.textContent = `Intervallo ${intervalHours(s)}h`;
+    if (state.mode === "interval") ui.range.textContent = `${utc} · ${baseLabel().toLowerCase()} fra +${prev}h e +${s}h (${s - prev}h)`;
     else if (state.mode === "total") ui.range.textContent = `${utc} · accumulo da +0h a +${s}h`;
     else ui.range.textContent = utc;
   }
@@ -601,15 +776,21 @@
     const my = ++seq;
     setStatus("Caricamento…");
     try {
-      const f = await getField(state.step);
+      // voci combinate: anche il campo delle linee, alla stessa ora (se manca, solo i colori)
+      const cv = variable().contour_field;
+      const [f, cf] = await Promise.all([
+        getField(state.step),
+        cv ? getField(state.step, "value", { ...ctxNow(), var: cv }).catch(() => null) : null,
+      ]);
       if (my !== seq) return;
       current = f;
+      currentContour = cf;
       draw(f);
       renderPoints();
       let text = "";
       if (f.members && f.member_runs) {
         const names = f.members.map((id) => `${shortLabel(id)} ${cycle(f.member_runs[id])}`).join(", ");
-        text = `Media di ${f.members.length}: ${names}`;
+        text = `Mediana di ${f.members.length}: ${names}`;
       }
       setStatus(text);
       prefetch();
@@ -662,6 +843,7 @@
 
   /** Ricostruisce marcatori ed elenco da `places` (dopo ogni aggiunta, modifica o eliminazione). */
   function setupPoints() {
+    closePlacePop(); // gli indici possono cambiare (eliminazione)
     for (const m of pointMarkers) m.remove();
     pointMarkers.length = 0;
     pointRows.length = 0;
@@ -674,7 +856,7 @@
         iconAnchor: [11, 11],
       });
       const m = L.marker([p.lat, p.lon], { icon, keyboard: false, riseOnHover: true })
-        .bindTooltip(p.name, { direction: "top", offset: [0, -12] })
+        .on("click", (e) => { L.DomEvent.stopPropagation(e); openPlacePop(idx); })
         .addTo(map);
       pointMarkers.push(m);
 
@@ -689,7 +871,7 @@
         input.setAttribute("aria-label", `Nome di ${p.name}`);
         input.addEventListener("change", () => {
           const name = input.value.trim();
-          if (name) { p.name = name; savePlaces(); m.setTooltipContent(name); } else input.value = p.name;
+          if (name) { p.name = name; savePlaces(); } else input.value = p.name;
         });
         li.querySelector(".pt-name").replaceWith(input);
         const del = document.createElement("button");
@@ -709,9 +891,7 @@
       } else {
         li.querySelector(".pt-name").textContent = p.name;
         li.title = `Centra la mappa su ${p.name}`;
-        li.addEventListener("click", () => map.panTo([p.lat, p.lon]));
-        li.addEventListener("mouseenter", () => m.openTooltip());
-        li.addEventListener("mouseleave", () => m.closeTooltip());
+        li.addEventListener("click", () => { map.panTo([p.lat, p.lon]); openPlacePop(idx); });
       }
       ui.points.append(li);
       pointRows.push(li);
@@ -742,6 +922,27 @@
   // Il testo cercato va al servizio esterno photon.komoot.io; nient'altro esce dal browser.
   let searchTimer = null;
   let searchCtl = null;
+  // la lista dei risultati sta fuori dal pannello (che scorre e la taglierebbe): in body, posizione fissa sotto il
+  // campo di ricerca (sopra se sotto non c'è posto), alta al massimo quanto lo spazio libero nella finestra
+  document.body.append(ui.placeResults);
+  function placeResults() {
+    if (ui.placeResults.hidden) return;
+    const r = ui.placeQ.getBoundingClientRect();
+    const M = 8, GAP = 4;
+    const below = window.innerHeight - r.bottom - GAP - M;
+    const above = r.top - GAP - M;
+    const down = below >= 160 || below >= above;
+    const el = ui.placeResults;
+    el.style.left = `${Math.max(M, r.left)}px`;
+    el.style.width = `${Math.min(r.width, window.innerWidth - 2 * M)}px`;
+    el.style.maxHeight = `${Math.max(80, Math.min(down ? below : above, 440))}px`; // 8 risultati senza scorrere
+    el.style.top = down ? `${r.bottom + GAP}px` : "";
+    el.style.bottom = down ? "" : `${window.innerHeight - r.top + GAP}px`;
+  }
+  window.addEventListener("resize", placeResults);
+  ui.placeQ.closest(".panel-body")?.addEventListener("scroll", placeResults);
+  window.visualViewport?.addEventListener("resize", placeResults); // tastiera del telefono
+
   function hideResults() {
     ui.placeResults.hidden = true;
     ui.placeResults.replaceChildren();
@@ -783,10 +984,12 @@
         }));
       }
       ui.placeResults.hidden = false;
+      placeResults();
     } catch (e) {
       if (e.name === "AbortError") return;
       ui.placeResults.innerHTML = `<li class="place-none">Ricerca non riuscita, riprova più tardi</li>`;
       ui.placeResults.hidden = false;
+      placeResults();
     }
   }
   ui.placeQ.addEventListener("input", () => {
@@ -799,7 +1002,7 @@
     if (e.key === "Escape") { ui.placeQ.value = ""; hideResults(); }
     if (e.key === "ArrowDown") { e.preventDefault(); ui.placeResults.querySelector("li[role=option]")?.focus(); }
   });
-  document.addEventListener("click", (e) => { if (!e.target.closest(".places-search")) hideResults(); });
+  document.addEventListener("click", (e) => { if (!e.target.closest(".places-search, .place-results")) hideResults(); });
 
   function renderPoints() {
     const pts = places;
@@ -812,7 +1015,8 @@
       const c = v == null ? null : color(v);
       const el = pointMarkers[i].getElement();
       if (el) {
-        el.querySelector(".pt-val").textContent = text;
+        // sulla mappa col simbolo attaccato (2575m, 8.2°C): compatto ma senza ambiguità
+        el.querySelector(".pt-val").textContent = v == null ? text : `${text}${current.units}`;
         el.querySelector(".pt-num").style.background = c ? `rgb(${c.join(",")})` : "";
         el.classList.toggle("pt-dark", !!c && c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114 < 140);
       }
@@ -842,7 +1046,127 @@
       pointMarkers[i].setZIndexOffset((order.length - pos) * 10);
     });
     ui.points.append(...order.map((i) => pointRows[i]));
+    pointOrder = order;
+    placePointLabels();
+    renderPlacePop();
   }
+
+  // ---------- riquadro della località (click sul cerchio o sulla riga dell'elenco): nome, valori, classifica, ora.
+  // Uno solo alla volta; sopra il cerchio, sotto se in alto non c'è posto, sempre dentro la finestra.
+  const pop = document.createElement("div");
+  pop.className = "pt-pop";
+  pop.hidden = true;
+  pop.setAttribute("role", "dialog");
+  document.body.append(pop);
+  let popIdx = null;
+  const POP_MARGIN = 8; // distanza minima dai bordi della finestra
+  const POP_GAP = 16; // distanza dal centro del cerchio alla punta della freccia
+
+  function openPlacePop(idx) {
+    popIdx = idx;
+    ui.probe.hidden = true; // col riquadro aperto niente tooltip del mouse
+    renderPlacePop();
+  }
+  function closePlacePop() {
+    popIdx = null;
+    pop.hidden = true;
+    markPoppedPoint();
+  }
+  // l'etichetta bianca della località col riquadro aperto si nasconde (stesso valore, sarebbe un doppione)
+  function markPoppedPoint() {
+    pointMarkers.forEach((m, i) => m.getElement()?.classList.toggle("pt-popped", i === popIdx));
+  }
+
+  function renderPlacePop() {
+    const p = places[popIdx];
+    if (popIdx == null || !p || !meta || !variable()) { closePlacePop(); return; }
+    const v = variable();
+    const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+    const val = current ? valueAt(current, p.lat, p.lon) : null;
+    const modeLabel = modePhrase() ? ` ${modePhrase()}` : "";
+    const rows = [[`${baseLabel()}${modeLabel}`, val == null ? "—" : `${val.toFixed(v.decimals)} ${current.units}`]];
+    if (v.contour_field && currentContour) {
+      const z = valueAt(currentContour, p.lat, p.lon);
+      rows.push([v.contours.label, z == null ? "—" : `${Math.round(z)} ${currentContour.units}`]);
+    }
+    const foot = state.run && state.step != null ? fmtLocal(new Date(runDate(state.run).getTime() + state.step * 3600e3)) : "";
+    pop.innerHTML =
+      `<div class="pt-pop-head"><strong>${esc(p.name)}</strong>` +
+      `<button type="button" class="pt-pop-close" aria-label="Chiudi"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>` +
+      rows.map(([k, x]) => `<div class="pt-pop-row"><span>${esc(k)}</span><b>${esc(x)}</b></div>`).join("") +
+      (foot ? `<div class="pt-pop-foot">${esc(foot)}</div>` : "") +
+      `<i class="pt-pop-arrow"></i>`;
+    pop.querySelector(".pt-pop-close").addEventListener("click", closePlacePop);
+    pop.hidden = false;
+    markPoppedPoint();
+    placePlacePop();
+  }
+
+  /** Posizione: centrata sul cerchio, sopra (o sotto), spostata di lato quanto serve per restare nella finestra. */
+  function placePlacePop() {
+    if (popIdx == null || pop.hidden) return;
+    const m = pointMarkers[popIdx];
+    if (!m) { closePlacePop(); return; }
+    const mr = map.getContainer().getBoundingClientRect();
+    const c = map.latLngToContainerPoint(m.getLatLng());
+    const x = mr.left + c.x, y = mr.top + c.y;
+    const W = window.innerWidth, H = window.innerHeight;
+    // cerchio fuori dalla finestra: niente riquadro appeso al nulla
+    if (x < 0 || x > W || y < 0 || y > H) { pop.style.visibility = "hidden"; return; }
+    pop.style.visibility = "";
+    const w = pop.offsetWidth, h = pop.offsetHeight;
+    const below = y - POP_GAP - h < POP_MARGIN && y + POP_GAP + h <= H - POP_MARGIN;
+    let top = below ? y + POP_GAP : y - POP_GAP - h;
+    top = Math.min(Math.max(top, POP_MARGIN), H - POP_MARGIN - h);
+    const left = Math.min(Math.max(x - w / 2, POP_MARGIN), Math.max(POP_MARGIN, W - POP_MARGIN - w));
+    pop.style.left = `${left}px`;
+    pop.style.top = `${top}px`;
+    pop.classList.toggle("below", below);
+    // la freccia resta sul cerchio anche quando il riquadro è spostato di lato
+    pop.querySelector(".pt-pop-arrow").style.left = `${Math.min(Math.max(x - left, 12), w - 12)}px`;
+  }
+  map.on("move zoom", placePlacePop);
+  map.on("click", closePlacePop);
+  window.addEventListener("resize", placePlacePop);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePlacePop(); });
+
+  // ---------- posizione delle etichette delle località: a destra se c'è posto, se no a sinistra, sopra o sotto;
+  // se nessun lato è libero il valore si nasconde (resta il numero; il valore è nell'elenco e nel tooltip).
+  // Si sceglie in ordine di classifica: i primi hanno la precedenza.
+  let pointOrder = [];
+  const PT_SIDES = ["right", "left", "above", "below"];
+  const PT_R = 12; // raggio del cerchio (con il bordo)
+  const PT_GAP = 18; // distanza dell'etichetta dal centro (come nel CSS: 29px dal bordo del marcatore di 22px)
+  function placePointLabels() {
+    const overlaps = (a, b) => a.x1 < b.x2 && b.x1 < a.x2 && a.y1 < b.y2 && b.y1 < a.y2;
+    const items = pointMarkers.map((m) => {
+      const el = m.getElement();
+      if (!el) return null;
+      el.classList.remove("pt-noval"); // per misurare l'etichetta deve essere visibile
+      const c = map.latLngToContainerPoint(m.getLatLng());
+      const val = el.querySelector(".pt-val");
+      return { el, c, w: val.offsetWidth, h: val.offsetHeight };
+    });
+    // ostacoli: tutti i cerchi, poi via via le etichette già sistemate
+    const taken = items.filter(Boolean).map(({ c }) => ({ x1: c.x - PT_R, x2: c.x + PT_R, y1: c.y - PT_R, y2: c.y + PT_R }));
+    const order = pointOrder.length === items.length ? pointOrder : items.map((_, i) => i);
+    for (const i of order) {
+      const it = items[i];
+      if (!it) continue;
+      const { c, w, h } = it;
+      const box = {
+        right: { x1: c.x + PT_GAP, x2: c.x + PT_GAP + w, y1: c.y - h / 2, y2: c.y + h / 2 },
+        left: { x1: c.x - PT_GAP - w, x2: c.x - PT_GAP, y1: c.y - h / 2, y2: c.y + h / 2 },
+        above: { x1: c.x - w / 2, x2: c.x + w / 2, y1: c.y - PT_GAP - h, y2: c.y - PT_GAP },
+        below: { x1: c.x - w / 2, x2: c.x + w / 2, y1: c.y + PT_GAP, y2: c.y + PT_GAP + h },
+      };
+      const side = PT_SIDES.find((k) => !taken.some((t) => overlaps(box[k], t)));
+      for (const k of PT_SIDES) it.el.classList.toggle(`pt-${k}`, k === (side || "right"));
+      it.el.classList.toggle("pt-noval", !side);
+      if (side) taken.push(box[side]);
+    }
+  }
+  map.on("zoomend", placePointLabels);
 
   // ---------- condivisione: immagine della mappa che si sta guardando
   const shareUi = {
@@ -851,15 +1175,6 @@
     zoomIn: $("share-zoom-in"), zoomOut: $("share-zoom-out"), ratio: $("share-ratio"),
   };
   let shareFile = null;
-  let shareText = "";
-
-  /** Link alla stessa vista, con la corsa fissata (chi lo apre vede proprio questa corsa). */
-  function shareUrl() {
-    const p = new URLSearchParams();
-    for (const k of ["model", "var", "step", "mode"]) if (state[k] != null) p.set(k, state[k]);
-    if (state.run) p.set("corsa", state.run);
-    return `${location.origin}${location.pathname}#${p}`;
-  }
 
   function roundRect(ctx, x, y, w, h, r) {
     ctx.beginPath();
@@ -930,7 +1245,26 @@
       drawImg(overlay.getElement(), state.opacity);
       ctx.imageSmoothingEnabled = true;
     }
-    if (map.hasLayer(labels)) drawTiles(map.getPane("labels"));
+    // isoterme: il canvas delle linee e le etichette (testo con alone bianco, come sullo schermo)
+    const isoCanvas = map.getPane("contours").querySelector("canvas");
+    if (isoCanvas && isoData.length) {
+      const r = isoCanvas.getBoundingClientRect();
+      ctx.drawImage(isoCanvas, r.left - cr.left, r.top - cr.top, r.width, r.height);
+    }
+    for (const el of map.getPane("contourLabels").querySelectorAll(".iso-lbl span")) {
+      const r = el.getBoundingClientRect();
+      const cs = getComputedStyle(el);
+      ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const x = r.left - cr.left + r.width / 2, y = r.top - cr.top + r.height / 2;
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "rgba(255,255,255,0.9)";
+      ctx.lineJoin = "round";
+      ctx.strokeText(el.textContent, x, y);
+      ctx.fillStyle = cs.color;
+      ctx.fillText(el.textContent, x, y);
+    }
     // punti: centro del cerchio e posizione del valore rispetto al centro (come sullo schermo)
     const points = [];
     for (const m of pointMarkers) {
@@ -940,32 +1274,33 @@
       const val = el.querySelector(".pt-val");
       const nr = num.getBoundingClientRect();
       const vr = val.getBoundingClientRect();
+      const hidden = el.classList.contains("pt-noval") || el.classList.contains("pt-popped");
       const x = nr.left - cr.left + nr.width / 2;
       const y = nr.top - cr.top + nr.height / 2;
       const cs = getComputedStyle(num);
       points.push({
-        x, y, num: num.textContent, val: val.textContent, bg: cs.backgroundColor || "#fff", fg: cs.color,
+        side: PT_SIDES.find((k) => el.classList.contains(`pt-${k}`)) || "right",
+        x, y, num: num.textContent, val: hidden ? "" : val.textContent, bg: cs.backgroundColor || "#fff", fg: cs.color,
         dx: vr.left - cr.left - x, dy: vr.top - cr.top - y, w: vr.width, h: vr.height,
       });
     }
     return { canvas, W, H, scale, points };
   }
 
-  /** Testi dell'immagine e del messaggio, calcolati una volta all'apertura. */
+  /** Testi dell'immagine e nome del file, calcolati una volta all'apertura. */
   function shareTexts() {
     const v = variable();
     const s = state.step;
     const valid = new Date(runDate(state.run).getTime() + s * 3600e3);
-    const modeText = state.mode === "interval" ? ` nell'intervallo +${current?.prev_step ?? 0}h → +${s}h` : state.mode === "total" ? " totale" : "";
+    const modeText = state.mode === "interval" ? ` in ${intervalHours(s)}h (+${s - intervalHours(s)}h → +${s}h)` : state.mode === "total" ? " totale" : "";
     const runText = state.model === "mean" ? `dalle ${cycle(state.run)} ${fmtRunDay(state.run)}` : `corsa ${cycle(state.run)} ${fmtRunDay(state.run)}`;
     const baseAttr = map.hasLayer(bases.topo) ? "Mappa © OpenTopoMap (CC-BY-SA), dati © OpenStreetMap" : "Mappa © OpenStreetMap contributors";
     return {
       v,
       title: `${modelLabel()} · ${runText}`,
-      sub: `${v.label}${modeText} (${v.units}) · +${s}h · ${fmtLocal(valid)}`,
+      sub: `${baseLabel()}${modeText} (${v.units})${isoNote()} · +${s}h · ${fmtLocal(valid)}`,
       // l'attribuzione di OpenStreetMap è obbligatoria anche sulle immagini
       attr: `${baseAttr} · Dati: NOAA, ECMWF, ItaliaMeteo, CIMA, LaMMA, DWD, Météo-France, MeteoSvizzera · ${location.host}${location.pathname}`,
-      message: `${modelLabel()} ${runText}: ${v.label.toLowerCase()}${modeText}, +${s}h (${fmtLocal(valid)})\n${shareUrl()}`,
       name: `weathermaps-${state.model}-${state.var}-${state.run}-${String(s).padStart(3, "0")}.jpg`,
     };
   }
@@ -1038,15 +1373,29 @@
       if (px < -40 || px > OW + 40 || py < -40 || py > OH + 40) continue;
       const vx = px + p.dx * k;
       const vy = py + p.dy * k;
-      ctx.fillStyle = "rgba(0,0,0,0.25)";
-      roundRect(ctx, vx, vy + 1.5, p.w * k, p.h * k, 5);
-      ctx.fill();
-      ctx.fillStyle = "rgba(255,255,255,0.95)";
-      roundRect(ctx, vx, vy, p.w * k, p.h * k, 5);
-      ctx.fill();
-      ctx.fillStyle = "#1d2330";
-      ctx.font = `600 ${12 * k}px ${FONT}`;
-      ctx.fillText(p.val, vx + (p.w * k) / 2, vy + (p.h * k) / 2 + 1);
+      if (p.val) {
+        ctx.fillStyle = "rgba(0,0,0,0.25)";
+        roundRect(ctx, vx, vy + 1.5, p.w * k, p.h * k, 5);
+        ctx.fill();
+        ctx.fillStyle = "rgba(255,255,255,0.95)";
+        roundRect(ctx, vx, vy, p.w * k, p.h * k, 5);
+        ctx.fill();
+        // triangolino verso il cerchio (come sullo schermo)
+        const t = 5 * k, w = p.w * k, h = p.h * k;
+        const tri = {
+          right: [[vx, vy + h / 2 - t], [vx - t, vy + h / 2], [vx, vy + h / 2 + t]],
+          left: [[vx + w, vy + h / 2 - t], [vx + w + t, vy + h / 2], [vx + w, vy + h / 2 + t]],
+          above: [[vx + w / 2 - t, vy + h], [vx + w / 2, vy + h + t], [vx + w / 2 + t, vy + h]],
+          below: [[vx + w / 2 - t, vy], [vx + w / 2, vy - t], [vx + w / 2 + t, vy]],
+        }[p.side];
+        ctx.beginPath();
+        ctx.moveTo(...tri[0]); ctx.lineTo(...tri[1]); ctx.lineTo(...tri[2]);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = "#1d2330";
+        ctx.font = `600 ${11 * k}px ${FONT}`;
+        ctx.fillText(p.val, vx + (p.w * k) / 2, vy + (p.h * k) / 2 + 1);
+      }
       ctx.beginPath();
       ctx.arc(px, py, 11 * k, 0, Math.PI * 2);
       ctx.fillStyle = p.bg;
@@ -1096,6 +1445,16 @@
       ctx.textAlign = i === 0 ? "left" : "center";
       if (!(i === 0 && texts.v.scale.transparent_below == null)) ctx.fillText(String(t).replace("-", "−"), lx + i * cw, ly + 36);
     });
+    // autore in basso a destra, sulla riga della legenda (la barra arriva al massimo a ~900 px)
+    ctx.textAlign = "right";
+    ctx.font = `700 15px ${FONT}`;
+    ctx.fillStyle = "#1d2330";
+    const site = "signalkuppe.com";
+    ctx.fillText(site, OW - 24, ly + 13);
+    const siteW = ctx.measureText(site).width;
+    ctx.font = `400 15px ${FONT}`;
+    ctx.fillStyle = "#5d6677";
+    ctx.fillText("Realizzato da ", OW - 24 - siteW, ly + 13);
     ctx.textAlign = "left";
     ctx.font = `400 13px ${FONT}`;
     ctx.fillStyle = "#5d6677";
@@ -1172,7 +1531,6 @@
   function openShare() {
     crop.snap = snapshotMap();
     crop.texts = shareTexts();
-    shareText = crop.texts.message;
     // all'apertura il riquadro più grande che sta nella mappa, centrato (la proporzione resta l'ultima scelta)
     [outCanvas.width, outCanvas.height] = RATIOS[crop.ratio];
     crop.w = maxCropW();
@@ -1275,10 +1633,11 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
 
-  /** Condivisione nativa (telefono: menu con WhatsApp); altrimenti scarica e apre WhatsApp con il link. */
+  /** Condivisione nativa del solo file (telefono: menu con WhatsApp e altre app); altrimenti lo scarica. */
   async function sendShare() {
     await readyShareFile();
-    const data = { files: [shareFile], text: shareText, title: "Weathermaps" };
+    // solo l'immagine, senza testo né link: modello, corsa e istante sono già scritti sopra
+    const data = { files: [shareFile] };
     if (navigator.canShare?.(data)) {
       try {
         await navigator.share(data);
@@ -1289,9 +1648,9 @@
         return false; // gesto scaduto: si riprova dal pulsante dell'anteprima
       }
     }
+    // browser senza condivisione di file (soprattutto desktop): si scarica l'immagine
     await downloadShareFile();
-    window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`, "_blank", "noopener");
-    toast("Immagine scaricata: allegala al messaggio WhatsApp che si è appena aperto.");
+    toast("Immagine scaricata: allegala dove vuoi condividerla.");
     return true;
   }
 
@@ -1320,7 +1679,8 @@
 
   // ---------- tooltip puntuale (griglia nativa, nearest neighbour)
   map.on("mousemove", (e) => {
-    if (!current) { ui.probe.hidden = true; return; }
+    // sopra una località (o col suo riquadro aperto lì) basta il riquadro nero: un solo tooltip alla volta
+    if (!current || popIdx != null || e.originalEvent?.target?.closest?.(".pt, .pt-pop")) { ui.probe.hidden = true; return; }
     const { lat0, lon0, dlat, dlon, nx, ny } = current.grid;
     const ix = Math.round((e.latlng.lng - lon0) / dlon);
     const iy = Math.round((e.latlng.lat - lat0) / dlat);
@@ -1330,10 +1690,21 @@
       const v = current.values[iy * nx + ix];
       text = v == null ? "—" : `<b>${v.toFixed(variable().decimals)}</b> ${current.units}`;
     }
-    ui.probe.innerHTML = `${text} <span style="opacity:.7">${e.latlng.lat.toFixed(2)}N ${e.latlng.lng.toFixed(2)}E</span>`;
-    ui.probe.style.left = `${e.containerPoint.x}px`;
-    ui.probe.style.top = `${e.containerPoint.y}px`;
+    if (currentContour) {
+      const z = valueAt(currentContour, e.latlng.lat, e.latlng.lng);
+      if (z != null) text += ` · ${variable().contours.label.toLowerCase()} <b>${Math.round(z)}</b> ${currentContour.units}`;
+    }
+    ui.probe.innerHTML = text;
+    // a destra del mouse, a sinistra se non ci sta; sempre dentro la finestra (8px dai bordi)
     ui.probe.hidden = false;
+    const W = map.getContainer().clientWidth, H = map.getContainer().clientHeight;
+    const w = ui.probe.offsetWidth, h = ui.probe.offsetHeight, { x, y } = e.containerPoint;
+    let left = x + 14;
+    if (left + w > W - 8) left = x - 14 - w;
+    left = Math.min(Math.max(left, 8), Math.max(8, W - 8 - w));
+    const top = Math.min(Math.max(y - h / 2, 8), Math.max(8, H - 8 - h));
+    ui.probe.style.left = `${left}px`;
+    ui.probe.style.top = `${top}px`;
   });
   map.on("mouseout", () => { ui.probe.hidden = true; });
 
@@ -1405,7 +1776,8 @@
     writeHash();
   });
   ui.crisp.addEventListener("change", () => { state.crisp = ui.crisp.checked; if (current) draw(current); writeHash(); });
-  ui.model.addEventListener("change", () => { state.model = ui.model.value; state.runPinned = false; renderModelInfo(); setupRuns(); setupSteps(); update(); });
+  ui.iso.addEventListener("change", () => { state.iso = ui.iso.checked; drawContours(variable().contour_field ? currentContour : current); renderLegend(); writeHash(); });
+  ui.model.addEventListener("change", () => { state.model = ui.model.value; renderModelInfo(); setupRuns(); setupSteps(); update(); });
   ui.varSel.addEventListener("change", () => { state.var = ui.varSel.value; setupModels(); setupModes(); setupRuns(); setupSteps(); update(); });
   ui.collapse.addEventListener("click", () => {
     const c = ui.panel.classList.toggle("collapsed");
@@ -1461,6 +1833,7 @@
 
     ui.opacity.value = state.opacity;
     ui.crisp.checked = state.crisp;
+    ui.iso.checked = state.iso;
     setupVars();
     // su schermi stretti l'elenco delle località parte chiuso per non coprire la mappa
     if (mobileMq.matches) ui.pointsBox.open = false;
@@ -1475,7 +1848,7 @@
     setInterval(async () => {
       try {
         await refreshRuns();
-        const changed = setupRuns(); // se non è fissata a mano, passa da sola all'ultima corsa
+        const changed = setupRuns(); // passa da sola alla nuova corsa quando è completa
         if (changed) setupSteps();
         if (changed || !current) update();
       } catch { /* offline: riprova al prossimo giro */ }

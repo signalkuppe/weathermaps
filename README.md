@@ -1,6 +1,6 @@
 # Weathermaps
 
-Mappe delle precipitazioni e della temperatura a 850 hPa previste da otto modelli sul Nord Italia, sopra OpenStreetMap / OpenTopoMap (all'avvio sempre la mappa con il rilievo):
+Mappe di precipitazione, temperatura a 850 hPa, neve e zero termico previste da otto modelli sul Nord Italia, sopra OpenStreetMap / OpenTopoMap (all'avvio sempre la mappa con il rilievo):
 
 | Modello | Fonte | Risoluzione | Orizzonte | Corse |
 |---|---|---|---|---|
@@ -9,16 +9,37 @@ Mappe delle precipitazioni e della temperatura a 850 hPa previste da otto modell
 | ICON-2I | ItaliaMeteo (MeteoHub) | 2.2 km | +72h | 00/12 |
 | WRF | ItaliaMeteo, CIMA, LaMMA (MeteoHub) | 1.5 km | +72h | 00/12 |
 | ICON-D2 | DWD Open Data | 2.2 km | +48h | ogni 3 ore |
-| AROME (solo precipitazione) | Météo-France Open Data | 0.025° (~2.5 km) | +51h | ogni 3 ore |
+| AROME | Météo-France Open Data | 0.025° (~2.5 km) | +51h | ogni 3 ore |
 | ICON-CH2-EPS (controllo) | MeteoSvizzera | ~2 km | +120h | ogni 6 ore |
 | ICON-CH1-EPS (controllo) | MeteoSvizzera | ~1 km | +33h | ogni 3 ore |
-| **Media modelli** | calcolata | ~2 km | fino a +192h | — |
+| **Mediana modelli** | calcolata | ~2 km | fino a +192h | — |
 
-La **media** è costruita per istante di validità da un orario comune T0 (inizio della corsa completa più recente, arrotondato alle 6 ore): per ogni modello si usa l'ultima corsa completa partita non dopo T0; la pioggia è la somma delle medie di ogni intervallo (così Totale e Intervallo restano coerenti quando un modello a breve scadenza esce), la temperatura è la media dei valori. In ogni passo la pagina indica quali modelli sono nella media.
+Grandezze disponibili per modello:
 
-- Grandezze: **Precipitazione** (classifica delle località dalla più piovosa) e **Temperatura a 850 hPa** (classifica dal più freddo)
+| Modello | Pioggia | T 850 hPa | Neve | Zero termico |
+|---|---|---|---|---|
+| GFS | ✓ | ✓ | — (non pubblica la neve caduta) | ✓ |
+| ECMWF | ✓ | ✓ | ✓ | — (non tra i dati aperti) |
+| ICON-2I | ✓ | ✓ | ✓ | ✓ |
+| WRF | ✓ | ✓ | — | — |
+| ICON-D2 | ✓ | ✓ | ✓ | ✓ |
+| AROME | ✓ | — | ✓ | — |
+| ICON-CH2 / CH1 | ✓ | — | ✓ | ✓ |
+
+La **neve** è in cm di neve fresca: i modelli danno l'acqua equivalente (mm), convertita col rapporto standard
+10:1 (1 mm d'acqua = 1 cm di neve). È una stima: la neve umida si accumula meno, quella farinosa di più. Nei modelli ICON
+è la somma della neve di griglia e di quella convettiva. Lo **zero termico** è la quota (m sul livello del mare) dell'isoterma 0 °C.
+
+Di ogni modello si tiene e si mostra **solo l'ultima corsa completa**. Mentre la corsa successiva esce, la pagina
+ne mostra l'avanzamento ("12Z in arrivo · 20/56 passi"); quando è completa prende il posto della precedente, che viene cancellata.
+
+La **mediana dei modelli** è costruita per istante di validità da un orario comune T0 (inizio della corsa completa più recente, arrotondato alle 6 ore): per ogni modello si usa la sua ultima corsa completa, e un modello partito dopo T0 entra dai suoi primi passi. Per pioggia e neve il totale è la somma delle mediane di ogni intervallo (così Totale e Intervallo restano coerenti quando un modello a breve scadenza esce); per temperatura e zero termico è la mediana dei valori. La mediana, a differenza della media, non si lascia trascinare da un modello isolato molto diverso dagli altri; con due soli modelli le due coincidono. In ogni passo la pagina indica quali modelli sono nella mediana.
+
+- Grandezze: **Precipitazione** e **Neve** (classifica delle località dalla più alta), **Temperatura a 850 hPa** e **Zero termico** (dal più basso)
+- **Precip. e zero termico**: la precipitazione a colori con sopra le linee dello zero termico ogni 250 m, per i modelli che hanno entrambe le grandezze (GFS, ICON-2I, ICON-D2, ICON-CH1/CH2 e la mediana); è una voce del menu senza dati propri, la pagina chiede i due campi
+- **Isolinee** sopra i colori: isoterme ogni 2 °C a 850 hPa (marcata quella di 0 °C) e linee dello zero termico ogni 250 m (marcate le migliaia), con etichette; calcolate nel browser dal campo (ammorbidito sulle griglie fini), si spengono nelle impostazioni e compaiono anche nell'immagine condivisa
 - Modalità **Totale** (accumulo da inizio corsa) e **Intervallo** (pioggia del passo da 3h o 6h)
-- Selettore modello, corsa (attuale e precedente), istante (slider, frecce ←/→, spazio = play)
+- Selettore modello e istante (slider, frecce ←/→, spazio = play); la corsa è sempre l'ultima completa
 - Overlay semitrasparente con opacità regolabile, valore in mm sotto il cursore
 - Vista condivisibile: lo stato è nell'URL
 
@@ -45,7 +66,6 @@ Test: `pytest`.
 | `BBOX` | `42,49,4,17` | Area: `lat_min,lat_max,lon_min,lon_max` (lon -180..180) |
 | `INITIAL_VIEW` | `44.68,46.64,8.50,11.43` | Vista all'apertura (Lombardia), stesso formato, dentro `BBOX` |
 | `DATA_DIR` | `./data` | Cartella dati |
-| `RETENTION` | `2` | Corse tenute per modello (attuale + precedente) |
 | `SCHEDULER_ENABLED` | `1` | Aggiornamento automatico |
 | `SCHEDULER_INTERVAL_MIN` | `10` | Frequenza aggiornamento |
 | `APP_VERSION` | dai tag git | Versione mostrata accanto al nome: di norma `git describe` (`v1.2.0` sul tag, `v1.2.0+3` tre commit dopo); da impostare dove non c'è `.git`, per esempio nell'immagine Docker. Senza tag non si mostra |
@@ -73,6 +93,7 @@ Aggiungi una `Variable` in `app/variables.py` con:
 - i selettori GRIB per modello: per GFS il nome NOMADS `var`/`level` (es. `TMP`, `2_m_above_ground`), per ECMWF `param`/`levtype` delle righe `.index` (es. `2t`, `sfc`), più `short_name` del messaggio decodificato;
 - la conversione di unità e la scala colori;
 - il tipo: `accum` (totale/intervallo) o `instant` (solo valore).
+- se il dato è la somma di più campi (es. neve ICON di griglia + convettiva), i selettori da aggiungere in `plus`.
 
 Fetcher, API e frontend la gestiscono senza altre modifiche; il selettore "Grandezza" compare quando ce n'è più d'una. Per il vento (`vector`) servirà un renderer a frecce dedicato.
 
@@ -153,4 +174,4 @@ fallisce anche l'avvio esterno (risposta di errore su cron-job.org); basta riatt
 - DWD: [Open Data ICON-D2](https://opendata.dwd.de/weather/nwp/icon-d2/), griglia regolare 0.02°.
 - Météo-France: [Paquets AROME 0,025°](https://www.data.gouv.fr/datasets/paquets-arome-resolution-0-025/), Licence Ouverte Etalab 2.0. Solo precipitazione (paquet SP1, a blocchi di 6 ore): si leggono le intestazioni GRIB2 e si scaricano solo i messaggi necessari. I dati validi finiscono fra 13°E (a 42°N) e 14,5°E (a 49°N).
 - MeteoSvizzera: [Open Data ICON-CH1/CH2-EPS](https://opendatadocs.meteoswiss.ch/e-forecast-data/e2-e3-numerical-weather-forecasting-model), licenza CC-BY. I campi sono su griglia ICON non strutturata e vengono riportati su una griglia regolare di ~2.2 km (punto del modello più vicino); le coordinate della griglia si scaricano una volta in `DATA_DIR/static`.
-- Mappe: © OpenStreetMap contributors, OpenTopoMap (CC-BY-SA), etichette CARTO
+- Mappe: © OpenStreetMap contributors, OpenTopoMap (CC-BY-SA)

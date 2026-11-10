@@ -28,7 +28,7 @@ def main(argv: list[str]) -> int:
         summary = update_model(m, store)
         print(json.dumps(summary, indent=2))
         errors += summary.get("errors", 0)
-    print("media:", json.dumps(build_mean(store), indent=2))
+    print("mediana:", json.dumps(build_mean(store), indent=2))
     return 1 if errors else 0
 
 

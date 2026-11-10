@@ -8,6 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Literal
 
+import numpy as np
+
 Kind = Literal["accum", "instant", "vector"]
 
 
@@ -31,6 +33,8 @@ class GribSelector:
     code: tuple[int, int, int] | None = None
     # pioggia distribuita a intervalli consecutivi (0-1h, 1-2h, ...) da sommare per avere il totale
     hourly_buckets: bool = False
+    # altri campi da scaricare e sommare a questo (es. neve ICON: di griglia + convettiva)
+    plus: tuple["GribSelector", ...] = ()
 
 
 @dataclass(frozen=True)
@@ -61,6 +65,9 @@ class Variable:
     nonnegative: bool = False
     rank: Literal["desc", "asc"] = "desc"  # classifica dei punti: desc = valore più alto primo
     extra: dict = field(default_factory=dict)
+    # linee di livello disegnate sopra i colori: {"label": nome nelle impostazioni, "step": distanza fra le linee,
+    # "bold": [livelli in evidenza], "signed": etichette col segno "+"}
+    contours: dict | None = None
 
     @property
     def modes(self) -> list[str]:
@@ -76,7 +83,8 @@ class Variable:
             "decimals": self.decimals,
             "rank": self.rank,
             "scale": self.scale.as_dict(),
-            # "mean" = media dei modelli, disponibile se la grandezza ha almeno due modelli
+            "contours": self.contours,
+            # "mean" = mediana dei modelli, disponibile se la grandezza ha almeno due modelli
             "models": sorted(self.selectors) + (["mean"] if len(self.selectors) > 1 else []),
         }
 
@@ -190,8 +198,143 @@ register(
         scale=T850_SCALE,
         decimals=1,
         rank="asc",  # classifica: prima la temperatura più bassa
+        contours={"label": "Isoterme", "step": 2, "bold": [0], "signed": True},  # ogni 2 °C, lo zero più marcato
     )
 )
+
+
+# Neve fresca in cm: i modelli danno l'acqua equivalente (kg/m² = mm), convertita col rapporto standard 10:1
+# (1 mm d'acqua = 1 cm di neve). È una stima: la neve umida si accumula meno, quella farinosa di più.
+SNOW_SCALE = ColorScale(
+    thresholds=[0.5, 1, 2, 5, 10, 20, 30, 50, 75, 100, 150],
+    colors=[
+        "#dff3ff",  # 0.5-1
+        "#b3e0ff",  # 1-2
+        "#7cc4ff",  # 2-5
+        "#3f9cf5",  # 5-10
+        "#1f6fd6",  # 10-20
+        "#2346a8",  # 20-30
+        "#5b2fb0",  # 30-50
+        "#8a2fc0",  # 50-75
+        "#b93fc4",  # 75-100
+        "#e06fd0",  # 100-150
+        "#ffb3ec",  # >150
+    ],
+    transparent_below=0.5,
+)
+
+
+def _mm_to_snow_cm(x):
+    return x  # 1 mm d'acqua = 1 cm di neve (10:1)
+
+
+def _m_to_snow_cm(x):
+    return x * 1000.0  # ECMWF: metri d'acqua -> mm -> cm
+
+
+register(
+    Variable(
+        id="sf",
+        label="Neve",
+        units="cm",
+        kind="accum",
+        selectors={
+            "ecmwf": GribSelector(param="sf", levtype="sfc", step_range_prefix="0-"),
+            # ICON: neve di griglia + convettiva (ICON-CH ha la convezione risolta: solo quella di griglia)
+            "icon-d2": GribSelector(param="snow_gsp", levtype="single-level", step_range_prefix="0-",
+                                    plus=(GribSelector(param="snow_con", levtype="single-level", step_range_prefix="0-"),)),
+            "icon-2i": GribSelector(param="SNOW_GSP", levtype="surface", levelist="0", step_range_prefix="0-",
+                                    plus=(GribSelector(param="SNOW_CON", levtype="surface", levelist="0", step_range_prefix="0-"),)),
+            "icon-ch2": GribSelector(param="SNOW_GSP", step_range_prefix="0-"),
+            "icon-ch1": GribSelector(param="SNOW_GSP", step_range_prefix="0-"),
+            # Météo-France: neve accumulata nel paquet SP1
+            "arome": GribSelector(param="SP1", code=(0, 1, 66), step_range_prefix="0-"),
+        },
+        convert={"ecmwf": _m_to_snow_cm, "icon-d2": _mm_to_snow_cm, "icon-2i": _mm_to_snow_cm,
+                 "icon-ch2": _mm_to_snow_cm, "icon-ch1": _mm_to_snow_cm, "arome": _mm_to_snow_cm},
+        scale=SNOW_SCALE,
+        decimals=1,
+        nonnegative=True,
+    )
+)
+
+
+# Zero termico: quota (m sul livello del mare) dell'isoterma 0 °C, dal viola (basso) al rosso (alto)
+HZERO_SCALE = ColorScale(
+    thresholds=[0, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500],
+    colors=[
+        "#5b2a9a",  # < 500
+        "#3f4fc9",  # 500-1000
+        "#2f80ed",  # 1000-1500
+        "#5fb3f5",  # 1500-2000
+        "#a6dcf7",  # 2000-2500
+        "#d9ef8b",  # 2500-3000
+        "#fee08b",  # 3000-3500
+        "#fdae61",  # 3500-4000
+        "#f46d43",  # 4000-4500
+        "#d73027",  # > 4500
+    ],
+    transparent_below=None,
+)
+
+
+def _hzero_m(x):
+    # valori fittizi dove l'isoterma non è definita (ICON usa numeri negativi): mancanti
+    x = np.asarray(x, dtype=np.float64)
+    return np.where(x < -100, np.nan, np.maximum(x, 0))
+
+
+register(
+    Variable(
+        id="hzero",
+        label="Zero termico",
+        units="m",
+        kind="instant",
+        selectors={
+            "gfs": GribSelector(var="HGT", level="0C_isotherm"),
+            "icon-d2": GribSelector(param="hzerocl", levtype="single-level"),
+            "icon-2i": GribSelector(param="HZEROCL", levtype="isothermZero", levelist="0"),
+            "icon-ch2": GribSelector(param="HZEROCL"),
+            "icon-ch1": GribSelector(param="HZEROCL"),
+        },
+        convert={m: _hzero_m for m in ("gfs", "icon-d2", "icon-2i", "icon-ch2", "icon-ch1")},
+        scale=HZERO_SCALE,
+        decimals=0,
+        rank="asc",  # classifica: prima lo zero termico più basso
+        contours={"label": "Isolinee", "step": 250, "bold": [1000, 2000, 3000, 4000]},  # ogni 250 m, marcate le migliaia
+    )
+)
+
+
+# Voci combinate del menu "Grandezza": i colori di una grandezza e le linee di livello di un'altra, alla stessa ora.
+# Non hanno dati propri (la pagina chiede i campi delle due grandezze), quindi niente download né spazio in più.
+COMBOS = [
+    {
+        "id": "tp_hzero",
+        "label": "Precip. e zero termico",
+        "after": "tp",  # posizione nel menu
+        "field": "tp",  # colori, legenda, località e modalità
+        "contour_field": "hzero",  # linee
+        "contours": {"label": "Zero termico", "units": "m", "step": 250, "bold": [1000, 2000, 3000, 4000]},
+    },
+]
+
+
+def menu() -> list[dict]:
+    """Grandezze per /api/meta: quelle scaricate più le combinate, ognuna dopo la sua `after`."""
+    out = []
+    for var in REGISTRY.values():
+        out.append(var.as_dict())
+        for c in COMBOS:
+            if c["after"] != var.id:
+                continue
+            base, lines = REGISTRY[c["field"]].as_dict(), REGISTRY[c["contour_field"]].as_dict()
+            models = [m for m in base["models"] if m in lines["models"]]
+            if models:
+                out.append({**base, "id": c["id"], "label": c["label"], "base_label": base["label"],
+                            "field": c["field"], "contour_field": c["contour_field"],
+                            "contours": c["contours"], "models": models})
+    return out
 
 
 def get(var_id: str) -> Variable:

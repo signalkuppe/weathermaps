@@ -32,7 +32,7 @@ def start(store: Store) -> BackgroundScheduler:
             max_instances=1,
             coalesce=True,
         )
-    # la media si ricontrolla a ogni giro (se gli ingressi non cambiano non ricalcola nulla)
+    # la mediana si ricontrolla a ogni giro (se gli ingressi non cambiano non ricalcola nulla)
     sched.add_job(
         build_mean,
         "interval",

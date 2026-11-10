@@ -1,15 +1,18 @@
-"""Media dei modelli ("mean"), salvata come un modello in più.
+"""Mediana dei modelli (id "mean"), salvata come un modello in più.
 
 I modelli partono a ore diverse e la pioggia è accumulata dall'inizio di ciascuna corsa,
-quindi la media si costruisce per istante di validità a partire da un orario comune T0:
+quindi la mediana si costruisce per istante di validità a partire da un orario comune T0:
 
 - per ogni modello si usa l'ultima corsa completa che parte non dopo T0;
 - T0 è l'inizio della corsa completa più recente, arrotondato alle 6 ore
   (così GFS ed ECMWF hanno i passi giusti anche oltre le 144h, dove sono ogni 6 ore);
-- pioggia: per ogni intervallo si fa la media della pioggia caduta nell'intervallo fra i modelli
+- grandezze accumulate (pioggia, neve): per ogni intervallo si fa la mediana di quanto è caduto nell'intervallo fra i modelli
   disponibili, poi si sommano gli intervalli. Totale e Intervallo restano coerenti anche quando
-  un modello a breve scadenza (ICON-CH1, ICON-D2...) esce dalla media;
-- temperatura: media dei valori all'istante.
+  un modello a breve scadenza (ICON-CH1, ICON-D2...) esce dalla mediana;
+- grandezze istantanee (temperatura, zero termico): mediana dei valori all'istante.
+
+La mediana non si lascia trascinare da un modello isolato molto diverso dagli altri; con due soli
+modelli coincide con la media.
 
 Tutti i campi vengono interpolati (bilineare) su una griglia comune di ~2 km.
 """
@@ -24,7 +27,7 @@ from datetime import timedelta
 import numpy as np
 
 from . import variables
-from .config import RETENTION, STEPS
+from .config import STEPS
 from .grid import Field
 from .sources import ModelInfo, parse_run_id, run_id
 from .store import Store
@@ -32,9 +35,9 @@ from .store import Store
 log = logging.getLogger("weathermaps.mean")
 
 MODEL = ModelInfo(
-    id="mean", label="Media modelli", resolution=0.02, cycles=tuple(range(24)), delay_hours=0, max_step=192,
+    id="mean", label="Mediana modelli", resolution=0.02, cycles=tuple(range(24)), delay_hours=0, max_step=192,
     description=(
-        "Media dei modelli disponibili per lo stesso istante, su una griglia comune di circa 2 km. "
+        "Mediana dei modelli disponibili per lo stesso istante, su una griglia comune di circa 2 km. "
         "Ogni modello usa la sua ultima corsa completa. Oltre l'orizzonte dei modelli ad alta "
         "risoluzione restano solo GFS ed ECMWF: in ogni passo, sotto, sono indicati i modelli usati."
     ),
@@ -68,17 +71,8 @@ def bilinear(values: np.ndarray, grid: dict, tlats: np.ndarray, tlons: np.ndarra
     return out.astype(np.float32)
 
 
-def _latest_complete(store: Store, model: str, var: variables.Variable, expected: list[int], not_after=None) -> str | None:
-    for rid in store.runs(model):  # dalla più recente
-        if not_after is not None and parse_run_id(rid) > not_after:
-            continue
-        if set(expected) <= set(store.steps(model, rid, var.id)):
-            return rid
-    return None
-
-
 def build_mean(store: Store | None = None) -> dict:
-    """Ricalcola la media per ogni grandezza con almeno due modelli. Salta se gli ingressi non sono cambiati."""
+    """Ricalcola la mediana per ogni grandezza con almeno due modelli. Salta se gli ingressi non sono cambiati."""
     if not _lock.acquire(blocking=False):
         return {"skipped": True}
     try:
@@ -88,7 +82,7 @@ def build_mean(store: Store | None = None) -> dict:
 
 
 def _build(store: Store) -> dict:
-    from .fetcher import steps_for  # import locale: evita il ciclo fetcher -> mean -> fetcher
+    from .fetcher import latest_complete  # import locale: evita il ciclo fetcher -> mean -> fetcher
 
     summary = {}
     bbox = store.bbox
@@ -97,26 +91,22 @@ def _build(store: Store) -> dict:
     tlats = bbox.lat_min + np.arange(ny) * TARGET_DLAT
     tlons = bbox.lon_min + np.arange(nx) * TARGET_DLON
 
+    # di ogni modello si tiene solo l'ultima corsa completa: è quella che entra nella mediana.
+    # Un solo istante di partenza T0 per tutte le grandezze (la più recente arrotondata alle 6 ore), così la mediana
+    # ha una sola corsa; i modelli partiti dopo T0 entrano dai loro primi passi (offset negativo).
+    all_models = {m for var in variables.REGISTRY.values() for m in var.selectors}
+    latest = {m: r for m in all_models if (r := latest_complete(store, m))}
+    if not latest:
+        return summary
+    newest = max(parse_run_id(r) for r in latest.values())
+    t0 = newest - timedelta(hours=newest.hour % ALIGN_HOURS)
+    rid0 = run_id(t0)
     for var in variables.REGISTRY.values():
-        models = list(var.selectors)
-        if len(models) < 2:
-            continue
-        latest = {m: _latest_complete(store, m, var, steps_for(var, m)) for m in models}
-        latest = {m: r for m, r in latest.items() if r}
-        if len(latest) < 2:
-            continue
-        newest = max(parse_run_id(r) for r in latest.values())
-        t0 = newest - timedelta(hours=newest.hour % ALIGN_HOURS)
-        chosen = {}
-        for m in models:
-            r = _latest_complete(store, m, var, steps_for(var, m), not_after=t0)
-            if r:
-                chosen[m] = r
+        chosen = {m: latest[m] for m in var.selectors if m in latest}
         if len(chosen) < 2:
             continue
-        rid0 = run_id(t0)
         have = {m: set(store.steps(m, r, var.id)) for m, r in chosen.items()}
-        signature = {"members": chosen, "counts": {m: len(h) for m, h in have.items()}}
+        signature = {"method": "median", "members": chosen, "counts": {m: len(h) for m, h in have.items()}}
 
         mean_dir = store.var_dir("mean", rid0, var.id)
         info_path = mean_dir / "members.json"
@@ -156,7 +146,7 @@ def _build(store: Store) -> dict:
                 continue  # nessun modello per questo passo: confluisce nel successivo
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", RuntimeWarning)  # pixel fuori da tutti i domini
-                m_val = np.nanmean(np.stack(vals), axis=0)
+                m_val = np.nanmedian(np.stack(vals), axis=0)
             if var.kind == "accum":
                 ok = np.isfinite(m_val)
                 cum = np.where(ok, cum + np.nan_to_num(m_val), cum)
@@ -180,9 +170,9 @@ def _build(store: Store) -> dict:
             "steps": {str(s): u for s, u in written.items()},
         }))
         summary[var.id] = f"{rid0}: {len(written)} passi da {len(chosen)} modelli"
-        log.info("Media %s %s: %d passi, modelli %s", var.id, rid0, len(written), chosen)
+        log.info("Mediana %s %s: %d passi, modelli %s", var.id, rid0, len(written), chosen)
 
-    store.purge("mean", RETENTION)
+    store.purge_superseded("mean", {rid0})
     return summary
 
 

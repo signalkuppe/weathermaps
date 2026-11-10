@@ -48,8 +48,68 @@ def test_meta(client):
 def test_runs(client):
     r = client.get("/api/runs").json()
     assert r["ecmwf"] == []
-    assert r["gfs"][0]["run"] == RUN
-    assert r["gfs"][0]["variables"]["tp"] == {"steps": [3, 6, 9], "complete": False}
+    assert r["gfs"] == []  # nessuna grandezza completa: non c'è una corsa da mostrare
+
+
+def _fill(store: Store, model: str, rid: str, var_ids=None):
+    from app.fetcher import steps_for
+
+    for var in variables.REGISTRY.values():
+        if model in var.selectors and (var_ids is None or var.id in var_ids):
+            for s in steps_for(var, model):
+                store.save(model, rid, var.id, s, _field(1.0))
+
+
+def test_runs_only_latest_complete_and_incoming(tmp_path: Path):
+    from app.fetcher import runs_to_keep
+
+    store = Store(data_dir=tmp_path, bbox=BOX)
+    old, new, newer = "2026110900", "2026110906", "2026110912"
+    _fill(store, "gfs", old)
+    _fill(store, "gfs", new)
+    store.save("gfs", newer, "tp", 3, _field(1.0))  # corsa nuova appena iniziata
+    with TestClient(create_app(store=store, start_scheduler=False)) as c:
+        r = c.get("/api/runs").json()["gfs"]
+    assert [x["run"] for x in r] == [new, newer]
+    assert "incoming" not in r[0] and r[1]["incoming"] is True
+    assert r[1]["variables"]["tp"]["steps"] == [3] and r[1]["variables"]["tp"]["expected"] == 56
+    # pulizia: restano la completa più recente e quella in arrivo
+    assert runs_to_keep(store, "gfs", [newer, new]) == {new, newer}
+    assert store.purge_superseded("gfs", {new, newer}) == [old]
+
+
+def test_latest_complete_falls_back_and_keeps_all_without_complete(tmp_path: Path):
+    from app.fetcher import latest_complete, runs_to_keep
+
+    store = Store(data_dir=tmp_path, bbox=BOX)
+    # una grandezza che non arriva mai (solo tp completa): il modello si mostra lo stesso
+    _fill(store, "gfs", "2026110906", var_ids={"tp"})
+    assert latest_complete(store, "gfs") == "2026110906"
+    # niente di completo: non si cancella nulla
+    store2 = Store(data_dir=tmp_path / "b", bbox=BOX)
+    store2.save("gfs", "2026110900", "tp", 3, _field(1.0))
+    store2.save("gfs", "2026110812", "tp", 3, _field(1.0))
+    assert runs_to_keep(store2, "gfs", ["2026110906", "2026110900"]) == {"2026110900", "2026110812"}
+
+
+def test_plus_selectors_are_summed():
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    from app.fetcher import _fetch_field
+
+    var = variables.get("sf")
+    seen = []
+
+    def fetch(client, run, step, v, bbox):
+        sel = v.selectors["icon-d2"]
+        seen.append(sel.param)
+        return _field(2.0 if sel.param == "snow_gsp" else 0.5)
+
+    source = SimpleNamespace(MODEL=SimpleNamespace(id="icon-d2"), fetch=fetch)
+    f = _fetch_field(source, None, datetime(2026, 11, 10, tzinfo=timezone.utc), 3, var, BOX)
+    assert seen == ["snow_gsp", "snow_con"]
+    assert f.values.tolist() == [[2.5] * 4] * 3
 
 
 def test_field_total_and_interval(client):
@@ -194,6 +254,53 @@ def test_mean_aligns_runs_and_keeps_total_interval_consistent(tmp_path):
         f = c.get("/api/field", params={"model": "mean", "run": "2026110906", "step": 24, "mode": "interval"}).json()
         assert f["members"] == ["gfs", "ecmwf"] and f["max"] == pytest.approx(6, abs=0.1)
         assert c.post("/api/refresh", params={"model": "mean"}).status_code == 400
+
+
+def test_mean_model_started_after_t0_joins_from_its_first_steps(tmp_path):
+    """Si tiene solo l'ultima corsa di ogni modello: uno partito dopo T0 entra dai suoi primi passi."""
+    from app import mean
+    from app.fetcher import steps_for
+
+    store = Store(data_dir=tmp_path, bbox=BOX)
+    tp = variables.get("tp")
+    for s in steps_for(tp, "gfs"):  # corsa 06Z
+        store.save("gfs", "2026110906", "tp", s, Field(values=np.full((29, 53), float(s), np.float32), lat0=42, lon0=4, dlat=0.25, dlon=0.25))
+    for s in steps_for(tp, "icon-d2"):  # corsa 09Z, dopo T0 = 06Z
+        store.save("icon-d2", "2026110909", "tp", s, Field(values=np.full((29, 53), float(s), np.float32), lat0=42, lon0=4, dlat=0.25, dlon=0.25))
+    mean.build_mean(store)
+    assert store.runs("mean") == ["2026110906"]
+    info = mean.members_info(store, "2026110906", "tp")
+    assert info["members"] == {"gfs": "2026110906", "icon-d2": "2026110909"}
+    assert info["steps"]["3"] == ["gfs"]  # 06-09Z: ICON-D2 non era ancora partito
+    assert info["steps"]["6"] == ["gfs", "icon-d2"]
+
+
+def test_mean_model_uses_median_not_mean(tmp_path):
+    """Con tre modelli un valore isolato non sposta il risultato: 1, 2 e 30 mm/h -> mediana 2 (la media sarebbe 11)."""
+    from app import mean
+    from app.fetcher import steps_for
+
+    store = Store(data_dir=tmp_path, bbox=BOX)
+    tp = variables.get("tp")
+    for model, rate in (("gfs", 1.0), ("ecmwf", 2.0), ("icon-2i", 30.0)):
+        for s in steps_for(tp, model):
+            store.save(model, "2026110900", "tp", s,
+                       Field(values=np.full((29, 53), rate * s, np.float32), lat0=42, lon0=4, dlat=0.25, dlon=0.25))
+    mean.build_mean(store)
+    v24, _ = store.load("mean", "2026110900", "tp", 24)
+    assert np.nanmax(v24) == pytest.approx(48, abs=0.01)
+    assert np.nanmin(v24) == pytest.approx(48, abs=0.01)
+
+
+def test_meta_combo_precip_and_freezing_level(client):
+    """Voce combinata: colori della pioggia e linee dello zero termico, solo per i modelli che hanno entrambi."""
+    vs = client.get("/api/meta").json()["variables"]
+    ids = [v["id"] for v in vs]
+    assert ids.index("tp_hzero") == ids.index("tp") + 1
+    combo = vs[ids.index("tp_hzero")]
+    assert combo["field"] == "tp" and combo["contour_field"] == "hzero" and combo["units"] == "mm"
+    assert combo["modes"] == ["total", "interval"]
+    assert set(combo["models"]) == {"gfs", "icon-2i", "icon-d2", "icon-ch2", "icon-ch1", "mean"}
 
 
 def test_version_from_git_describe(monkeypatch):
