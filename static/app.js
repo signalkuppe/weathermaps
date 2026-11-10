@@ -162,6 +162,10 @@
     ui.nodata.hidden = !title;
     if (title) { ui.nodataTitle.textContent = title; ui.nodataText.textContent = text; }
     map.getContainer().classList.toggle("map-nodata", !!title); // senza dati la mappa resta in grigio
+    document.body.classList.toggle("no-data", !!title); // e sopra c'è solo il menu principale (vedi style.css)
+    if (title) ui.probe.hidden = true;
+    // pannello chiuso (su mobile succede spesso): si riapre, altrimenti resterebbe solo una mappa grigia muta
+    if (title && ui.panel.classList.contains("collapsed")) ui.collapse.click();
   }
 
   function setStatus(text, warn = false) {

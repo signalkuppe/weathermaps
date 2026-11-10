@@ -652,3 +652,5 @@ input[type="range"] { accent-color: var(--accent); }
 .nodata b { font-size: 13px; font-weight: 650; color: #c2410c; }
 @media (prefers-color-scheme: dark) { .nodata { color: #fdba74; } .nodata b { color: #fb923c; } }
 .map-nodata .leaflet-tile-pane { filter: grayscale(1); }
+/* senza dati sopra la mappa resta solo il menu principale: niente barra, legenda, località né tooltip */
+.no-data .badge, .no-data .legend, .no-data .probe, .no-data .leaflet-marker-pane, .no-data .pt-pop { display: none !important; }
