@@ -1219,6 +1219,7 @@
   window.visualViewport?.addEventListener("resize", placeResults); // tastiera del telefono
 
   function hideResults() {
+    ui.placeQ.parentElement.classList.remove("searching");
     ui.placeResults.hidden = true;
     ui.placeResults.replaceChildren();
   }
@@ -1228,15 +1229,16 @@
     return [kind, pr.city !== pr.name ? pr.city : null, pr.county, pr.state, pr.country !== "Italia" ? pr.country : null]
       .filter(Boolean).filter((x, i, a) => a.indexOf(x) === i).join(", ");
   }
+  const setSearching = (on) => ui.placeQ.parentElement.classList.toggle("searching", on);
   async function searchPlaces(q) {
     searchCtl?.abort();
-    searchCtl = new AbortController();
+    const ctl = (searchCtl = new AbortController());
     const b = meta.bbox;
     const url = `https://photon.komoot.io/api/?${new URLSearchParams({ q, limit: "8" })}` +
       `&bbox=${b.lon_min},${b.lat_min},${b.lon_max},${b.lat_max}` +
       "&osm_tag=place&osm_tag=natural:peak&osm_tag=mountain_pass";
     try {
-      const r = await fetch(url, { signal: searchCtl.signal });
+      const r = await fetch(url, { signal: ctl.signal });
       if (!r.ok) throw new Error(r.statusText);
       const d = await r.json();
       const items = (d.features || [])
@@ -1260,8 +1262,10 @@
       }
       ui.placeResults.hidden = false;
       placeResults();
+      setSearching(false);
     } catch (e) {
       if (e.name === "AbortError") return;
+      setSearching(false);
       ui.placeResults.innerHTML = `<li class="place-none">Ricerca non riuscita, riprova più tardi</li>`;
       ui.placeResults.hidden = false;
       placeResults();
@@ -1270,7 +1274,12 @@
   ui.placeQ.addEventListener("input", () => {
     clearTimeout(searchTimer);
     const q = ui.placeQ.value.trim();
-    if (q.length < 2) { searchCtl?.abort(); hideResults(); return; }
+    if (q.length < 2) { searchCtl?.abort(); setSearching(false); hideResults(); return; }
+    // subito uno stato di attesa: spinner nel campo e "Ricerca…" nell'elenco (Photon risponde in qualche decimo)
+    setSearching(true);
+    ui.placeResults.innerHTML = '<li class="place-none place-wait">Ricerca…</li>';
+    ui.placeResults.hidden = false;
+    placeResults();
     searchTimer = setTimeout(() => searchPlaces(q), 300);
   });
   ui.placeQ.addEventListener("keydown", (e) => {

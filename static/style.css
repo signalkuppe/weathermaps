@@ -661,3 +661,10 @@ input[type="range"] { accent-color: var(--accent); }
 .map-nodata .leaflet-tile-pane { filter: grayscale(1); }
 /* senza dati sopra la mappa resta solo il menu principale: niente barra, legenda, località né tooltip */
 .no-data .badge, .no-data .legend, .no-data .probe, .no-data .leaflet-marker-pane, .no-data .pt-pop { display: none !important; }
+
+/* ricerca località in corso: spinner a destra nel campo (stesso dello slider dell'ora) */
+.places-search.searching::after { content: ""; position: absolute; right: 10px; top: 50%; width: 14px; height: 14px;
+  margin-top: -7px; box-sizing: border-box; border: 2px solid var(--line); border-top-color: var(--accent);
+  border-radius: 50%; animation: spin 0.7s linear infinite; pointer-events: none; }
+.places-search.searching input { padding-right: 32px; }
+.place-results .place-wait { font-style: italic; }
