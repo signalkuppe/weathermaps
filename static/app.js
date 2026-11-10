@@ -207,8 +207,15 @@
     sel.replaceChildren(...items.map(([v, label]) => new Option(label, v, false, v === value)));
   }
 
+  // nelle select solo combinazioni con dati: la grandezza ha una corsa pubblicata per il modello
+  // (per le voci combinate e il vento conta la grandezza dei colori / la prima componente)
+  const dataVarOf = (v) => v.field || v.vector?.u || v.id;
+  const hasData = (modelId, v) => (runs[modelId] || []).some((r) => !r.incoming && r.variables[dataVarOf(v)]);
+
   function setupModels() {
-    const models = meta.models.filter((m) => variable().models.includes(m.id));
+    const all = meta.models.filter((m) => variable().models.includes(m.id));
+    const withData = all.filter((m) => hasData(m.id, variable()));
+    const models = withData.length ? withData : all; // nessun dato per nessuno (es. primo avvio): li mostra tutti
     if (!models.find((m) => m.id === state.model)) state.model = models[0].id;
     fillModelSelect(models, state.model);
     renderModelInfo();
@@ -239,9 +246,11 @@
   });
 
   function setupVars() {
-    if (!meta.variables.find((v) => v.id === state.var)) state.var = meta.variables[0].id;
-    fillSelect(ui.varSel, meta.variables.map((v) => [v.id, v.label]), state.var);
-    ui.varRow.hidden = meta.variables.length < 2;
+    const withData = meta.variables.filter((v) => v.models.some((m) => hasData(m, v)));
+    const vars = withData.length ? withData : meta.variables;
+    if (!vars.find((v) => v.id === state.var)) state.var = vars[0].id;
+    fillSelect(ui.varSel, vars.map((v) => [v.id, v.label]), state.var);
+    ui.varRow.hidden = vars.length < 2;
   }
 
   function setupModes() {
@@ -2530,7 +2539,11 @@
     setInterval(async () => {
       try {
         await refreshRuns();
-        const changed = setupRuns(); // passa da sola alla nuova corsa quando è completa
+        const before = `${state.var}|${state.model}`;
+        setupVars(); // grandezze e modelli con dati possono cambiare con le corse nuove
+        setupModels();
+        if (`${state.var}|${state.model}` !== before) setupModes();
+        const changed = setupRuns() || `${state.var}|${state.model}` !== before; // passa da sola alla nuova corsa quando è completa
         if (changed) setupSteps();
         if (changed || !current) update();
       } catch { /* offline: riprova al prossimo giro */ }
