@@ -2306,17 +2306,17 @@
     // nomi dei giorni ("mer 11") se c'è spazio, altrimenti solo il numero
     const dayFmt = pw / ((x1 - x0) / 24) >= 52 ? { weekday: "short", day: "numeric" } : { day: "numeric" };
     for (const h of days) {
-      svg.push(`<line class="ch-day" x1="${X(h)}" x2="${X(h)}" y1="${HEAD - 4}" y2="${yBot}"/>`);
+      svg.push(`<line class="ch-day" x1="${X(h)}" x2="${X(h)}" y1="${HEAD + 2}" y2="${yBot}"/>`);
       const d = new Date(t0 + h * 3600e3).toLocaleDateString("it-IT", { timeZone: "Europe/Rome", ...dayFmt });
       svg.push(`<text class="ch-tick" x="${X(h)}" y="${yBot + 26}" text-anchor="middle" font-weight="600">${d}</text>`);
       svg.push(`<text class="ch-tick" x="${X(h)}" y="${yBot + 12}" text-anchor="middle">00</text>`);
     }
     for (const [h, hh] of hours) svg.push(`<text class="ch-tick" x="${X(h)}" y="${yBot + 12}" text-anchor="middle">${String(hh).padStart(2, "0")}</text>`);
     if (!exportW && state.step != null && state.run === run) { // ora della mappa: solo nella pagina
-      svg.push(`<line class="ch-now" x1="${X(state.step)}" x2="${X(state.step)}" y1="${HEAD - 4}" y2="${yBot}"/>`);
+      svg.push(`<line class="ch-now" x1="${X(state.step)}" x2="${X(state.step)}" y1="${HEAD + 2}" y2="${yBot}"/>`);
     }
     if (exportW) return { markup: svg.join(""), W, H };
-    svg.push(`<line class="ch-cursor" id="ch-cursor" x1="0" x2="0" y1="${HEAD - 4}" y2="${yBot}" visibility="hidden"/>`);
+    svg.push(`<line class="ch-cursor" id="ch-cursor" x1="0" x2="0" y1="${HEAD + 2}" y2="${yBot}" visibility="hidden"/>`);
     svg.push(`<rect id="ch-hit" x="${L}" y="${yTop}" width="${pw}" height="${yBot}" fill="transparent"/>`);
     chartUi.body.innerHTML = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="Andamento nel tempo">${svg.join("")}</svg><div class="chart-tip" hidden></div>`;
 
