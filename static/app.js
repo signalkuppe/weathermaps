@@ -1376,8 +1376,10 @@
       `<button type="button" class="pt-pop-close" aria-label="Chiudi"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>` +
       rows.map(([k, x]) => `<div class="pt-pop-row"><span>${esc(k)}</span><b>${esc(x)}</b></div>`).join("") +
       (foot ? `<div class="pt-pop-foot">${esc(foot)}</div>` : "") +
+      (meta.series && state.run ? '<button type="button" class="pt-pop-chart">Grafico nel tempo</button>' : "") +
       `<i class="pt-pop-arrow"></i>`;
     pop.querySelector(".pt-pop-close").addEventListener("click", closePlacePop);
+    pop.querySelector(".pt-pop-chart")?.addEventListener("click", () => openChart(p));
     pop.hidden = false;
     markPoppedPoint();
     placePlacePop();
@@ -2065,6 +2067,208 @@
   shareUi.download.addEventListener("click", () => { downloadShareFile(); });
   shareUi.close.addEventListener("click", closeShare);
 
+
+  // ---------- meteogramma di una località: andamento nel tempo delle grandezze del modello scelto. Un pannello per
+  // grandezza (mai due scale sullo stesso grafico), stesso asse dei tempi; pioggia e neve a barre per intervallo,
+  // le altre a linee; ora locale sull'asse, l'ora mostrata nella mappa tratteggiata, lettura dei valori al passaggio.
+  const chartUi = {
+    dialog: $("chart-dialog"), body: $("chart-body"), title: $("chart-title"), sub: $("chart-sub"), close: $("chart-close"),
+  };
+  let chartData = null;
+  chartUi.close.addEventListener("click", () => chartUi.dialog.close());
+
+  /** Serie nel punto: dal server (api/series) o, nel sito statico, dal riquadro di 2°×2° che lo contiene. */
+  async function getSeries(model, run, lat, lon) {
+    if (!STATIC) {
+      const r = await fetch(`api/series?${new URLSearchParams({ model, run, lat, lon })}`);
+      if (!r.ok) throw new Error(r.statusText);
+      return r.json();
+    }
+    const { dstep, tile } = meta.series;
+    const b = meta.bbox;
+    const per = Math.round(tile / dstep);
+    const gy = Math.round((lat - b.lat_min) / dstep), gx = Math.round((lon - b.lon_min) / dstep);
+    const ty = Math.floor(gy / per), tx = Math.floor(gx / per);
+    const r = await fetch(`data/series/${model}/${run}/${ty}_${tx}.json`);
+    if (!r.ok) throw new Error("serie non disponibile per questo punto");
+    const t = await r.json();
+    const iy = Math.min(t.ny - 1, gy - ty * per), ix = Math.min(t.nx - 1, gx - tx * per);
+    const cell = iy * t.nx + ix;
+    const vars = {};
+    for (const [k, v] of Object.entries(t.vars)) {
+      const n = v.steps.length;
+      vars[k] = { steps: v.steps, values: v.values.slice(cell * n, (cell + 1) * n).map((x) => (x == null ? null : x / v.scale)) };
+    }
+    return { lat: t.lat0 + iy * dstep, lon: t.lon0 + ix * dstep, vars };
+  }
+
+  async function openChart(p) {
+    chartUi.title.textContent = p.name;
+    chartUi.sub.textContent = `${modelLabel()} · ${state.model === "mean" ? "dalle" : "corsa"} ${cycle(state.run)} ${fmtRunDay(state.run)}`;
+    chartUi.body.innerHTML = '<div class="chart-empty">Caricamento…</div>';
+    chartData = null;
+    chartUi.dialog.showModal();
+    const want = `${state.model}|${state.run}`;
+    try {
+      const series = await getSeries(state.model, state.run, p.lat, p.lon);
+      if (want !== `${state.model}|${state.run}` || !chartUi.dialog.open) return;
+      chartData = { series, run: state.run };
+      drawChart();
+    } catch (e) {
+      chartUi.body.innerHTML = `<div class="chart-empty">Grafico non disponibile: ${e.message}</div>`;
+    }
+  }
+  new ResizeObserver(() => { if (chartUi.dialog.open && chartData) drawChart(); }).observe(chartUi.body);
+
+  /** 3–5 valori "tondi" fra lo e hi per l'asse. */
+  function niceTicks(lo, hi, n = 3) {
+    const raw = (hi - lo) / n || 1;
+    const mag = 10 ** Math.floor(Math.log10(raw));
+    const step = [1, 2, 2.5, 5, 10].map((k) => k * mag).find((k) => k >= raw) || 10 * mag;
+    const out = [];
+    for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(+v.toFixed(6));
+    return out;
+  }
+  const dirName = (u, v) => {
+    if (u == null || v == null || Math.hypot(u, v) < 1) return "";
+    return DIRS[Math.round((((Math.atan2(-u, -v) * 180) / Math.PI + 360) % 360) / 45) % 8];
+  };
+
+  function drawChart() {
+    const { series, run } = chartData;
+    const V = series.vars;
+    const t0 = runDate(run).getTime();
+    const W = Math.max(280, chartUi.body.clientWidth);
+    const L = 46, R = 14, pw = W - L - R;
+    const PH = 78, HEAD = 22, GAP = 16, AXIS = 34; // altezza grafico, titolo, spazio fra pannelli, asse dei tempi
+    const steps = [...new Set(Object.values(V).flatMap((v) => v.steps))].sort((a, b) => a - b);
+    if (!steps.length) { chartUi.body.innerHTML = '<div class="chart-empty">Nessun dato in questo punto.</div>'; return; }
+    const x0 = Math.min(0, steps[0]), x1 = steps[steps.length - 1];
+    const X = (h) => L + ((h - x0) / (x1 - x0 || 1)) * pw;
+    const fmt = (x, d) => (x == null ? "—" : x.toFixed(d).replace("-", "−"));
+    // barre per intervallo dalle cumulate (pioggia, neve)
+    const intervals = (v) => v.steps.map((b, i) => {
+      const a = i ? v.steps[i - 1] : 0;
+      const cur = v.values[i], prev = i ? v.values[i - 1] : 0;
+      return { a, b, y: cur == null || prev == null ? null : Math.max(0, cur - prev) };
+    });
+    const points = (v) => v.steps.map((x, i) => ({ x, y: v.values[i] }));
+    const last = (v) => [...v.values].reverse().find((x) => x != null);
+    const panels = [];
+    if (V.tp) panels.push({ title: "Pioggia", unit: "mm", kind: "bar", color: "#2f7fd8", data: intervals(V.tp), dec: 1,
+      min: 1, note: `totale ${fmt(last(V.tp), 1)} mm`, tip: (d) => `Pioggia +${d.b - d.a}h` });
+    if (V.sf && intervals(V.sf).some((d) => d.y >= 0.1)) panels.push({ title: "Neve", unit: "cm", kind: "bar", color: "#7c5cd6",
+      data: intervals(V.sf), dec: 1, min: 1, note: `totale ${fmt(last(V.sf), 1)} cm`, tip: (d) => `Neve +${d.b - d.a}h` });
+    if (V.t850) panels.push({ title: "Temperatura 850 hPa", unit: "°C", kind: "line", color: "#d9480f", data: points(V.t850),
+      dec: 1, zero: true, tip: () => "T 850 hPa" });
+    if (V.hzero) panels.push({ title: "Zero termico", unit: "m", kind: "line", color: "#0b7285", data: points(V.hzero),
+      dec: 0, tip: () => "Zero termico" });
+    if (V.u10 && V.v10) {
+      const data = V.u10.steps.map((x, i) => {
+        const u = V.u10.values[i], v = V.v10.values[i];
+        return { x, y: u == null || v == null ? null : Math.hypot(u, v), u, v };
+      });
+      panels.push({ title: "Vento 10 m", unit: "km/h", kind: "line", color: "#495057", data, dec: 0, arrows: true, min: 10,
+        tip: () => "Vento 10 m" });
+    }
+    const H = panels.length * (HEAD + PH + GAP) + AXIS;
+    const svg = [];
+    // giorni (mezzanotte locale) e ore ogni 6 ore, ora di Roma come nel resto della pagina
+    const hourOf = (h) => +new Date(t0 + h * 3600e3).toLocaleString("it-IT", { timeZone: "Europe/Rome", hour: "2-digit", hour12: false });
+    const days = [], hours = [];
+    const every = pw / ((x1 - x0) / 6) >= 30 ? 6 : pw / ((x1 - x0) / 12) >= 30 ? 12 : 24;
+    for (let h = Math.ceil(x0); h <= x1; h++) {
+      const hh = hourOf(h) % 24;
+      if (hh === 0) days.push(h);
+      else if (hh % every === 0) hours.push([h, hh]);
+    }
+    panels.forEach((p, i) => {
+      const top = i * (HEAD + PH + GAP) + HEAD, bot = top + PH;
+      const vals = p.data.map((d) => d.y).filter((y) => y != null);
+      let lo = p.kind === "bar" ? 0 : Math.min(...vals), hi = Math.max(p.min ?? -Infinity, ...vals);
+      if (p.zero) { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
+      if (p.kind === "line") { const pad = (hi - lo) * 0.1 || 1; lo -= p.min != null && lo >= 0 ? 0 : pad; hi += pad; }
+      if (p.min != null && p.kind === "line") lo = Math.max(0, lo);
+      const ticks = niceTicks(lo, hi);
+      lo = Math.min(lo, ticks[0]); hi = Math.max(hi, ticks[ticks.length - 1]);
+      const Y = (y) => bot - ((y - lo) / (hi - lo || 1)) * PH;
+      p.Y = Y; p.top = top; p.bot = bot;
+      svg.push(`<text class="ch-title" x="${L}" y="${top - 8}">${p.title} <tspan class="ch-note">(${p.unit})${p.note ? " · " + p.note : ""}</tspan></text>`);
+      for (const t of ticks) {
+        svg.push(`<line class="ch-grid" x1="${L}" x2="${L + pw}" y1="${Y(t)}" y2="${Y(t)}"/>`);
+        svg.push(`<text class="ch-tick" x="${L - 6}" y="${Y(t) + 3.5}" text-anchor="end">${fmt(t, Math.abs(t) < 10 && t % 1 ? 1 : 0)}</text>`);
+      }
+      if (p.zero && lo < 0 && hi > 0) svg.push(`<line class="ch-zero" x1="${L}" x2="${L + pw}" y1="${Y(0)}" y2="${Y(0)}"/>`);
+      if (p.kind === "bar") {
+        for (const d of p.data) {
+          if (d.y == null || d.y < 0.05) continue;
+          const xa = X(d.a) + 1, xb = X(d.b) - 1, y = Y(d.y);
+          svg.push(`<rect x="${xa}" y="${y}" width="${Math.max(1, xb - xa)}" height="${Math.max(0, bot - y)}" rx="1.5" fill="${p.color}"/>`);
+        }
+      } else {
+        let path = "", pen = false;
+        for (const d of p.data) {
+          if (d.y == null) { pen = false; continue; }
+          path += `${pen ? "L" : "M"}${X(d.x).toFixed(1)},${Y(d.y).toFixed(1)}`;
+          pen = true;
+        }
+        svg.push(`<path d="${path}" fill="none" stroke="${p.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`);
+      }
+      if (p.arrows) {
+        // frecce verso dove va il vento, una ogni ~22 px
+        const k = Math.max(1, Math.ceil(22 / (pw / p.data.length)));
+        p.data.forEach((d, j) => {
+          if (j % k || d.u == null || d.y < 2) return;
+          const ang = (Math.atan2(-d.v, d.u) * 180) / Math.PI; // schermo: y verso il basso
+          svg.push(`<g transform="translate(${X(d.x).toFixed(1)},${top + 7}) rotate(${ang.toFixed(0)})" stroke="${p.color}" stroke-width="1.4" fill="none" stroke-linecap="round"><path d="M-6,0H6M2.5,-3.5L6,0L2.5,3.5"/></g>`);
+        });
+      }
+    });
+    const yTop = 0, yBot = H - AXIS;
+    // nomi dei giorni ("mer 11") se c'è spazio, altrimenti solo il numero
+    const dayFmt = pw / ((x1 - x0) / 24) >= 52 ? { weekday: "short", day: "numeric" } : { day: "numeric" };
+    for (const h of days) {
+      svg.push(`<line class="ch-day" x1="${X(h)}" x2="${X(h)}" y1="${HEAD - 4}" y2="${yBot}"/>`);
+      const d = new Date(t0 + h * 3600e3).toLocaleDateString("it-IT", { timeZone: "Europe/Rome", ...dayFmt });
+      svg.push(`<text class="ch-tick" x="${X(h)}" y="${yBot + 26}" text-anchor="middle" font-weight="600">${d}</text>`);
+      svg.push(`<text class="ch-tick" x="${X(h)}" y="${yBot + 12}" text-anchor="middle">00</text>`);
+    }
+    for (const [h, hh] of hours) svg.push(`<text class="ch-tick" x="${X(h)}" y="${yBot + 12}" text-anchor="middle">${String(hh).padStart(2, "0")}</text>`);
+    if (state.step != null && state.run === run) {
+      svg.push(`<line class="ch-now" x1="${X(state.step)}" x2="${X(state.step)}" y1="${HEAD - 4}" y2="${yBot}"/>`);
+    }
+    svg.push(`<line class="ch-cursor" id="ch-cursor" x1="0" x2="0" y1="${HEAD - 4}" y2="${yBot}" visibility="hidden"/>`);
+    svg.push(`<rect id="ch-hit" x="${L}" y="${yTop}" width="${pw}" height="${yBot}" fill="transparent"/>`);
+    chartUi.body.innerHTML = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="Andamento nel tempo">${svg.join("")}</svg><div class="chart-tip" hidden></div>`;
+
+    // lettura dei valori: il passo più vicino al puntatore, su tutti i pannelli
+    const svgEl = chartUi.body.querySelector("svg"), tip = chartUi.body.querySelector(".chart-tip");
+    const cursor = svgEl.querySelector("#ch-cursor");
+    const show = (ev) => {
+      const r = svgEl.getBoundingClientRect();
+      const px = ((ev.clientX - r.left) / r.width) * W;
+      const h = x0 + ((px - L) / pw) * (x1 - x0);
+      const st = steps.reduce((a, b) => (Math.abs(b - h) < Math.abs(a - h) ? b : a));
+      cursor.setAttribute("x1", X(st)); cursor.setAttribute("x2", X(st)); cursor.setAttribute("visibility", "visible");
+      const rows = panels.map((p) => {
+        const d = p.data.find((e) => (p.kind === "bar" ? e.b : e.x) === st);
+        if (!d) return "";
+        const extra = p.arrows && d.y != null ? ` da ${dirName(d.u, d.v)}` : "";
+        return `<div>${p.tip(d)} <b>${fmt(d.y, p.dec)}</b> ${p.unit}${extra}</div>`;
+      }).join("");
+      tip.innerHTML = `<div class="t">${fmtLocal(new Date(t0 + st * 3600e3))} · +${st}h</div>${rows}`;
+      tip.hidden = false;
+      const br = chartUi.body.getBoundingClientRect();
+      const cx = ev.clientX - br.left, w = tip.offsetWidth;
+      tip.style.left = `${Math.min(Math.max(cx + 14 + w > br.width ? cx - 14 - w : cx + 14, 4), br.width - w - 4)}px`;
+      tip.style.top = `${Math.max(4, ev.clientY - br.top + chartUi.body.scrollTop - 20)}px`;
+    };
+    const hide = () => { tip.hidden = true; cursor.setAttribute("visibility", "hidden"); };
+    const hit = svgEl.querySelector("#ch-hit");
+    hit.addEventListener("pointermove", show);
+    hit.addEventListener("pointerdown", show);
+    hit.addEventListener("pointerleave", hide);
+  }
 
   // ---------- tooltip puntuale (griglia nativa, nearest neighbour)
   map.on("mousemove", (e) => {

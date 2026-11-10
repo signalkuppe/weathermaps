@@ -159,6 +159,20 @@
       <button id="share-send" class="primary" type="button">Condividi</button>
     </div>
   </dialog>
+  <!-- meteogramma di una località: andamento nel tempo delle grandezze del modello scelto (vedi app/series.py) -->
+  <dialog id="chart-dialog" class="share-dialog chart-dialog" aria-labelledby="chart-title">
+    <header class="share-head">
+      <div class="chart-head">
+        <h2 id="chart-title">Grafico</h2>
+        <div id="chart-sub" class="chart-sub"></div>
+      </div>
+      <button id="chart-close" class="share-x" type="button" aria-label="Chiudi" title="Chiudi (Esc)">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+      </button>
+    </header>
+    <div id="chart-body" class="chart-body"></div>
+  </dialog>
   <div id="legend" class="legend"></div>
   <div id="probe" class="probe" hidden></div>
 

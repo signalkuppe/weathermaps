@@ -11,6 +11,7 @@ from . import variables
 from .config import STEPS, get_initial_view, get_version, prev_step
 from . import fetcher
 from . import mean as mean_mod
+from . import series as series_mod
 from .fetcher import MODELS, steps_for
 from .sources import parse_run_id
 from .store import Store
@@ -52,6 +53,7 @@ def meta(request: Request):
             "initial_view": get_initial_view(store.bbox).as_dict(),
             "steps": STEPS,
             "version": get_version(),
+            "series": {"dstep": series_mod.DSTEP, "tile": series_mod.TILE},
             "models": [m.as_dict() for m in MODELS.values()],
             "variables": variables.menu(),
         },
@@ -105,6 +107,17 @@ def _round_list(values: np.ndarray, decimals: int) -> list:
     rounded = np.round(values.astype(np.float64), decimals)
     flat = rounded.ravel().tolist()
     return [None if v != v else v for v in flat]  # NaN -> null
+
+
+@router.get("/series")
+def series_point(request: Request, model: str, run: str, lat: float, lon: float):
+    """Meteogramma di un punto: per ogni grandezza i passi e i valori (punto della griglia delle serie più vicino)."""
+    if model not in MODELS:
+        raise HTTPException(400, f"Modello sconosciuto: {model}")
+    store = _store(request)
+    if run not in store.runs(model):
+        raise HTTPException(404, "Corsa non disponibile")
+    return JSONResponse(series_mod.point_series(store, model, run, lat, lon), headers={"Cache-Control": "public, max-age=300"})
 
 
 @router.get("/field")
