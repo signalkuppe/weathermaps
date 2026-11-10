@@ -985,7 +985,12 @@
     if (!state.run) {
       ui.range.textContent = "";
       // anche nella barra (su mobile il pannello di solito è chiuso): grandezza non fornita o dati non ancora arrivati
-      ui.badgeText.innerHTML = `<b>${modelLabel()}</b> · ${variable().models.includes(state.model) ? "nessun dato" : `${baseLabel()} non disponibile`}`;
+      const what = variable().models.includes(state.model) ? "nessun dato" : "non disponibile";
+      // stessa struttura della barra normale: su mobile "non disponibile" al posto dell'ora, il modello a destra
+      ui.badgeText.innerHTML =
+        `<b class="badge-d">${modelLabel()}</b><span class="badge-run badge-d">${what === "nessun dato" ? "nessun dato" : `${baseLabel()} non disponibile`}</span>` +
+        `<span class="badge-m badge-m-time"><b>${what}</b></span>` +
+        `<span class="badge-m badge-m-model">${shortLabel(state.model)}</span>`;
       return;
     }
     const runWord = state.model === "mean" ? "dalle" : "corsa";
