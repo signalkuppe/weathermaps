@@ -213,9 +213,11 @@
     sel.replaceChildren(...items.map(([v, label]) => new Option(label, v, false, v === value)));
   }
 
+  // tutti i modelli, sempre: cambiando grandezza il modello non cambia da solo; se non la fornisce lo dice l'avviso
+  // al centro della mappa (vedi update)
   function setupModels() {
-    const models = meta.models.filter((m) => variable().models.includes(m.id));
-    if (!models.find((m) => m.id === state.model)) state.model = models[0].id;
+    const models = meta.models;
+    if (!models.find((m) => m.id === state.model)) state.model = (models.find((m) => variable().models.includes(m.id)) || models[0]).id;
     fillModelSelect(models, state.model);
     renderModelInfo();
   }
@@ -1003,6 +1005,12 @@
     writeHash();
     renderLegend();
     renderTime();
+    if (!variable().models.includes(state.model)) {
+      setLoading(false); clearOverlay(); current = null; renderPoints(); setStatus("");
+      const names = meta.models.filter((m) => variable().models.includes(m.id)).map((m) => shortLabel(m.id));
+      showNoData(`${modelLabel()} non fornisce ${baseLabel()}`, `Disponibile con: ${names.join(", ")}.`);
+      return;
+    }
     if (!state.run) {
       setLoading(false); clearOverlay(); current = null; renderPoints(); setStatus("");
       showNoData(`${modelLabel()}: nessun dato per ${baseLabel()}`,
