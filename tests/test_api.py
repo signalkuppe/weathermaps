@@ -303,6 +303,23 @@ def test_meta_combo_precip_and_freezing_level(client):
     assert set(combo["models"]) == {"gfs", "icon-2i", "icon-d2", "icon-ch2", "icon-ch1", "mean"}
 
 
+def test_field_interval_with_custom_start(tmp_path):
+    """Cumulate di 12/24 ore: differenza fra il totale al passo e quello al passo `prev`."""
+    store = Store(data_dir=tmp_path, bbox=BOX)
+    for s in (12, 24, 36):
+        store.save("gfs", "2026110900", "tp", s,
+                   Field(values=np.full((29, 53), float(s), np.float32), lat0=42, lon0=4, dlat=0.25, dlon=0.25))
+    app = create_app(store=store, start_scheduler=False)
+    with TestClient(app) as c:
+        q = {"model": "gfs", "var": "tp", "run": "2026110900", "step": 36, "mode": "interval"}
+        f = c.get("/api/field", params={**q, "prev": 12}).json()
+        assert f["prev_step"] == 12 and f["max"] == pytest.approx(24)
+        f = c.get("/api/field", params={**q, "prev": 0}).json()
+        assert f["prev_step"] == 0 and f["max"] == pytest.approx(36)
+        assert c.get("/api/field", params={**q, "prev": 36}).status_code == 400
+        assert c.get("/api/field", params={**q, "prev": 7}).status_code == 400
+
+
 def test_version_from_git_describe(monkeypatch):
     from app.config import get_version, parse_describe
 

@@ -1,6 +1,9 @@
 # Weathermaps
 
-Mappe di precipitazione, temperatura a 850 hPa, neve e zero termico previste da otto modelli sul Nord Italia, sopra OpenStreetMap / OpenTopoMap (all'avvio sempre la mappa con il rilievo):
+**App: <https://signalkuppe.github.io/weathermaps/>** (aggiornata una volta all'ora)
+
+Mappe di precipitazione, temperatura a 850 hPa, neve e zero termico previste da otto modelli sul Nord Italia, sopra
+OpenStreetMap (all'avvio) o OpenTopoMap con il rilievo, a scelta nelle impostazioni:
 
 | Modello | Fonte | Risoluzione | Orizzonte | Corse |
 |---|---|---|---|---|
@@ -35,14 +38,37 @@ ne mostra l'avanzamento ("12Z in arrivo · 20/56 passi"); quando è completa pre
 
 La **mediana dei modelli** è costruita per istante di validità da un orario comune T0 (inizio della corsa completa più recente, arrotondato alle 6 ore): per ogni modello si usa la sua ultima corsa completa, e un modello partito dopo T0 entra dai suoi primi passi. Per pioggia e neve il totale è la somma delle mediane di ogni intervallo (così Totale e Intervallo restano coerenti quando un modello a breve scadenza esce); per temperatura e zero termico è la mediana dei valori. La mediana, a differenza della media, non si lascia trascinare da un modello isolato molto diverso dagli altri; con due soli modelli le due coincidono. In ogni passo la pagina indica quali modelli sono nella mediana.
 
-- Grandezze: **Precipitazione** e **Neve** (classifica delle località dalla più alta), **Temperatura a 850 hPa** e **Zero termico** (dal più basso)
-- **Contorni geografici** sopra i colori (coste, laghi, confini di stato e delle province/regioni, Natural Earth 1:10m, pubblico dominio), più marcati quanto più alta è l'opacità; il file `static/borders.json` si rigenera con `scripts/make_borders.py` se cambia `BBOX`
-- **Precip. e zero termico**: la precipitazione a colori con sopra le linee dello zero termico ogni 250 m, per i modelli che hanno entrambe le grandezze (GFS, ICON-2I, ICON-D2, ICON-CH1/CH2 e la mediana); è una voce del menu senza dati propri, la pagina chiede i due campi
-- **Isolinee** sopra i colori: isoterme ogni 2 °C a 850 hPa (marcata quella di 0 °C) e linee dello zero termico ogni 250 m (marcate le migliaia), con etichette; calcolate nel browser dal campo (ammorbidito sulle griglie fini), si spengono nelle impostazioni e compaiono anche nell'immagine condivisa
-- Modalità **Totale** (accumulo da inizio corsa) e **Intervallo** (pioggia del passo da 3h o 6h)
-- Selettore modello e istante (slider, frecce ←/→, spazio = play); la corsa è sempre l'ultima completa
-- Overlay semitrasparente con opacità regolabile, valore in mm sotto il cursore
-- Vista condivisibile: lo stato è nell'URL
+## Cosa fa la pagina
+
+- **Grandezze:** Precipitazione e Neve (classifica delle località dalla più alta), Temperatura a 850 hPa e Zero termico
+  (dal più basso), più la voce combinata **Precip. e zero termico**: la precipitazione a colori con sopra le isoipse
+  dello zero termico, per i modelli che hanno entrambe le grandezze (GFS, ICON-2I, ICON-D2, ICON-CH1/CH2 e la mediana).
+  Le voci combinate (`COMBOS` in `app/variables.py`) non hanno dati propri: la pagina chiede i due campi.
+  Con le cumulate (3–24h) le isoipse mostrano lo **zero termico durante la precipitazione** (in pagina "Zero termico in 24h"): per ogni punto la media
+  dei sotto-intervalli di 3 ore (o 6) del periodo, ognuno pesato con la pioggia caduta in esso e con lo zero termico
+  medio fra i suoi estremi; dove nel periodo cadono meno di 0,1 mm si usa la media semplice. Con il Totale sono lo zero
+  termico all'ora mostrata. Il calcolo è nel browser, con i campi già pubblicati (per "24h" circa 9 totali e 9 campi
+  di zero termico, riusati dai passi vicini durante l'animazione).
+- **Modalità** Totale (accumulo da inizio corsa) e cumulate su **3, 6, 12 o 24 ore** che finiscono all'ora mostrata
+  (parametro `ore` nell'URL), con la durata sempre scritta: "Precipitazione in 24h" in legenda, nel riquadro delle
+  località e nell'immagine condivisa. Sono differenze fra due totali, quindi non pesano sui dati pubblicati; oltre le
+  +144h i passi sono ogni 6 ore e "3h" diventa 6h, all'inizio della corsa la cumulata parte da +0h.
+- **Linee di livello** sopra i colori, con etichette: isoterme ogni 2 °C a 850 hPa (marcata quella di 0 °C) e isoipse
+  dello zero termico ogni 250 m (marcate le migliaia). Sono calcolate nel browser dal campo (ammorbidito sulle griglie
+  fini), si spengono nelle impostazioni e compaiono anche nell'immagine condivisa.
+- **Contorni geografici** sopra i colori: coste, laghi, confini di stato e di provincia (Natural Earth 1:10m), più marcati
+  quanto più alta è l'opacità, così i luoghi si riconoscono anche quando i colori coprono la mappa. Il file
+  `static/borders.json` si rigenera con `scripts/make_borders.py` se cambia `BBOX`.
+- **Navigazione:** modello, istante (slider, frecce ←/→, spazio = play), opacità regolabile, celle nette senza
+  interpolazione. Su mobile c'è una barra in basso con ora, ‹ › ▶, modello e legenda compatta.
+- **Legenda** orizzontale (titolo con unità, barra dei colori con le soglie), su desktop in basso a destra e su mobile
+  nella barra.
+- **Valore sotto il cursore** (desktop), con lo zero termico nella voce combinata; resta sempre dentro la finestra.
+- **Condivisione:** riquadro di ritaglio a proporzioni fisse (4:3, 1:1, 16:9) su cui si sposta e ingrandisce la mappa,
+  centrato all'apertura sulla posizione del dispositivo; intestazione con modello, corsa e ora, legenda, crediti e
+  "Realizzato da signalkuppe.com"; interruttore per includere o no le località. Si condivide l'immagine, senza testo.
+- **Stato nell'URL:** modello, grandezza, istante, modalità e opacità, quindi la vista si può condividere come link.
+- **Versione** accanto al nome dell'app, dai tag git.
 
 ## Avvio in locale
 
@@ -73,13 +99,21 @@ Test: `pytest`.
 
 ## Località preferite
 
-Le località sulla mappa le sceglie chi usa il sito: nella sezione **Località** del pannello si cercano per nome e
-si aggiungono, poi con **Modifica** si rinominano o si eliminano (al massimo 20). Si parte senza località.
-Sulla mappa ognuna ha il valore previsto e un numero in base alla classifica (1 = più pioggia o più freddo);
-il valore è quello del punto di griglia più vicino, calcolato nel browser, quindi funziona anche sul sito statico.
+Le località sulla mappa le sceglie chi usa il sito: nella sezione **Località preferite** del pannello si cercano per
+nome e si aggiungono, poi con **Modifica** si rinominano o si eliminano (al massimo 20). Si parte senza località.
+Sulla mappa ognuna ha un cerchio con il numero della classifica (1 = più pioggia o più freddo) e un'etichetta col
+valore e l'unità (es. `2575m`); il valore è quello del punto di griglia più vicino, calcolato nel browser, quindi
+funziona anche sul sito statico.
 
+- **Etichette:** a destra del cerchio se c'è posto, altrimenti a sinistra, sopra o sotto, con un triangolino verso il
+  cerchio; se nessun lato è libero resta solo il cerchio. La posizione si ricalcola a ogni zoom e cambio di dati.
+- **Riquadro al click** (sul cerchio o sulla riga dell'elenco): nome, valore (e zero termico nella voce combinata) e ora,
+  con la X per chiuderlo; sempre dentro la finestra, sotto pannello e barra.
 - **Salvataggio:** nel browser (`localStorage`, chiave `weathermaps.places.v1`), quindi restano su quel browser
-  e quel dispositivo. In navigazione privata o con i dati del sito bloccati le modifiche durano finché resti sulla pagina.
+  e quel dispositivo; un nuovo deploy non le tocca. Si perdono cancellando i dati del sito; Safari cancella i dati dei
+  siti non aperti da 7 giorni di utilizzo (non per le pagine aggiunte alla schermata Home). Quelle salvate in locale
+  (`localhost`) non compaiono sul sito pubblicato e viceversa. In navigazione privata o con i dati del sito bloccati
+  le modifiche durano finché resti sulla pagina.
 - **Ricerca:** [Photon](https://photon.komoot.io) (geocoder su dati OpenStreetMap), limitata all'area della mappa
   e a località abitate, cime e passi (`osm_tag=place`, `natural:peak`, `mountain_pass`).
   Il testo cercato viene inviato a quel servizio.
@@ -94,7 +128,10 @@ Aggiungi una `Variable` in `app/variables.py` con:
 - i selettori GRIB per modello: per GFS il nome NOMADS `var`/`level` (es. `TMP`, `2_m_above_ground`), per ECMWF `param`/`levtype` delle righe `.index` (es. `2t`, `sfc`), più `short_name` del messaggio decodificato;
 - la conversione di unità e la scala colori;
 - il tipo: `accum` (totale/intervallo) o `instant` (solo valore).
-- se il dato è la somma di più campi (es. neve ICON di griglia + convettiva), i selettori da aggiungere in `plus`.
+- se il dato è la somma di più campi (es. neve ICON di griglia + convettiva), i selettori da aggiungere in `plus`;
+- facoltativo, `contours` per le linee di livello sopra i colori (`step`, livelli marcati in `bold`, `signed` per il segno "+").
+
+Per sovrapporre le linee di una grandezza ai colori di un'altra basta una riga in `COMBOS`.
 
 Fetcher, API e frontend la gestiscono senza altre modifiche; il selettore "Grandezza" compare quando ce n'è più d'una. Per il vento (`vector`) servirà un renderer a frecce dedicato.
 
@@ -161,9 +198,10 @@ fallisce anche l'avvio esterno (risposta di errore su cron-job.org); basta riatt
 
 ## API
 
-- `GET /api/meta`: area, passi, modelli, grandezze con scale colori
-- `GET /api/runs`: corse disponibili e passi scaricati
-- `GET /api/field?model=gfs&var=tp&run=2026110906&step=24&mode=total|interval`: griglia JSON (righe sud→nord)
+- `GET /api/meta`: versione, area, passi, modelli, grandezze (anche le combinate) con scale colori e linee di livello
+- `GET /api/runs`: per modello l'ultima corsa completa e, se c'è, quella in arrivo (`incoming`), con i passi scaricati
+- `GET /api/field?model=gfs&var=tp&run=2026110906&step=24&mode=total|interval[&prev=12]`: griglia JSON (righe sud→nord);
+  con `interval` la differenza col passo `prev` (default il precedente, `0` = dall'inizio della corsa)
 
 ## Fonti dati
 
@@ -173,6 +211,8 @@ fallisce anche l'avvio esterno (risposta di errore su cron-job.org); basta riatt
 - WRF: [MeteoHub](https://meteohub.agenziaitaliameteo.it/nwp/), servizio "singola variabile"; si leggono solo le intestazioni dei messaggi GRIB2 e si scaricano i passi necessari. Griglia Lambert riportata su ~1.6 km con il punto più vicino.
 - MOLOCH (CNR-ISAC, 1.5 km): supportato da `app/sources/meteohub.py` ma escluso per ora, perché fornisce la pioggia ora per ora (~430 MB per corsa da un server lento); le istruzioni per riattivarlo sono nel modulo.
 - DWD: [Open Data ICON-D2](https://opendata.dwd.de/weather/nwp/icon-d2/), griglia regolare 0.02°.
-- Météo-France: [Paquets AROME 0,025°](https://www.data.gouv.fr/datasets/paquets-arome-resolution-0-025/), Licence Ouverte Etalab 2.0. Solo precipitazione (paquet SP1, a blocchi di 6 ore): si leggono le intestazioni GRIB2 e si scaricano solo i messaggi necessari. I dati validi finiscono fra 13°E (a 42°N) e 14,5°E (a 49°N).
+- Météo-France: [Paquets AROME 0,025°](https://www.data.gouv.fr/datasets/paquets-arome-resolution-0-025/), Licence Ouverte Etalab 2.0. Precipitazione e neve (paquet SP1, a blocchi di 6 ore): si leggono le intestazioni GRIB2 e si scaricano solo i messaggi necessari. I dati validi finiscono fra 13°E (a 42°N) e 14,5°E (a 49°N).
 - MeteoSvizzera: [Open Data ICON-CH1/CH2-EPS](https://opendatadocs.meteoswiss.ch/e-forecast-data/e2-e3-numerical-weather-forecasting-model), licenza CC-BY. I campi sono su griglia ICON non strutturata e vengono riportati su una griglia regolare di ~2.2 km (punto del modello più vicino); le coordinate della griglia si scaricano una volta in `DATA_DIR/static`.
 - Mappe: © OpenStreetMap contributors, OpenTopoMap (CC-BY-SA)
+- Contorni geografici: [Natural Earth](https://www.naturalearthdata.com/) 1:10m (pubblico dominio)
+- Ricerca delle località: [Photon](https://photon.komoot.io) su dati OpenStreetMap

@@ -18,7 +18,7 @@
   };
 
   // run: sempre l'ultima corsa completa del modello (non si sceglie più a mano)
-  const state = { model: null, var: null, run: null, step: null, mode: null, opacity: 0.55, crisp: false, iso: true, base: "osm" };
+  const state = { model: null, var: null, run: null, step: null, mode: null, opacity: 0.55, crisp: false, iso: true, hours: 3, base: "osm" };
   // "static": sito pubblicato su GitHub Pages (file JSON pre-generati, nessun server)
   const STATIC = document.documentElement.dataset.mode === "static";
   let publishedAt = null; // solo statico: quando sono stati pubblicati i dati
@@ -115,19 +115,32 @@
   const dataVar = () => variable()?.field || state.var;
   // nome per legenda e testi: per le combinate quello della grandezza dei colori ("Precipitazione")
   const baseLabel = () => variable().base_label || variable().label;
-  // durata dell'intervallo che finisce al passo mostrato (3h, poi 6h oltre le +144h): sempre scritta, mai "intervallo" e basta
-  const intervalHours = (s = state.step) => {
-    const all = steps();
-    const i = all.indexOf(s);
-    return i > 0 ? s - all[i - 1] : s;
-  };
+  // cumulate su 3, 6, 12 o 24 ore: differenza fra il totale al passo mostrato e quello `state.hours` ore prima
+  const INTERVALS = [3, 6, 12, 24];
+  /** Passo da cui parte la cumulata che finisce a `s`: il più vicino a s − ore fra quelli esistenti (oltre le +144h i
+   *  passi sono ogni 6 ore, quindi "3h" diventa 6h); 0 se la corsa è iniziata da meno ore. */
+  function intervalPrev(s = state.step, hours = state.hours) {
+    const target = s - hours;
+    if (target <= 0) return 0;
+    let best = 0;
+    for (const x of meta.steps) if (x <= target && x > best) best = x;
+    return best;
+  }
+  // durata effettiva della cumulata al passo mostrato: sempre scritta, mai "intervallo" e basta
+  const intervalHours = (s = state.step) => s - intervalPrev(s);
   // "in 3h" / "totale" / "" (grandezze istantanee), dopo il nome della grandezza
   const modePhrase = () => (state.mode === "interval" ? `in ${intervalHours()}h` : state.mode === "total" ? "totale" : "");
   // voci combinate: cosa sono le linee ("· linee zero termico ogni 250 m"), in legenda e nell'immagine condivisa
   const isoNote = () => {
     const c = variable().contour_field && variable().contours;
-    return c && state.iso ? ` · linee ${c.label.toLowerCase()} ogni ${c.step} ${c.units}` : "";
+    if (!c || !state.iso) return "";
+    return weightedContour() ? ` · linee ${contourName().toLowerCase()}` : ` · linee ${c.label.toLowerCase()} ogni ${c.step} ${c.units}`;
   };
+  // con le cumulate le linee non sono dell'istante finale ma la media del periodo pesata con la precipitazione
+  const weightedContour = () => !!variable()?.contour_field && state.mode === "interval";
+  // nome del valore delle linee per legenda, riquadro e tooltip: con le cumulate "Zero termico in 24h", come
+  // "Precipitazione in 24h" (è la media del periodo pesata con la pioggia, vedi contourFieldAt)
+  const contourName = () => `${variable().contours.label}${weightedContour() ? ` in ${intervalHours()}h` : ""}`;
   // passi del modello scelto: lo slider si ferma all'orizzonte del modello (es. ICON-CH2 a +120h)
   const steps = () => {
     const max = meta.models.find((m) => m.id === state.model)?.max_step ?? Infinity;
@@ -145,6 +158,7 @@
   function readHash() {
     const p = new URLSearchParams(location.hash.slice(1));
     for (const k of ["model", "var", "mode"]) if (p.get(k)) state[k] = p.get(k);
+    if (INTERVALS.includes(+p.get("ore"))) state.hours = +p.get("ore");
     // i parametri "corsa"/"run" dei link vecchi si ignorano: si mostra sempre l'ultima corsa completa
     if (p.get("step")) state.step = +p.get("step");
     if (p.get("opacity")) state.opacity = Math.min(1, Math.max(0.1, +p.get("opacity")));
@@ -154,6 +168,7 @@
   function writeHash() {
     const p = new URLSearchParams();
     for (const k of ["model", "var", "step", "mode", "opacity"]) if (state[k] != null) p.set(k, state[k]);
+    if (state.mode === "interval") p.set("ore", state.hours);
     if (state.crisp) p.set("crisp", "1");
     if (!state.iso) p.set("iso", "0");
     history.replaceState(null, "", "#" + p.toString());
@@ -224,15 +239,17 @@
   function setupModes() {
     const v = variable();
     if (!v.modes.includes(state.mode)) state.mode = v.modes[0];
-    const labels = { total: "Totale", interval: "Intervallo", value: "Valore" };
+    // grandezze accumulate: Totale · 3h · 6h · 12h · 24h (cumulata che finisce all'ora mostrata)
+    const opts = v.modes.flatMap((m) =>
+      m === "interval" ? INTERVALS.map((h) => [m, h, `${h}h`]) : [[m, null, { total: "Totale", value: "Valore" }[m] || m]]);
     ui.mode.replaceChildren(
-      ...v.modes.map((m) => {
+      ...opts.map(([m, h, text]) => {
         const b = document.createElement("button");
         b.type = "button";
-        b.textContent = labels[m] || m;
-        b.dataset.mode = m;
-        b.setAttribute("aria-pressed", String(m === state.mode));
-        b.addEventListener("click", () => { state.mode = m; setupModes(); update(); });
+        b.textContent = text;
+        if (h) b.title = `Cumulata nelle ${h} ore che finiscono all'ora mostrata`;
+        b.setAttribute("aria-pressed", String(m === state.mode && (h == null || h === state.hours)));
+        b.addEventListener("click", () => { state.mode = m; if (h) state.hours = h; setupModes(); update(); });
         return b;
       }),
     );
@@ -388,16 +405,17 @@
   // ---------- dati
   const ctxNow = () => ({ model: state.model, var: dataVar(), run: state.run });
 
-  function fieldUrl(step, mode, ctx) {
+  function fieldUrl(step, mode, ctx, prev) {
     if (STATIC) return `data/field/${ctx.model}/${ctx.var}/${ctx.run}/${step}.json`;
     const p = new URLSearchParams({ ...ctx, step, mode });
+    if (mode === "interval") p.set("prev", prev);
     return `api/field?${p}`;
   }
 
-  async function getField(step, mode = state.mode, ctx = ctxNow()) {
-    // statico: c'è solo il totale; l'intervallo è la differenza fra due totali (come fa il server)
-    if (STATIC && mode === "interval") return getIntervalStatic(step, ctx);
-    const url = fieldUrl(step, mode, ctx);
+  async function getField(step, mode = state.mode, ctx = ctxNow(), prev = mode === "interval" ? intervalPrev(step) : null) {
+    // statico: c'è solo il totale; la cumulata è la differenza fra due totali (come fa il server)
+    if (STATIC && mode === "interval") return getIntervalStatic(step, ctx, prev);
+    const url = fieldUrl(step, mode, ctx, prev);
     if (!cache.has(url)) {
       const pr = fetch(url).then(async (r) => {
         if (!r.ok) throw Object.assign(new Error((await r.json().catch(() => ({}))).detail || r.statusText), { status: r.status });
@@ -409,13 +427,11 @@
     return cache.get(url);
   }
 
-  function getIntervalStatic(step, ctx) {
-    const key = `interval|${ctx.model}|${ctx.var}|${ctx.run}|${step}`;
+  function getIntervalStatic(step, ctx, prevStep) {
+    const key = `interval|${ctx.model}|${ctx.var}|${ctx.run}|${step}|${prevStep}`;
     if (!cache.has(key)) {
       const pr = (async () => {
         const cur = await getField(step, "total", ctx);
-        const i = meta.steps.indexOf(step);
-        const prevStep = i > 0 ? meta.steps[i - 1] : 0;
         if (!prevStep) return { ...cur, mode: "interval", prev_step: 0 };
         const prev = await getField(prevStep, "total", ctx);
         const v = meta.variables.find((x) => x.id === ctx.var);
@@ -446,8 +462,53 @@
     for (const j of [i + 1, i - 1, i + 2]) {
       if (s[j] == null || !avail.has(s[j])) continue;
       getField(s[j]).catch(() => {});
-      if (cv) getField(s[j], "value", { ...ctxNow(), var: cv }).catch(() => {});
+      if (cv) contourFieldAt(s[j]).catch(() => {});
     }
+  }
+
+  /** Campo delle linee nelle voci combinate al passo `step`. Con le cumulate (es. pioggia in 24h) è lo zero termico
+   *  medio del periodo pesato con la precipitazione: per ogni punto, ogni sotto-intervallo fra due passi conta quanto
+   *  la pioggia caduta in esso, con lo zero termico medio fra i suoi due estremi. Dove nel periodo non piove (meno di
+   *  0,1 mm) si usa la media semplice. Con il Totale è il valore all'ora mostrata. */
+  function contourFieldAt(step) {
+    const ctx = ctxNow();
+    const cv = variable().contour_field;
+    const lines = (x) => getField(x, "value", { ...ctx, var: cv });
+    if (!weightedContour()) return lines(step);
+    const prev = intervalPrev(step);
+    const key = `weighted|${ctx.model}|${ctx.var}|${cv}|${ctx.run}|${prev}|${step}`;
+    if (!cache.has(key)) {
+      const pr = (async () => {
+        const avail = availableSteps();
+        const chain = [prev, ...meta.steps.filter((x) => x > prev && x <= step && avail.has(x))];
+        if (chain.length < 2) return lines(step);
+        const [tot, hz] = await Promise.all([
+          Promise.all(chain.map((x) => (x === 0 ? null : getField(x, "total", ctx)))),
+          Promise.all(chain.map((x) => (x === 0 ? null : lines(x).catch(() => null)))),
+        ]);
+        const end = hz[hz.length - 1];
+        const n = end?.values.length;
+        // griglie diverse fra pioggia e linee (non dovrebbe capitare): solo l'istante finale
+        if (!end || tot.some((t) => t && t.values.length !== n) || hz.some((h) => h && h.values.length !== n)) return end;
+        const values = new Array(n);
+        for (let k = 0; k < n; k++) {
+          let num = 0, den = 0, sum = 0, cnt = 0;
+          for (let i = 1; i < chain.length; i++) {
+            const a = hz[i - 1]?.values[k], b = hz[i]?.values[k];
+            const z = a != null && b != null ? (a + b) / 2 : b ?? a; // al passo 0 lo zero termico non c'è
+            if (z == null) continue;
+            const t1 = tot[i].values[k], t0 = tot[i - 1] ? tot[i - 1].values[k] : 0;
+            const p = t1 != null && t0 != null ? Math.max(0, t1 - t0) : 0;
+            num += z * p; den += p; sum += z; cnt++;
+          }
+          values[k] = cnt === 0 ? null : den >= 0.1 ? num / den : sum / cnt;
+        }
+        return { ...end, values, prev_step: prev, weighted: true };
+      })();
+      cache.set(key, pr);
+      pr.catch(() => cache.delete(key));
+    }
+    return cache.get(key);
   }
 
   // ---------- rendering
@@ -783,13 +844,9 @@
       `<span class="badge-valid badge-d">+${s}h · ${fmtLocal(valid)}</span>` +
       `<span class="badge-m badge-m-time"><b>${fmtLocal(valid)}</b></span>` +
       `<span class="badge-m badge-m-model">${shortLabel(state.model)} ${cycle(state.run)}</span>`;
-    const i = steps().indexOf(s);
-    const prev = i > 0 ? steps()[i - 1] : 0;
+    const prev = intervalPrev(s);
     const utc = `${fmtUTC(valid)} UTC`;
-    // il pulsante dice quanto è lungo l'intervallo al passo mostrato ("Intervallo 3h")
-    const ib = ui.mode.querySelector('[data-mode="interval"]');
-    if (ib) ib.textContent = `Intervallo ${intervalHours(s)}h`;
-    if (state.mode === "interval") ui.range.textContent = `${utc} · ${baseLabel().toLowerCase()} fra +${prev}h e +${s}h (${s - prev}h)`;
+    if (state.mode === "interval") ui.range.textContent = `${utc} · accumulo da +${prev}h a +${s}h`;
     else if (state.mode === "total") ui.range.textContent = `${utc} · accumulo da +0h a +${s}h`;
     else ui.range.textContent = utc;
   }
@@ -813,7 +870,7 @@
       const cv = variable().contour_field;
       const [f, cf] = await Promise.all([
         getField(state.step),
-        cv ? getField(state.step, "value", { ...ctxNow(), var: cv }).catch(() => null) : null,
+        cv ? contourFieldAt(state.step).catch(() => null) : null,
       ]);
       if (my !== seq) return;
       current = f;
@@ -1130,7 +1187,7 @@
     const rows = [[`${baseLabel()}${modeLabel}`, val == null ? "—" : `${val.toFixed(v.decimals)} ${current.units}`]];
     if (v.contour_field && currentContour) {
       const z = valueAt(currentContour, p.lat, p.lon);
-      rows.push([v.contours.label, z == null ? "—" : `${Math.round(z)} ${currentContour.units}`]);
+      rows.push([contourName(), z == null ? "—" : `${Math.round(z)} ${currentContour.units}`]);
     }
     const foot = state.run && state.step != null ? fmtLocal(new Date(runDate(state.run).getTime() + state.step * 3600e3)) : "";
     pop.innerHTML =
@@ -1744,7 +1801,7 @@
     }
     if (currentContour) {
       const z = valueAt(currentContour, e.latlng.lat, e.latlng.lng);
-      if (z != null) text += ` · ${variable().contours.label.toLowerCase()} <b>${Math.round(z)}</b> ${currentContour.units}`;
+      if (z != null) text += ` · ${contourName().toLowerCase()} <b>${Math.round(z)}</b> ${currentContour.units}`;
     }
     ui.probe.innerHTML = text;
     // a destra del mouse, a sinistra se non ci sta; sempre dentro la finestra (8px dai bordi)

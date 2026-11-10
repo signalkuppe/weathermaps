@@ -115,6 +115,7 @@ def field(
     step: int,
     var: str = "tp",
     mode: str | None = Query(None),
+    prev: int | None = Query(None, description="intervallo: passo di partenza (default: il passo precedente)"),
 ):
     store = _store(request)
     if model not in MODELS:
@@ -139,6 +140,11 @@ def field(
         raise HTTPException(404, "Dato non (ancora) disponibile") from None
 
     p = prev_step(step)
+    if mode == "interval" and prev is not None:
+        # cumulate di 6, 12, 24 ore: differenza con un passo più indietro (0 = dall'inizio della corsa)
+        if prev != 0 and prev not in STEPS or prev >= step:
+            raise HTTPException(400, f"Passo di partenza non valido: {prev}")
+        p = prev
     if mode == "interval":
         if p > 0:
             try:
