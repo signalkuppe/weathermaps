@@ -2120,6 +2120,79 @@
   }
   new ResizeObserver(() => { if (chartUi.dialog.open && chartData) drawChart(); }).observe(chartUi.body);
 
+  // ---------- condivisione del meteogramma: immagine larga 1080 px (anche da telefono) con località, modello e corsa
+  // in alto, crediti in basso; poi come l'immagine della mappa (menu del telefono, altrimenti download)
+  const CHART_CSS = [ // le classi della pagina non valgono dentro un'immagine: stessi stili, tema chiaro
+    ".ch-title{font:650 12.5px system-ui,sans-serif;fill:#1d2330}.ch-note{font-weight:400;font-size:11.5px;fill:#5d6677}",
+    ".ch-tick{font:11px system-ui,sans-serif;fill:#5d6677}.ch-grid{stroke:#d8dde6;stroke-width:1}",
+    ".ch-day{stroke:#d8dde6;stroke-width:1;stroke-dasharray:3 3}.ch-now{stroke:#1560e0;stroke-width:1.5;stroke-dasharray:4 3}",
+    ".ch-zero{stroke:#5d6677;stroke-width:1}text{font-variant-numeric:tabular-nums}",
+  ].join("");
+  async function makeChartFile() {
+    const EW = 1032, PAD = 24, TOP = 78, FOOT = 44, K = 2; // larghezza del grafico, margini, scala (nitidezza)
+    const g = drawChart(EW);
+    if (!g) throw new Error("niente da condividere");
+    const svgText = `<svg xmlns="http://www.w3.org/2000/svg" width="${g.W}" height="${g.H}" viewBox="0 0 ${g.W} ${g.H}"><style>${CHART_CSS}</style>${g.markup}</svg>`;
+    const img = await new Promise((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = () => reject(new Error("grafico non convertibile in immagine"));
+      im.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgText)}`;
+    });
+    const cw = g.W + PAD * 2, chh = TOP + g.H + FOOT;
+    const cv = document.createElement("canvas");
+    cv.width = cw * K; cv.height = chh * K;
+    const ctx = cv.getContext("2d");
+    ctx.scale(K, K);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, cw, chh);
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = "#1d2330";
+    ctx.font = `700 24px ${FONT}`;
+    ctx.fillText(chartUi.title.textContent, PAD, 40);
+    ctx.fillStyle = "#5d6677";
+    ctx.font = `500 15px ${FONT}`;
+    ctx.fillText(chartUi.sub.textContent, PAD, 62);
+    ctx.drawImage(img, PAD, TOP, g.W, g.H);
+    ctx.font = `400 12px ${FONT}`;
+    const attr = shareTexts().attr;
+    ctx.fillText(attr.slice(Math.max(0, attr.indexOf("Dati:"))), PAD, chh - 16, cw - PAD * 2 - 230); // niente crediti della mappa
+    ctx.textAlign = "right";
+    ctx.font = `700 14px ${FONT}`;
+    ctx.fillStyle = "#1d2330";
+    const site = "signalkuppe.com";
+    ctx.fillText(site, cw - PAD, chh - 16);
+    const sw = ctx.measureText(site).width;
+    ctx.font = `400 14px ${FONT}`;
+    ctx.fillStyle = "#5d6677";
+    ctx.fillText("Realizzato da ", cw - PAD - sw, chh - 16);
+    const blob = await new Promise((resolve) => cv.toBlob(resolve, "image/jpeg", 0.92));
+    const slug = chartUi.title.textContent.toLowerCase().normalize("NFD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    return new File([blob], `weathermaps-grafico-${slug || "localita"}-${state.model}-${chartData.run}.jpg`, { type: "image/jpeg" });
+  }
+  $("chart-share").addEventListener("click", async () => {
+    if (!chartData) return;
+    const btn = $("chart-share");
+    btn.disabled = true;
+    try {
+      const file = await makeChartFile();
+      const data = { files: [file] };
+      if (navigator.canShare?.(data)) {
+        try { await navigator.share(data); } catch (e) { if (e.name !== "AbortError") throw e; }
+      } else {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(file);
+        a.download = file.name;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      }
+    } catch (e) {
+      chartUi.sub.textContent += ` · condivisione non riuscita: ${e.message}`;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
   /** 3–5 valori "tondi" fra lo e hi per l'asse. */
   function niceTicks(lo, hi, n = 3) {
     const raw = (hi - lo) / n || 1;
@@ -2134,15 +2207,20 @@
     return DIRS[Math.round((((Math.atan2(-u, -v) * 180) / Math.PI + 360) % 360) / 45) % 8];
   };
 
-  function drawChart() {
+  /** Disegna il meteogramma nella finestra; con `exportW` restituisce invece l'SVG largo exportW (per l'immagine). */
+  function drawChart(exportW) {
     const { series, run } = chartData;
     const V = series.vars;
     const t0 = runDate(run).getTime();
-    const W = Math.max(280, chartUi.body.clientWidth);
+    const W = exportW || Math.max(280, chartUi.body.clientWidth);
     const L = 46, R = 14, pw = W - L - R;
     const PH = 78, HEAD = 22, GAP = 16, AXIS = 34; // altezza grafico, titolo, spazio fra pannelli, asse dei tempi
     const steps = [...new Set(Object.values(V).flatMap((v) => v.steps))].sort((a, b) => a - b);
-    if (!steps.length) { chartUi.body.innerHTML = '<div class="chart-empty">Nessun dato in questo punto.</div>'; return; }
+    if (!steps.length) {
+      if (exportW) return null;
+      chartUi.body.innerHTML = '<div class="chart-empty">Nessun dato in questo punto.</div>';
+      return;
+    }
     const x0 = Math.min(0, steps[0]), x1 = steps[steps.length - 1];
     const X = (h) => L + ((h - x0) / (x1 - x0 || 1)) * pw;
     const fmt = (x, d) => (x == null ? "—" : x.toFixed(d).replace("-", "−"));
@@ -2234,9 +2312,10 @@
       svg.push(`<text class="ch-tick" x="${X(h)}" y="${yBot + 12}" text-anchor="middle">00</text>`);
     }
     for (const [h, hh] of hours) svg.push(`<text class="ch-tick" x="${X(h)}" y="${yBot + 12}" text-anchor="middle">${String(hh).padStart(2, "0")}</text>`);
-    if (state.step != null && state.run === run) {
+    if (!exportW && state.step != null && state.run === run) { // ora della mappa: solo nella pagina
       svg.push(`<line class="ch-now" x1="${X(state.step)}" x2="${X(state.step)}" y1="${HEAD - 4}" y2="${yBot}"/>`);
     }
+    if (exportW) return { markup: svg.join(""), W, H };
     svg.push(`<line class="ch-cursor" id="ch-cursor" x1="0" x2="0" y1="${HEAD - 4}" y2="${yBot}" visibility="hidden"/>`);
     svg.push(`<rect id="ch-hit" x="${L}" y="${yTop}" width="${pw}" height="${yBot}" fill="transparent"/>`);
     chartUi.body.innerHTML = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="Andamento nel tempo">${svg.join("")}</svg><div class="chart-tip" hidden></div>`;

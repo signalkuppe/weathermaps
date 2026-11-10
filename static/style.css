@@ -635,3 +635,12 @@ input[type="range"] { accent-color: var(--accent); }
 .pt-pop-chart { margin-top: 6px; width: 100%; padding: 4px 8px; border: 1px solid rgba(255, 255, 255, 0.35);
   border-radius: 6px; background: none; color: #fff; font: 600 12px/1.4 system-ui, sans-serif; cursor: pointer; }
 .pt-pop-chart:hover { background: rgba(255, 255, 255, 0.12); }
+
+/* finestra del grafico: margini più ampi della condivisione (titolo e grafico non incollati ai bordi) */
+.chart-dialog { padding: max(18px, env(safe-area-inset-top)) 28px max(16px, env(safe-area-inset-bottom)); gap: 14px; }
+.chart-dialog .share-head { align-items: flex-start; }
+.chart-actions { display: flex; align-items: center; gap: 4px; margin-right: -8px; }
+.chart-actions .share-x { margin-right: 0; }
+.chart-share { color: var(--accent); }
+.chart-share:disabled { opacity: 0.5; cursor: progress; }
+@media (max-width: 600px) { .chart-dialog { padding-left: 20px; padding-right: 20px; } }
