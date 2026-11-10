@@ -1,4 +1,4 @@
-"""ECMWF IFS 0.1° Open Data: indice + download a byte-range del solo campo richiesto."""
+"""ECMWF IFS 0.25° Open Data: indice + download a byte-range del solo campo richiesto."""
 from __future__ import annotations
 
 import json
@@ -13,28 +13,28 @@ from . import ModelInfo, NotAvailable
 
 MODEL = ModelInfo(
     id="ecmwf",
-    label="ECMWF IFS 0.1°",
-    resolution=0.1,
+    label="ECMWF IFS 0.25°",
+    resolution=0.25,
     cycles=(0, 12),  # le 06/18 si fermano a 144h
-    delay_hours=7.5,
+    delay_hours=6,  # la 0,25° esce un paio d'ore prima della 0,1° (e più regolarmente)
     max_step=360,
     country="eu",
     description=(
         "Modello globale del Centro Europeo (ECMWF), il riferimento per il medio termine. "
-        "Dati aperti a 0,1° (circa 9 km), corse delle 00 e 12 UTC, qui fino a +192h. "
-        "Più dettagliato di GFS, ma i rilievi alpini restano semplificati."
+        "Dati aperti a 0,25° (circa 25 km), corse delle 00 e 12 UTC, qui fino a +192h. "
+        "Stessa risoluzione di GFS: i rilievi alpini sono molto semplificati."
     ),
 )
 
 ROOT = "https://data.ecmwf.int/forecasts"
 
 
-def base_url(run: datetime, step: int, levtype: str = "sfc") -> str:
-    """A 0.1° superficie e livelli di pressione sono in file separati (-sfc / -pl)."""
-    return (
-        f"{ROOT}/{run:%Y%m%d}/{run.hour:02d}z/ifs/0p1/oper/"
-        f"{run:%Y%m%d%H}0000-{step}h-oper-fc-{levtype}"
-    )
+def base_url(run: datetime, step: int) -> str:
+    """A 0.25° superficie e livelli di pressione stanno nello stesso file (il levtype distingue le righe dell'indice).
+
+    Si usa la 0.25° e non la 0.1° perché esce prima e con più regolarità (a volte la 0.1° di una corsa manca del tutto).
+    """
+    return f"{ROOT}/{run:%Y%m%d}/{run.hour:02d}z/ifs/0p25/oper/{run:%Y%m%d%H}0000-{step}h-oper-fc"
 
 
 def find_in_index(index_text: str, variable: Variable, step: int) -> tuple[int, int]:
@@ -57,7 +57,7 @@ def find_in_index(index_text: str, variable: Variable, step: int) -> tuple[int, 
 
 
 def fetch(client: httpx.Client, run: datetime, step: int, variable: Variable, bbox: BBox) -> Field:
-    base = base_url(run, step, variable.selectors["ecmwf"].levtype or "sfc")
+    base = base_url(run, step)
     idx = client.get(base + ".index")
     if idx.status_code == 404:
         raise NotAvailable(f"ECMWF {run:%Y%m%d%H} +{step}h non disponibile")

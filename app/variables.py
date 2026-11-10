@@ -26,7 +26,7 @@ class GribSelector:
     var: str | None = None
     level: str | None = None
     param: str | None = None
-    levtype: str | None = None  # "sfc" (superficie) o "pl" (livelli di pressione, file separato a 0.1°)
+    levtype: str | None = None  # "sfc" (superficie) o "pl" (livelli di pressione)
     levelist: str | None = None  # livello di pressione per levtype "pl", es. "850"
     short_name: str | None = None
     step_range_prefix: str | None = None

@@ -9,7 +9,7 @@ e confini sopra i colori, come le carte meteo classiche) o **Rilievo** (OpenTopo
 | Modello | Fonte | Risoluzione | Orizzonte | Corse |
 |---|---|---|---|---|
 | GFS | NOAA/NCEP | 0.25° | +192h | 00/06/12/18 |
-| ECMWF IFS | ECMWF Open Data | 0.1° | +192h | 00/12 |
+| ECMWF IFS | ECMWF Open Data | 0.25° | +192h | 00/12 |
 | ICON-2I | ItaliaMeteo (MeteoHub) | 2.2 km | +72h | 00/12 |
 | WRF | ItaliaMeteo, CIMA, LaMMA (MeteoHub) | 1.5 km | +72h | 00/12 |
 | ICON-D2 | DWD Open Data | 2.2 km | +48h | ogni 3 ore |

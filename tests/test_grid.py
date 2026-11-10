@@ -110,7 +110,8 @@ def test_ecmwf_index_matches_level():
     offset, length = ecmwf_src.find_in_index(text, get("t850"), 24)
     rec = next(r for r in map(__import__("json").loads, text.splitlines()) if r["param"] == "t" and r["levelist"] == "850")
     assert (offset, length) == (rec["_offset"], rec["_length"])
-    assert ecmwf_src.base_url(__import__("datetime").datetime(2026, 11, 9), 24, "pl").endswith("-24h-oper-fc-pl")
+    url = ecmwf_src.base_url(__import__("datetime").datetime(2026, 11, 9), 24)
+    assert "/ifs/0p25/oper/" in url and url.endswith("-24h-oper-fc")  # superficie e livelli nello stesso file
 
 
 def test_t850_meta_rank_ascending():
