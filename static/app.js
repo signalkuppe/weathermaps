@@ -13,7 +13,7 @@
     badge: $("badge"), badgeText: $("badge-text"), mPlay: $("m-play"), runAge: $("run-age"),
     runLive: $("run-live"), runLiveText: $("run-live-text"), refresh: $("refresh"), runLiveNote: $("run-live-note"),
     pointsBox: $("points-box"), points: $("points"),
-    loading: $("loading"), placeQ: $("place-q"), placeResults: $("place-results"), placesEdit: $("places-edit"), placesEmpty: $("places-empty"),
+    loading: $("loading"), nodata: $("nodata"), nodataTitle: $("nodata-title"), nodataText: $("nodata-text"), placeQ: $("place-q"), placeResults: $("place-results"), placesEdit: $("places-edit"), placesEmpty: $("places-empty"),
     modelInfo: $("model-info"), modelInfoBtn: $("model-info-btn"),
   };
 
@@ -156,6 +156,12 @@
   };
   const runInfo = () => (runs[state.model] || []).find((r) => r.run === state.run);
   const availableSteps = () => new Set(runInfo()?.variables[dataVar()]?.steps || []);
+
+  /** Avviso al centro della mappa (null = nascosto). */
+  function showNoData(title, text = "") {
+    ui.nodata.hidden = !title;
+    if (title) { ui.nodataTitle.textContent = title; ui.nodataText.textContent = text; }
+  }
 
   function setStatus(text, warn = false) {
     ui.status.textContent = text || "";
@@ -997,13 +1003,21 @@
     writeHash();
     renderLegend();
     renderTime();
-    if (!state.run) { setLoading(false); clearOverlay(); current = null; renderPoints(); setStatus("Nessun dato ancora scaricato per questo modello.", true); return; }
+    if (!state.run) {
+      setLoading(false); clearOverlay(); current = null; renderPoints(); setStatus("");
+      showNoData(`${modelLabel()}: nessun dato per ${baseLabel()}`,
+        "I dati di questa combinazione non sono ancora disponibili: arriveranno con uno dei prossimi aggiornamenti. Intanto puoi scegliere un altro modello.");
+      return;
+    }
     if (!availableSteps().has(state.step)) {
       setLoading(false);
       clearOverlay(); current = null; renderPoints();
       setStatus("");
+      showNoData(`Nessun dato per ${fmtLocal(new Date(runDate(state.run).getTime() + state.step * 3600e3))}`,
+        `${modelLabel()} non ha dati di ${baseLabel()} per quest'ora: scegline un'altra con lo slider o le frecce.`);
       return;
     }
+    showNoData(null);
     const my = ++seq;
     setLoading(true); // spinner nella riga dell'ora: niente testo che compare e sparisce spostando il pannello
     try {

@@ -644,3 +644,12 @@ input[type="range"] { accent-color: var(--accent); }
 .chart-share { color: var(--accent); }
 .chart-share:disabled { opacity: 0.5; cursor: progress; }
 @media (max-width: 600px) { .chart-dialog { padding-left: 20px; padding-right: 20px; } }
+
+/* avviso al centro della mappa quando la combinazione scelta non ha dati */
+.nodata { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 980;
+  display: grid; gap: 4px; width: min(340px, calc(100vw - 48px)); padding: 14px 18px; border-radius: 10px;
+  background: var(--panel); color: var(--fg); box-shadow: var(--shadow); border: 1px solid var(--line);
+  border-left: 4px solid #c2410c; font-size: 13px; line-height: 1.45; pointer-events: none; }
+.nodata[hidden] { display: none; }
+.nodata b { font-size: 14px; font-weight: 650; }
+.nodata span { color: var(--muted); }
