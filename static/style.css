@@ -4,6 +4,7 @@
   --muted: #5d6677;
   --line: #d8dde6;
   --accent: #1560e0;
+  --accent-tint: rgba(21, 96, 224, 0.1); /* sfondo di selezioni e azioni principali (contornate, non piene) */
   --panel: rgba(255, 255, 255, 0.94);
   --shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
 }
@@ -14,6 +15,7 @@
     --muted: #9aa3b2;
     --line: #333a46;
     --accent: #5fa0ff;
+    --accent-tint: rgba(95, 160, 255, 0.16);
     --panel: rgba(24, 28, 36, 0.94);
     --shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
   }
@@ -22,7 +24,12 @@
 * { box-sizing: border-box; }
 /* l'attributo hidden deve vincere sui display: grid/flex delle righe */
 [hidden] { display: none !important; }
-html, body { height: 100%; margin: 0; }
+html, body {
+  /* cifre tutte della stessa larghezza: i numeri che cambiano (ora durante il play, valori) non spostano il resto */
+  font-variant-numeric: tabular-nums; height: 100%; margin: 0; }
+/* niente zoom col doppio tocco (Safari iOS ingrandiva la pagina toccando › due volte in fretta): i tocchi
+   ravvicinati diventano clic normali. Il pizzico per ingrandire la pagina resta; la mappa ha il suo zoom. */
+html, body, button, a, input, select, summary, label { touch-action: manipulation; }
 body {
   background: var(--bg);
   color: var(--fg);
@@ -37,6 +44,10 @@ body {
   z-index: 1000;
   width: 300px;
   max-width: calc(100vw - 24px);
+  /* mai oltre il bordo dello schermo: con tante località scorre il contenuto del pannello */
+  max-height: calc(100dvh - 24px);
+  display: flex;
+  flex-direction: column;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -50,9 +61,15 @@ body {
   border-bottom: 1px solid var(--line);
 }
 .panel-head h1 { font-size: 15px; margin: 0; font-weight: 650; }
+.app-version { margin-left: 4px; font-size: 11px; font-weight: 400; color: var(--muted); }
 .panel.collapsed .panel-body { display: none; }
 .head-actions { display: flex; gap: 6px; align-items: center; }
-.share-btn { display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; font-size: 13px; font-weight: 600; color: var(--accent); }
+/* icona "Condividi" in fondo alla barra di modello e ora (il badge non riceve clic, il pulsante sì) */
+.share-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; margin: -4px -8px -4px 0;
+  padding: 0; border: 0; border-radius: 999px; background: none; color: var(--accent); cursor: pointer;
+  pointer-events: auto; align-self: center; }
+.share-btn:hover { background: rgba(127, 127, 127, 0.15); }
+.share-btn:disabled { opacity: 0.5; cursor: progress; }
 .share-btn svg { flex: none; }
 .share-toast {
   position: absolute;
@@ -68,18 +85,35 @@ body {
   font-size: 13px;
   box-shadow: var(--shadow);
 }
+/* modale a schermo intero: riquadro 1200×630 (og:image) da ritagliare con trascinamento e zoom */
 .share-dialog {
-  width: min(720px, calc(100vw - 24px));
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--bg);
-  color: var(--fg);
-  box-shadow: var(--shadow);
+  width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0;
+  padding: max(8px, env(safe-area-inset-top)) 16px max(12px, env(safe-area-inset-bottom));
+  border: 0; border-radius: 0; background: var(--bg); color: var(--fg);
 }
+/* apertura: sale dal basso; chiusura immediata, senza animazione */
+.share-dialog[open] { display: flex; flex-direction: column; gap: 8px; animation: share-in 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); }
 .share-dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
-.share-dialog img { display: block; width: 100%; max-height: 70vh; object-fit: contain; border-radius: 6px; border: 1px solid var(--line); }
-.share-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; flex-wrap: wrap; }
+@keyframes share-in { from { transform: translateY(100%); } }
+@media (prefers-reduced-motion: reduce) { .share-dialog[open] { animation: none; } }
+.share-head { display: flex; align-items: center; justify-content: space-between; }
+.share-head h2 { margin: 0; font-size: 17px; font-weight: 650; }
+.share-x { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; margin-right: -8px;
+  padding: 0; border: 0; border-radius: 999px; background: none; color: var(--fg); cursor: pointer; }
+.share-x:hover { background: rgba(127, 127, 127, 0.15); }
+/* la vista occupa tutto lo spazio libero; il canvas ha la stessa grandezza (vedi layoutView in app.js) */
+.share-stage { flex: 1; min-height: 0; position: relative; }
+#share-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+#share-canvas:active { cursor: grabbing; }
+.share-tools { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding-top: 4px; }
+.share-ratio button { padding: 0 12px; height: 32px; }
+.share-hint { flex: 1; color: var(--muted); font-size: 12px; min-width: 140px; }
+.share-zoom { display: flex; gap: 6px; }
+.share-zoom button { width: 36px; height: 36px; font: inherit; font-size: 18px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--bg); color: var(--fg); cursor: pointer; }
+/* footer separato dai controlli del ritaglio */
+.share-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;
+  margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
 .share-actions button {
   font: inherit;
   font-size: 14px;
@@ -90,9 +124,10 @@ body {
   color: var(--fg);
   cursor: pointer;
 }
-.share-actions .primary { background: #25d366; border-color: #1fb457; color: #0b2e17; font-weight: 650; }
+/* azione principale: stesso stile delle selezioni (bordo e testo blu, velo chiaro) */
+.share-actions .primary { background: var(--accent-tint); border-color: var(--accent); color: var(--accent); font-weight: 650; }
 .panel.collapsed .panel-head { border-bottom: 0; }
-.panel-body { padding: 10px 12px 12px; display: grid; gap: 8px; }
+.panel-body { padding: 10px 12px 12px; display: grid; gap: 8px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 
 .row { display: grid; grid-template-columns: 80px 1fr; align-items: center; gap: 8px; }
 .row > span { color: var(--muted); font-size: 13px; }
@@ -227,7 +262,14 @@ input[type="range"] { accent-color: var(--accent); }
   cursor: pointer;
 }
 .seg button + button { border-left: 1px solid var(--line); }
-.seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+/* angoli dei pulsanti alle estremità come il contenitore (6px meno il bordo), così il bordo blu della selezione
+   segue la curva invece di essere tagliato */
+.seg button:first-child { border-radius: 5px 0 0 5px; }
+.seg button:last-child { border-radius: 0 5px 5px 0; }
+.seg button:only-child { border-radius: 5px; }
+/* selezione: bordo e testo blu con velo chiaro (il bordo interno non sposta il layout) */
+.seg button[aria-pressed="true"] { background: var(--accent-tint); color: var(--accent); font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--accent); }
 
 .run-block { display: grid; gap: 4px; }
 .run-head { display: flex; justify-content: space-between; align-items: baseline; }
@@ -267,9 +309,8 @@ input[type="range"] { accent-color: var(--accent); }
   background: #16a34a;
   color: #fff;
 }
-.run-btn[aria-checked="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
-.run-btn[aria-checked="true"] small,
-.run-btn[aria-checked="true"] em { color: rgba(255, 255, 255, 0.85); }
+.run-btn[aria-checked="true"] { background: var(--accent-tint); border-color: var(--accent); color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent); }
 
 .run-live {
   display: flex;
@@ -324,6 +365,9 @@ input[type="range"] { accent-color: var(--accent); }
   margin: 0 2px;
 }
 .badge-valid { color: var(--muted); }
+.badge-text { display: contents; } /* su desktop i figli sono elementi flex del badge */
+.badge-m { display: none; }
+.badge-btn { display: none; }
 @media (max-width: 1100px) { .badge { left: auto; right: 64px; transform: none; } }
 
 .time { padding: 6px 0 2px; border-top: 1px solid var(--line); }
@@ -345,6 +389,23 @@ input[type="range"] { accent-color: var(--accent); }
 
 .status { color: var(--muted); font-size: 12px; min-height: 1em; }
 .status.warn { color: #c2410c; }
+.status:empty { display: none; }
+
+/* attribuzione di Leaflet spostata nel pannello (vedi placeAttribution in app.js) */
+/* "© OpenStreetMap" resta visibile anche a sezione chiusa: l'attribuzione OSM è obbligatoria */
+.credits summary .credits-osm { float: right; font-size: 11px; }
+.attrib .leaflet-control-attribution {
+  float: none; /* Leaflet fa flottare i controlli: nel pannello ciò che segue andrebbe di fianco */
+  margin: 0; padding: 6px 0 0;
+  background: none; color: var(--muted); font-size: 11px; line-height: 1.4;
+}
+.attrib .leaflet-control-attribution a { color: inherit; text-decoration: underline; }
+.settings-body { display: grid; gap: 8px; margin-top: 8px; }
+.credits-data { margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.credits-data a { color: inherit; text-decoration: underline; }
+.attrib .leaflet-attribution-flag { display: inline !important; vertical-align: baseline; }
+/* senza attribuzione sulla mappa la legenda può scendere */
+.panel:not(.collapsed) ~ .legend { bottom: 12px; }
 
 .legend {
   position: absolute;
@@ -362,6 +423,10 @@ input[type="range"] { accent-color: var(--accent); }
 .legend ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column-reverse; }
 .legend li { display: flex; align-items: center; gap: 6px; line-height: 16px; }
 .legend i { width: 18px; height: 12px; border-radius: 2px; display: inline-block; }
+.legend .lg-tick { display: none; }
+/* credito breve della mappa, sempre visibile (obbligatorio) */
+.legend .lg-credit { display: block; margin-top: 4px; font-size: 8px; line-height: 1; color: var(--muted);
+  text-decoration: none; text-align: right; pointer-events: auto; }
 
 .probe {
   position: absolute;
@@ -413,7 +478,31 @@ input[type="range"] { accent-color: var(--accent); }
 .points-box { border-top: 1px solid var(--line); padding-top: 6px; }
 .points-box summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .points-box summary span { font-size: 12px; }
-.points { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 2px; max-height: 32vh; overflow: auto; }
+/* niente scorrimento proprio: scorre tutto il pannello (un solo scorrimento) */
+.points { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 2px; }
+/* località: ricerca, modifica, elenco vuoto */
+.places-tools { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+.places-search { position: relative; flex: 1; min-width: 0; }
+.places-search input { width: 100%; box-sizing: border-box; height: 30px; padding: 0 8px; font: inherit; font-size: 13px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+.places-search input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.place-results { position: absolute; z-index: 5; top: calc(100% + 4px); left: 0; right: 0; margin: 0; padding: 4px;
+  list-style: none; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow);
+  max-height: 40vh; overflow: auto; }
+.place-results li { display: grid; padding: 5px 8px; border-radius: 6px; cursor: pointer; }
+.place-results li:hover, .place-results li:focus { background: rgba(127, 127, 127, 0.14); outline: none; }
+.place-results .place-name { font-size: 13px; font-weight: 600; }
+.place-results .place-ctx { font-size: 11px; color: var(--muted); }
+.place-results .place-none { cursor: default; color: var(--muted); font-size: 12px; }
+.places-edit { height: 30px; padding: 0 10px; font: inherit; font-size: 12px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--bg); color: var(--accent); cursor: pointer; }
+.places-empty { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+.points li.editing { cursor: default; }
+.points .pt-rename { min-width: 0; height: 24px; padding: 0 6px; font: inherit; font-size: 13px;
+  border: 1px solid var(--line); border-radius: 5px; background: var(--bg); color: var(--fg); }
+.points .pt-del { width: 26px; height: 24px; padding: 0; border: 0; border-radius: 5px; background: none;
+  color: #c2410c; font-size: 13px; cursor: pointer; }
+.points .pt-del:hover { background: rgba(194, 65, 12, 0.12); }
 .points li { display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: 8px; padding: 2px 4px; border-radius: 6px; cursor: pointer; }
 .points li:hover { background: rgba(127, 127, 127, 0.12); }
 .points .pt-num { width: 20px; height: 20px; font-size: 11px; border-width: 1.5px; box-shadow: none; }
@@ -423,14 +512,50 @@ input[type="range"] { accent-color: var(--accent); }
 .wm-overlay.crisp { image-rendering: pixelated; }
 
 @media (max-width: 600px) {
-  .panel { top: 8px; left: 8px; right: 8px; width: auto; }
-  .badge { top: auto; bottom: 40px; left: 8px; right: auto; font-size: 12px; gap: 6px; padding: 3px 10px; }
-  .badge-run strong { font-size: 15px; }
-  .badge-valid { display: none; }
-  /* legenda orizzontale sopra l'etichetta della corsa */
-  .legend { left: 8px; right: 8px; bottom: 74px; padding: 5px 8px; }
-  .legend h2 { margin-bottom: 3px; font-size: 11px; }
-  .legend ol { flex-direction: row; }
-  .legend li { flex: 1; flex-direction: column; gap: 1px; font-size: 9px; line-height: 11px; }
-  .legend i { width: 100%; height: 8px; border-radius: 0; }
+  /* sopra la barra in basso (ora, legenda), alta circa 90px */
+  .panel { top: 8px; left: 8px; right: 8px; width: auto; max-height: calc(100dvh - 108px); }
+  /* Safari iOS ingrandisce la pagina se un campo ha il testo sotto i 16px: ricerca, rinomina e menu a 16px */
+  .places-search input, .points .pt-rename, select { font-size: 16px; }
+  .places-search input { height: 36px; }
+  .points .pt-rename { height: 30px; }
+  /* su mobile si zooma con due dita: niente pulsanti +/− */
+  .leaflet-control-zoom { display: none; }
+  /* un solo riquadro in basso: istante dell'immagine + modello/corsa, sotto la legenda compatta */
+  /* riga: ‹ istante › ▶ … modello corsa; sotto, a tutta larghezza, la legenda */
+  .badge { top: auto; bottom: 8px; left: 8px; right: 8px; transform: none;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0;
+    padding: 0 10px 2px 2px; border-radius: 8px; font-size: 13px; }
+  .badge-text { display: contents; }
+  .badge-d { display: none; }
+  .badge-m { display: inline; order: 2; }
+  /* larghezza fissa per l'ora: giorni e mesi hanno larghezze diverse ("gio 11 giu" ~112 px, "dom 03 mag"
+     ~136 px a 13px), così cambiando passo frecce e play restano fermi */
+  .badge-m-time { width: 10.5em; text-align: center; }
+  /* il modello prende solo lo spazio rimasto (base 0): la riga non va mai a capo, al limite il nome si accorcia */
+  .badge-m-model { order: 5; flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: right;
+    color: var(--muted); font-size: 11px; }
+  /* area da toccare 40×40 anche se il simbolo è piccolo; il resto del riquadro lascia passare il trascinamento */
+  .badge-btn { display: flex; align-items: center; justify-content: center; width: 34px; height: 40px;
+    padding: 0; border: 0; background: none; color: var(--accent); cursor: pointer; pointer-events: auto; }
+  .badge-btn svg { display: block; }
+  /* « ‹ istante › ▶ … modello corsa [condividi] */
+  #m-first { order: 0; width: 28px; }
+  /* ‹ e › stretti e appoggiati all'ora */
+  #m-prev { order: 1; width: 26px; justify-content: flex-end; }
+  #m-next { order: 3; width: 26px; justify-content: flex-start; }
+  #m-play { order: 4; width: 30px; }
+  .share-btn { order: 6; width: 34px; height: 40px; margin: 0 -8px 0 4px; }
+  .badge .legend { order: 7; flex-basis: 100%; padding-left: 8px; flex-wrap: wrap; }
+  .legend .lg-credit { flex-basis: 100%; margin: 0 0 1px; }
+  /* legenda compatta sopra l'etichetta della corsa: unità a sinistra, barra colori con le soglie sotto */
+  .legend { position: static; padding: 0; border: 0; box-shadow: none; background: none;
+    display: flex; align-items: flex-start; gap: 8px; }
+  .legend h2 { margin: 0; font-size: 10px; font-weight: 600; line-height: 8px; white-space: nowrap; }
+  .legend .lg-label, .legend .lg-text { display: none; }
+  .legend ol { flex: 1; flex-direction: row; }
+  .legend li { flex: 1; display: block; position: relative; line-height: 1; }
+  .legend i { display: block; width: 100%; height: 8px; border-radius: 0; }
+  /* la soglia sta sul bordo sinistro della sua classe */
+  .legend .lg-tick { display: block; height: 12px; padding-top: 2px; font-size: 9px; line-height: 10px;
+    transform: translateX(-50%); width: max-content; color: var(--muted); font-variant-numeric: tabular-nums; }
 }

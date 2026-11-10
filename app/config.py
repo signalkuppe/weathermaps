@@ -5,9 +5,10 @@ Tutto ciò che dipende dall'area della mappa deriva da `BBOX`, letto dall'ambien
 from __future__ import annotations
 
 import hashlib
-import json
 import os
+import subprocess
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 
@@ -98,22 +99,30 @@ def get_initial_view(bbox: BBox) -> BBox:
     return clipped
 
 
-POINTS_FILE_DEFAULT = Path(__file__).resolve().parent.parent / "points.json"
+def parse_describe(text: str) -> str:
+    """Da `git describe --tags --long` ("v1.2.0-3-gabc1234") alla versione mostrata: "v1.2.0" sul tag,
+    "v1.2.0+3" con 3 commit dopo il tag."""
+    tag, ahead, _sha = text.strip().rsplit("-", 2)
+    return tag if ahead == "0" else f"{tag}+{ahead}"
 
 
-def get_points() -> list[dict]:
-    """Punti fissi mostrati sulla mappa (file JSON: id, name, lat, lon)."""
-    path = Path(os.environ.get("POINTS_FILE", POINTS_FILE_DEFAULT))
-    if not path.exists():
-        return []
-    points = json.loads(path.read_text())
-    out = []
-    for i, p in enumerate(points, start=1):
-        label = p.get("label", "right")  # lato dell'etichetta col valore
-        if label not in ("right", "left", "above", "below"):
-            label = "right"
-        out.append({"id": p.get("id", i), "name": str(p["name"]), "lat": float(p["lat"]), "lon": float(p["lon"]), "label": label})
-    return out
+@lru_cache(maxsize=1)
+def get_version() -> str:
+    """Versione dell'app dai tag git; `APP_VERSION` la sostituisce (es. nell'immagine Docker, che non ha .git).
+    Stringa vuota se non ci sono tag: la pagina allora non mostra la versione."""
+    env = os.environ.get("APP_VERSION", "").strip()
+    if env:
+        return env
+    try:
+        out = subprocess.run(
+            ["git", "describe", "--tags", "--long"],
+            cwd=Path(__file__).resolve().parent.parent, capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    if out.returncode != 0:  # nessun tag (o niente git)
+        return ""
+    return parse_describe(out.stdout)
 
 
 def get_data_dir() -> Path:

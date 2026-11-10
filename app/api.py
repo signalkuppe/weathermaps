@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
 from . import variables
-from .config import STEPS, get_initial_view, get_points, prev_step
+from .config import STEPS, get_initial_view, get_version, prev_step
 from . import fetcher
 from . import mean as mean_mod
 from .fetcher import MODELS, steps_for
@@ -50,8 +50,8 @@ def meta(request: Request):
         {
             "bbox": store.bbox.as_dict(),
             "initial_view": get_initial_view(store.bbox).as_dict(),
-            "points": get_points(),
             "steps": STEPS,
+            "version": get_version(),
             "models": [m.as_dict() for m in MODELS.values()],
             "variables": [v.as_dict() for v in variables.REGISTRY.values()],
         },

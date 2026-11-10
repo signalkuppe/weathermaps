@@ -12,7 +12,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 COPY static ./static
 COPY scripts ./scripts
-COPY points.json ./points.json
 
 RUN mkdir -p /data
 EXPOSE 8000

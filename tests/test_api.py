@@ -37,7 +37,7 @@ def test_meta(client):
     m = client.get("/api/meta").json()
     assert m["bbox"] == {"lat_min": 42, "lat_max": 49, "lon_min": 4, "lon_max": 17}
     assert m["steps"][:3] == [3, 6, 9] and m["steps"][-1] == 192 and len(m["steps"]) == 56
-    assert {x["id"] for x in m["models"]} == {"gfs", "ecmwf", "icon-2i", "icon-d2", "icon-ch2", "icon-ch1", "mean"}
+    assert {x["id"] for x in m["models"]} == {"gfs", "ecmwf", "icon-2i", "wrf", "icon-d2", "arome", "icon-ch2", "icon-ch1", "mean"}
     assert "mean" in next(v for v in m["variables"] if v["id"] == "tp")["models"]
     assert next(x for x in m["models"] if x["id"] == "icon-ch2")["max_step"] == 120
     tp = next(v for v in m["variables"] if v["id"] == "tp")
@@ -126,16 +126,6 @@ def test_initial_view_default_and_clipping(client, monkeypatch):
     assert get_initial_view(BOX) == BOX
 
 
-def test_points_in_meta(client):
-    pts = client.get("/api/meta").json()["points"]
-    assert [p["id"] for p in pts] == list(range(1, 9))
-    names = {p["name"] for p in pts}
-    assert {"Sondrio", "Lecco", "Tirano", "Seregno", "Bellano", "Concenedo"} <= names
-    assert not any("Tovo" in n for n in names)
-    for p in pts:  # tutti dentro l'area della mappa
-        assert BOX.lat_min <= p["lat"] <= BOX.lat_max and BOX.lon_min <= p["lon"] <= BOX.lon_max
-
-
 def test_refresh_starts_once_then_cooldown(client, monkeypatch):
     import threading
     import time
@@ -204,3 +194,21 @@ def test_mean_aligns_runs_and_keeps_total_interval_consistent(tmp_path):
         f = c.get("/api/field", params={"model": "mean", "run": "2026110906", "step": 24, "mode": "interval"}).json()
         assert f["members"] == ["gfs", "ecmwf"] and f["max"] == pytest.approx(6, abs=0.1)
         assert c.post("/api/refresh", params={"model": "mean"}).status_code == 400
+
+
+def test_version_from_git_describe(monkeypatch):
+    from app.config import get_version, parse_describe
+
+    assert parse_describe("v1.2.0-0-gabc1234\n") == "v1.2.0"
+    assert parse_describe("v1.2.0-3-gabc1234") == "v1.2.0+3"
+    assert parse_describe("release-2026-1-gabc1234") == "release-2026+1"  # trattini nel nome del tag
+    monkeypatch.setenv("APP_VERSION", "v9.9.9")
+    get_version.cache_clear()
+    try:
+        assert get_version() == "v9.9.9"
+    finally:
+        get_version.cache_clear()
+
+
+def test_meta_has_version(client):
+    assert isinstance(client.get("/api/meta").json()["version"], str)

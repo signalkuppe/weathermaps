@@ -27,6 +27,10 @@ class GribSelector:
     levelist: str | None = None  # livello di pressione per levtype "pl", es. "850"
     short_name: str | None = None
     step_range_prefix: str | None = None
+    # codice WMO del parametro (disciplina, categoria, numero): per i file dove ecCodes non conosce il nome
+    code: tuple[int, int, int] | None = None
+    # pioggia distribuita a intervalli consecutivi (0-1h, 1-2h, ...) da sommare per avere il totale
+    hourly_buckets: bool = False
 
 
 @dataclass(frozen=True)
@@ -132,10 +136,14 @@ register(
             "icon-d2": GribSelector(param="tot_prec", levtype="single-level", short_name="tp", step_range_prefix="0-"),
             # ItaliaMeteo MeteoHub: cartella (param) e suffisso del file "{levtype}-{levelist}"
             "icon-2i": GribSelector(param="TOT_PREC", levtype="surface", levelist="0", short_name="tp", step_range_prefix="0-"),
+            # MeteoHub, cartelle per nome ecCodes; si seleziona con il codice WMO della precipitazione totale (0,1,8)
+            "wrf": GribSelector(param="tp", levtype="surface", levelist="0", code=(0, 1, 8), step_range_prefix="0-"),
+            # Météo-France: paquet (param) e codice WMO; (0,1,52) accumulato è la precipitazione totale (pioggia+neve+graupel)
+            "arome": GribSelector(param="SP1", code=(0, 1, 52), step_range_prefix="0-"),
         },
         # GFS APCP e ICON TOT_PREC sono in kg m-2 (= mm); ECMWF tp è in metri.
         convert={"gfs": _identity, "ecmwf": _m_to_mm, "icon-ch2": _identity, "icon-ch1": _identity,
-                 "icon-d2": _identity, "icon-2i": _identity},
+                 "icon-d2": _identity, "icon-2i": _identity, "wrf": _identity, "arome": _identity},
         scale=PRECIP_SCALE,
         decimals=1,
         nonnegative=True,
@@ -176,8 +184,9 @@ register(
             "ecmwf": GribSelector(param="t", levtype="pl", levelist="850", short_name="t"),
             "icon-d2": GribSelector(param="t", levtype="pressure-level", levelist="850", short_name="t"),
             "icon-2i": GribSelector(param="T", levtype="isobaricInhPa", levelist="850", short_name="t"),
+            "wrf": GribSelector(param="t", levtype="isobaricInhPa", levelist="850", code=(0, 0, 0)),
         },
-        convert={"gfs": _k_to_c, "ecmwf": _k_to_c, "icon-d2": _k_to_c, "icon-2i": _k_to_c},
+        convert={"gfs": _k_to_c, "ecmwf": _k_to_c, "icon-d2": _k_to_c, "icon-2i": _k_to_c, "wrf": _k_to_c},
         scale=T850_SCALE,
         decimals=1,
         rank="asc",  # classifica: prima la temperatura più bassa

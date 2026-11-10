@@ -8,11 +8,12 @@
     model: $("model"), varSel: $("var"), varRow: $("var-row"), run: $("run"),
     mode: $("mode"), modeRow: $("mode-row"), step: $("step"), prev: $("prev"),
     next: $("next"), play: $("play"), opacity: $("opacity"), crisp: $("crisp"),
-    valid: $("valid"), range: $("range"), status: $("status"), legend: $("legend"),
+    valid: $("valid"), range: $("range"), status: $("status"), attrib: $("attrib"), base: $("base"), labels: $("labels"), legend: $("legend"),
     probe: $("probe"), panel: $("panel"), collapse: $("collapse"),
-    badge: $("badge"), runAge: $("run-age"),
+    badge: $("badge"), badgeText: $("badge-text"), mPlay: $("m-play"), runAge: $("run-age"),
     runLive: $("run-live"), runLiveText: $("run-live-text"), refresh: $("refresh"), runLiveNote: $("run-live-note"),
-    pointsBox: $("points-box"), points: $("points"), pointsUnit: $("points-unit"),
+    pointsBox: $("points-box"), points: $("points"),
+    placeQ: $("place-q"), placeResults: $("place-results"), placesEdit: $("places-edit"), placesEmpty: $("places-empty"),
     modelInfo: $("model-info"), modelInfoBtn: $("model-info-btn"),
   };
 
@@ -61,16 +62,45 @@
     maxZoom: 19,
     attribution: '&copy; <a href="https://carto.com/attributions">CARTO</a>',
   });
-  L.control.layers(
-    { "OpenStreetMap": bases.osm, "OpenTopoMap (rilievo)": bases.topo },
-    { "Etichette sopra i dati": labels },
-    { position: "topright" },
-  ).addTo(map);
-  map.attributionControl.addAttribution("Dati: NOAA/NCEP GFS · ECMWF Open Data (CC-BY-4.0) · ItaliaMeteo ICON-2I (CC-BY) · DWD ICON-D2 · MeteoSvizzera ICON-CH1/CH2 (CC-BY)");
-  map.on("baselayerchange", (e) => {
-    state.base = e.layer === bases.topo ? "topo" : "osm";
-    writeHash();
+  // sfondo ed etichette: dalla sezione "Impostazioni" del pannello (niente selettore livelli di Leaflet)
+  const BASE_NAMES = { topo: "Rilievo", osm: "Strade" };
+  const baseCredit = () => (state.base === "topo" ? "© OpenTopoMap, OpenStreetMap" : "© OpenStreetMap");
+  function setBase(name) {
+    state.base = bases[name] ? name : "osm";
+    const credit = ui.legend.querySelector(".lg-credit");
+    if (credit) credit.textContent = baseCredit();
+    for (const [k, layer] of Object.entries(bases)) {
+      if (k === state.base) layer.addTo(map);
+      else map.removeLayer(layer);
+    }
+    ui.base.replaceChildren(
+      ...Object.entries(BASE_NAMES).map(([k, text]) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = text;
+        b.setAttribute("aria-pressed", String(k === state.base));
+        b.addEventListener("click", () => setBase(k));
+        return b;
+      }),
+    );
+  }
+  ui.labels.addEventListener("change", () => {
+    if (ui.labels.checked) labels.addTo(map);
+    else map.removeLayer(labels);
   });
+  // attribuzione della mappa sempre nel pannello, nella sezione "Info & crediti" (dove ci sono anche le fonti
+  // dei dati dei modelli, in index.html); Leaflet continua ad aggiornarla da solo. Un credito breve, sempre
+  // visibile anche a pannello ridotto (obbligatorio), sta in piccolo nella legenda: vedi baseCredit.
+  ui.attrib.appendChild(map.attributionControl.getContainer());
+
+  // su mobile badge e legenda diventano un solo riquadro in basso: la legenda entra nel badge
+  const mobileMq = window.matchMedia("(max-width: 600px)");
+  const legendHome = ui.legend.parentNode;
+  function placeLegend() {
+    (mobileMq.matches ? ui.badge : legendHome).appendChild(ui.legend);
+  }
+  placeLegend();
+  mobileMq.addEventListener("change", placeLegend);
 
   // ---------- util
   const fmtRun = (rid) => {
@@ -294,7 +324,7 @@
         const at = publishedAt ? new Date(publishedAt).toLocaleTimeString("it-IT", { timeZone: "Europe/Rome", hour: "2-digit", minute: "2-digit" }) : "?";
         if (after.run && after.run !== before.run) note = `Nuova corsa ${cycle(after.run)} disponibile`;
         else if (after.n > before.n) note = `${after.n - before.n} nuovi passi`;
-        else note = `Nessun passo nuovo · dati pubblicati alle ${at}, aggiornati ogni 30 min`;
+        else note = `Nessun passo nuovo · dati pubblicati alle ${at}, aggiornati ogni ora`;
       } catch (e) {
         note = `Aggiornamento non riuscito: ${e.message}`;
       }
@@ -364,9 +394,13 @@
       const next = thresholds[i + 1];
       const text =
         next == null ? `> ${num(t)}` : i === 0 && openLow ? `< ${num(next)}` : `${num(t)} … ${num(next)}`;
-      return `<li><i style="background:${colors[i]}"></i>${text}</li>`;
+      // tick: soglia inferiore della classe, mostrata solo nella barra compatta su mobile
+      const tick = i === 0 && openLow ? "" : num(t);
+      return `<li><i style="background:${colors[i]}"></i><span class="lg-text">${text}</span><span class="lg-tick">${tick}</span></li>`;
     });
-    ui.legend.innerHTML = `<h2>${v.label} ${modeLabel} (${v.units})</h2><ol>${items.join("")}</ol>`;
+    ui.legend.innerHTML =
+      `<h2><span class="lg-label">${v.label} ${modeLabel} </span>(${v.units})</h2><ol>${items.join("")}</ol>` +
+      `<a class="lg-credit" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">${baseCredit()}</a>`;
   }
 
   // ---------- dati
@@ -535,13 +569,16 @@
     ui.valid.textContent = state.run ? `${fmtLocal(valid)} · +${s}h` : "—";
     if (!state.run) {
       ui.range.textContent = "—";
-      ui.badge.innerHTML = `<b>${modelLabel()}</b> · nessuna corsa`;
+      ui.badgeText.innerHTML = `<b>${modelLabel()}</b> · nessuna corsa`;
       return;
     }
     const runWord = state.model === "mean" ? "dalle" : "corsa";
-    ui.badge.innerHTML =
-      `<b>${modelLabel()}</b><span class="badge-run">${runWord} <strong>${cycle(state.run)}</strong> ${fmtRunDay(state.run)}</span>` +
-      `<span class="badge-valid">+${s}h · ${fmtLocal(valid)}</span>`;
+    // desktop: modello, corsa e istante; mobile (badge-m): prima l'istante, poi modello breve e corsa
+    ui.badgeText.innerHTML =
+      `<b class="badge-d">${modelLabel()}</b><span class="badge-run badge-d">${runWord} <strong>${cycle(state.run)}</strong> ${fmtRunDay(state.run)}</span>` +
+      `<span class="badge-valid badge-d">+${s}h · ${fmtLocal(valid)}</span>` +
+      `<span class="badge-m badge-m-time"><b>${fmtLocal(valid)}</b></span>` +
+      `<span class="badge-m badge-m-model">${shortLabel(state.model)} ${cycle(state.run)}</span>`;
     const i = steps().indexOf(s);
     const prev = i > 0 ? steps()[i - 1] : 0;
     const utc = `${fmtUTC(valid)} UTC`;
@@ -570,12 +607,9 @@
       draw(f);
       renderPoints();
       let text = "";
-      if (f.max != null) {
-        text = variable().kind === "accum" ? `Massimo nell'area: ${f.max} ${f.units}` : `Nell'area: min ${f.min} · max ${f.max} ${f.units}`;
-      }
       if (f.members && f.member_runs) {
         const names = f.members.map((id) => `${shortLabel(id)} ${cycle(f.member_runs[id])}`).join(", ");
-        text += `${text ? " · " : ""}media di ${f.members.length}: ${names}`;
+        text = `Media di ${f.members.length}: ${names}`;
       }
       setStatus(text);
       prefetch();
@@ -586,9 +620,14 @@
     }
   }
 
-  // ---------- punti fissi (da /api/meta): marcatore numerato + valore, elenco nel pannello
+  // ---------- località preferite: scelte dall'utente con la ricerca, salvate nel browser (localStorage).
+  // Ognuna ha marcatore numerato + valore sulla mappa e una riga nell'elenco del pannello.
+  const PLACES_KEY = "weathermaps.places.v1";
+  const MAX_PLACES = 20;
   const pointMarkers = [];
   const pointRows = [];
+  let places = loadPlaces();
+  let editing = false;
 
   /** Valore del punto di griglia più vicino (come il tooltip), null se fuori griglia o mancante. */
   function valueAt(f, lat, lon) {
@@ -599,14 +638,37 @@
     return f.values[iy * nx + ix];
   }
 
+  function loadPlaces() {
+    try {
+      const d = JSON.parse(localStorage.getItem(PLACES_KEY) || "null");
+      if (Array.isArray(d?.places)) {
+        return d.places
+          .filter((p) => p && typeof p.name === "string" && Number.isFinite(p.lat) && Number.isFinite(p.lon))
+          .slice(0, MAX_PLACES);
+      }
+    } catch { /* storage non disponibile o dato rovinato: si parte vuoti */ }
+    return [];
+  }
+  function savePlaces() {
+    try {
+      localStorage.setItem(PLACES_KEY, JSON.stringify({ v: 1, places }));
+    } catch { /* navigazione privata o storage pieno: le modifiche valgono finché resti sulla pagina */ }
+  }
+
+  function inBox(lat, lon) {
+    const b = meta.bbox;
+    return lat >= b.lat_min && lat <= b.lat_max && lon >= b.lon_min && lon <= b.lon_max;
+  }
+
+  /** Ricostruisce marcatori ed elenco da `places` (dopo ogni aggiunta, modifica o eliminazione). */
   function setupPoints() {
-    const pts = meta.points || [];
-    ui.pointsBox.hidden = !pts.length;
-    // su schermi stretti l'elenco parte chiuso per non coprire la mappa
-    if (window.matchMedia("(max-width: 600px)").matches) ui.pointsBox.open = false;
-    for (const p of pts) {
+    for (const m of pointMarkers) m.remove();
+    pointMarkers.length = 0;
+    pointRows.length = 0;
+    ui.points.replaceChildren();
+    places.forEach((p, idx) => {
       const icon = L.divIcon({
-        className: `pt pt-${p.label || "right"}`,
+        className: "pt pt-right",
         html: `<span class="pt-num">–</span><span class="pt-val">—</span>`,
         iconSize: [22, 22],
         iconAnchor: [11, 11],
@@ -618,23 +680,132 @@
 
       const li = document.createElement("li");
       li.innerHTML = `<span class="pt-num">–</span><span class="pt-name"></span><span class="pt-v">—</span>`;
-      li.querySelector(".pt-name").textContent = p.name;
-      li.title = `Centra la mappa su ${p.name}`;
-      li.addEventListener("click", () => map.panTo([p.lat, p.lon]));
-      li.addEventListener("mouseenter", () => m.openTooltip());
-      li.addEventListener("mouseleave", () => m.closeTooltip());
+      if (editing) {
+        // modifica: nome rinominabile al posto del testo, pulsante per eliminare al posto del valore
+        const input = document.createElement("input");
+        input.className = "pt-name pt-rename";
+        input.value = p.name;
+        input.maxLength = 60;
+        input.setAttribute("aria-label", `Nome di ${p.name}`);
+        input.addEventListener("change", () => {
+          const name = input.value.trim();
+          if (name) { p.name = name; savePlaces(); m.setTooltipContent(name); } else input.value = p.name;
+        });
+        li.querySelector(".pt-name").replaceWith(input);
+        const del = document.createElement("button");
+        del.type = "button";
+        del.className = "pt-del";
+        del.textContent = "✕";
+        del.title = `Elimina ${p.name}`;
+        del.setAttribute("aria-label", `Elimina ${p.name}`);
+        del.addEventListener("click", () => {
+          places.splice(idx, 1);
+          savePlaces();
+          if (!places.length) editing = false;
+          setupPoints();
+        });
+        li.querySelector(".pt-v").replaceWith(del);
+        li.classList.add("editing");
+      } else {
+        li.querySelector(".pt-name").textContent = p.name;
+        li.title = `Centra la mappa su ${p.name}`;
+        li.addEventListener("click", () => map.panTo([p.lat, p.lon]));
+        li.addEventListener("mouseenter", () => m.openTooltip());
+        li.addEventListener("mouseleave", () => m.closeTooltip());
+      }
       ui.points.append(li);
       pointRows.push(li);
-    }
+    });
+    ui.placesEmpty.hidden = places.length > 0;
+    ui.placesEdit.hidden = !places.length;
+    ui.placesEdit.textContent = editing ? "Fine" : "Modifica";
+    ui.placesEdit.setAttribute("aria-pressed", String(editing));
+    ui.placeQ.disabled = places.length >= MAX_PLACES;
+    ui.placeQ.placeholder = places.length >= MAX_PLACES ? `Massimo ${MAX_PLACES} località` : "Cerca una località";
+    if (meta && variable()) renderPoints();
   }
 
+  ui.placesEdit.addEventListener("click", () => { editing = !editing; setupPoints(); });
+
+  function addPlace(name, lat, lon) {
+    if (places.some((p) => Math.abs(p.lat - lat) < 0.005 && Math.abs(p.lon - lon) < 0.005)) {
+      toast(`${name} è già fra le località.`);
+      return;
+    }
+    places.push({ id: Date.now().toString(36), name, lat: +lat.toFixed(4), lon: +lon.toFixed(4) });
+    savePlaces();
+    setupPoints();
+  }
+
+  // ricerca: Photon (geocoder su dati OpenStreetMap), limitata all'area della mappa e a località abitate
+  // (città, paesi, frazioni), cime e passi: senza filtro "Sondrio" restituirebbe anche vie, stazioni e provincia.
+  // Il testo cercato va al servizio esterno photon.komoot.io; nient'altro esce dal browser.
+  let searchTimer = null;
+  let searchCtl = null;
+  function hideResults() {
+    ui.placeResults.hidden = true;
+    ui.placeResults.replaceChildren();
+  }
+  const PLACE_KINDS = { "natural:peak": "cima", "mountain_pass:yes": "passo" };
+  function placeContext(pr) {
+    const kind = PLACE_KINDS[`${pr.osm_key}:${pr.osm_value}`];
+    return [kind, pr.city !== pr.name ? pr.city : null, pr.county, pr.state, pr.country !== "Italia" ? pr.country : null]
+      .filter(Boolean).filter((x, i, a) => a.indexOf(x) === i).join(", ");
+  }
+  async function searchPlaces(q) {
+    searchCtl?.abort();
+    searchCtl = new AbortController();
+    const b = meta.bbox;
+    const url = `https://photon.komoot.io/api/?${new URLSearchParams({ q, limit: "8" })}` +
+      `&bbox=${b.lon_min},${b.lat_min},${b.lon_max},${b.lat_max}` +
+      "&osm_tag=place&osm_tag=natural:peak&osm_tag=mountain_pass";
+    try {
+      const r = await fetch(url, { signal: searchCtl.signal });
+      if (!r.ok) throw new Error(r.statusText);
+      const d = await r.json();
+      const items = (d.features || [])
+        .map((f) => ({ pr: f.properties || {}, lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] }))
+        .filter((x) => x.pr.name && inBox(x.lat, x.lon));
+      if (!items.length) {
+        ui.placeResults.innerHTML = `<li class="place-none">Nessun risultato nell'area della mappa</li>`;
+      } else {
+        ui.placeResults.replaceChildren(...items.map(({ pr, lat, lon }) => {
+          const li = document.createElement("li");
+          li.setAttribute("role", "option");
+          li.tabIndex = 0;
+          li.innerHTML = `<span class="place-name"></span><span class="place-ctx"></span>`;
+          li.querySelector(".place-name").textContent = pr.name;
+          li.querySelector(".place-ctx").textContent = placeContext(pr);
+          const pick = () => { addPlace(pr.name, lat, lon); ui.placeQ.value = ""; hideResults(); };
+          li.addEventListener("click", pick);
+          li.addEventListener("keydown", (e) => { if (e.key === "Enter") pick(); });
+          return li;
+        }));
+      }
+      ui.placeResults.hidden = false;
+    } catch (e) {
+      if (e.name === "AbortError") return;
+      ui.placeResults.innerHTML = `<li class="place-none">Ricerca non riuscita, riprova più tardi</li>`;
+      ui.placeResults.hidden = false;
+    }
+  }
+  ui.placeQ.addEventListener("input", () => {
+    clearTimeout(searchTimer);
+    const q = ui.placeQ.value.trim();
+    if (q.length < 2) { searchCtl?.abort(); hideResults(); return; }
+    searchTimer = setTimeout(() => searchPlaces(q), 300);
+  });
+  ui.placeQ.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { ui.placeQ.value = ""; hideResults(); }
+    if (e.key === "ArrowDown") { e.preventDefault(); ui.placeResults.querySelector("li[role=option]")?.focus(); }
+  });
+  document.addEventListener("click", (e) => { if (!e.target.closest(".places-search")) hideResults(); });
+
   function renderPoints() {
-    const pts = meta.points || [];
+    const pts = places;
     const dec = variable().decimals;
     const color = colorizer(variable().scale);
     const values = [];
-    const dir = variable().rank === "asc" ? "dal più basso" : "dal più alto";
-    ui.pointsUnit.textContent = current ? `(${current.units}${state.mode === "interval" ? ", intervallo" : state.mode === "total" ? ", totale" : ""}, ${dir})` : "";
     pts.forEach((p, i) => {
       const v = current ? valueAt(current, p.lat, p.lon) : null;
       const text = v == null ? "—" : v.toFixed(dec);
@@ -645,7 +816,8 @@
         el.querySelector(".pt-num").style.background = c ? `rgb(${c.join(",")})` : "";
         el.classList.toggle("pt-dark", !!c && c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114 < 140);
       }
-      pointRows[i].querySelector(".pt-v").textContent = v == null ? "—" : `${text} ${current.units}`;
+      const pv = pointRows[i].querySelector(".pt-v"); // in modifica al suo posto c'è il pulsante elimina
+      if (pv) pv.textContent = v == null ? "—" : `${text} ${current.units}`;
       const n = pointRows[i].querySelector(".pt-num");
       n.style.background = c ? `rgb(${c.join(",")})` : "";
       n.classList.toggle("pt-dark", !!c && c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114 < 140);
@@ -674,8 +846,9 @@
 
   // ---------- condivisione: immagine della mappa che si sta guardando
   const shareUi = {
-    btn: $("share"), toast: $("share-toast"), dialog: $("share-dialog"), preview: $("share-preview"),
+    btn: $("share"), toast: $("share-toast"), dialog: $("share-dialog"), canvas: $("share-canvas"),
     send: $("share-send"), download: $("share-download"), close: $("share-close"),
+    zoomIn: $("share-zoom-in"), zoomOut: $("share-zoom-out"), ratio: $("share-ratio"),
   };
   let shareFile = null;
   let shareText = "";
@@ -716,50 +889,34 @@
     return lines;
   }
 
-  /** Compone mappa + dati + punti + intestazione + legenda in un'immagine JPEG. */
-  async function composeImage() {
-    const container = map.getContainer();
-    const cr = container.getBoundingClientRect();
-    const W = Math.round(cr.width);
-    const Hm = Math.round(cr.height);
+  // Immagine condivisa: la mappa visibile viene fotografata e nella modale si sceglie il ritaglio, un riquadro
+  // con proporzioni fisse sopra l'intera area (fuori velata). Intestazione, punti, legenda e crediti si
+  // disegnano sopra il ritaglio a grandezza fissa e si vedono già dentro il riquadro.
+  const RATIOS = { "4:3": [1600, 1200], "1:1": [1200, 1200], "16:9": [1600, 900] };
+  const MIN_FRACTION = 0.25; // riquadro più piccolo: un quarto della larghezza massima (oltre si sgrana)
+  const PT_SCALE = 1.5; // grandezza di marcatori e valori nell'immagine rispetto allo schermo
+  const FRAME_PAD = 16; // margine attorno al riquadro fisso nella modale
+  const outCanvas = document.createElement("canvas"); // immagine finale
 
-    // testi di intestazione e fonti, spezzati sulla larghezza dell'immagine
-    const v = variable();
-    const s = state.step;
-    const valid = new Date(runDate(state.run).getTime() + s * 3600e3);
-    const modeText = state.mode === "interval" ? ` nell'intervallo +${current?.prev_step ?? 0}h → +${s}h` : state.mode === "total" ? " totale" : "";
-    const runText = state.model === "mean" ? `dalle ${cycle(state.run)} ${fmtRunDay(state.run)}` : `corsa ${cycle(state.run)} ${fmtRunDay(state.run)}`;
-    const baseAttr = map.hasLayer(bases.topo) ? "Mappa © OpenTopoMap (CC-BY-SA), dati © OpenStreetMap" : "Mappa © OpenStreetMap contributors";
-    const measure = document.createElement("canvas").getContext("2d");
-    measure.font = `700 17px ${FONT}`;
-    const titleLines = wrapLines(measure, `${modelLabel()} · ${runText}`, W - 24);
-    measure.font = `500 14px ${FONT}`;
-    const subLines = wrapLines(measure, `${v.label}${modeText} (${v.units}) · +${s}h · ${fmtLocal(valid)}`, W - 24);
-    measure.font = `400 10px ${FONT}`;
-    // l'attribuzione di OpenStreetMap è obbligatoria anche sulle immagini
-    const attrLines = wrapLines(measure, `${baseAttr} · Dati: NOAA, ECMWF, ItaliaMeteo, DWD, MeteoSvizzera · ${location.host}${location.pathname}`, W - 24);
-    const HEAD = 12 + titleLines.length * 21 + subLines.length * 18 + 6;
-    const FOOT = 40 + attrLines.length * 13 + 6;
-    const scale = Math.min(2, window.devicePixelRatio || 1);
+  /** Mappa visibile in un canvas (a 2–3× per poter zoomare) e punti in coordinate dello schermo. */
+  function snapshotMap() {
+    const cr = map.getContainer().getBoundingClientRect();
+    const W = cr.width;
+    const H = cr.height;
+    const scale = Math.min(3, Math.max(2, window.devicePixelRatio || 1));
     const canvas = document.createElement("canvas");
-    canvas.width = W * scale;
-    canvas.height = (HEAD + Hm + FOOT) * scale;
+    canvas.width = Math.round(W * scale);
+    canvas.height = Math.round(H * scale);
     const ctx = canvas.getContext("2d");
     ctx.scale(scale, scale);
     ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, W, HEAD + Hm + FOOT);
-
-    // mappa: stessa porzione visibile a schermo
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(0, HEAD, W, Hm);
-    ctx.clip();
+    ctx.fillRect(0, 0, W, H);
     const drawImg = (img, alpha = 1) => {
       if (!img.complete || !img.naturalWidth) return;
       const r = img.getBoundingClientRect();
       if (r.right < cr.left || r.left > cr.right || r.bottom < cr.top || r.top > cr.bottom) return;
       ctx.globalAlpha = alpha;
-      ctx.drawImage(img, r.left - cr.left, HEAD + r.top - cr.top, r.width, r.height);
+      ctx.drawImage(img, r.left - cr.left, r.top - cr.top, r.width, r.height);
       ctx.globalAlpha = 1;
     };
     const drawTiles = (pane) => {
@@ -774,78 +931,333 @@
       ctx.imageSmoothingEnabled = true;
     }
     if (map.hasLayer(labels)) drawTiles(map.getPane("labels"));
-    // punti: stessa grafica dei marcatori
+    // punti: centro del cerchio e posizione del valore rispetto al centro (come sullo schermo)
+    const points = [];
     for (const m of pointMarkers) {
       const el = m.getElement();
       if (!el) continue;
       const num = el.querySelector(".pt-num");
       const val = el.querySelector(".pt-val");
       const nr = num.getBoundingClientRect();
-      const cx = nr.left - cr.left + nr.width / 2;
-      const cy = HEAD + nr.top - cr.top + nr.height / 2;
-      if (cx < -20 || cx > W + 20 || cy < HEAD - 20 || cy > HEAD + Hm + 20) continue;
       const vr = val.getBoundingClientRect();
-      ctx.font = "600 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-      ctx.textBaseline = "middle";
-      const vx = vr.left - cr.left;
-      const vy = HEAD + vr.top - cr.top;
+      const x = nr.left - cr.left + nr.width / 2;
+      const y = nr.top - cr.top + nr.height / 2;
+      const cs = getComputedStyle(num);
+      points.push({
+        x, y, num: num.textContent, val: val.textContent, bg: cs.backgroundColor || "#fff", fg: cs.color,
+        dx: vr.left - cr.left - x, dy: vr.top - cr.top - y, w: vr.width, h: vr.height,
+      });
+    }
+    return { canvas, W, H, scale, points };
+  }
+
+  /** Testi dell'immagine e del messaggio, calcolati una volta all'apertura. */
+  function shareTexts() {
+    const v = variable();
+    const s = state.step;
+    const valid = new Date(runDate(state.run).getTime() + s * 3600e3);
+    const modeText = state.mode === "interval" ? ` nell'intervallo +${current?.prev_step ?? 0}h → +${s}h` : state.mode === "total" ? " totale" : "";
+    const runText = state.model === "mean" ? `dalle ${cycle(state.run)} ${fmtRunDay(state.run)}` : `corsa ${cycle(state.run)} ${fmtRunDay(state.run)}`;
+    const baseAttr = map.hasLayer(bases.topo) ? "Mappa © OpenTopoMap (CC-BY-SA), dati © OpenStreetMap" : "Mappa © OpenStreetMap contributors";
+    return {
+      v,
+      title: `${modelLabel()} · ${runText}`,
+      sub: `${v.label}${modeText} (${v.units}) · +${s}h · ${fmtLocal(valid)}`,
+      // l'attribuzione di OpenStreetMap è obbligatoria anche sulle immagini
+      attr: `${baseAttr} · Dati: NOAA, ECMWF, ItaliaMeteo, CIMA, LaMMA, DWD, Météo-France, MeteoSvizzera · ${location.host}${location.pathname}`,
+      message: `${modelLabel()} ${runText}: ${v.label.toLowerCase()}${modeText}, +${s}h (${fmtLocal(valid)})\n${shareUrl()}`,
+      name: `weathermaps-${state.model}-${state.var}-${state.run}-${String(s).padStart(3, "0")}.jpg`,
+    };
+  }
+
+  // ritaglio in coordinate della mappa fotografata (px dello schermo); l'altezza segue le proporzioni
+  // touched = l'utente ha già spostato o ridimensionato il riquadro (la posizione GPS non lo sposta più)
+  const crop = { snap: null, texts: null, ratio: "4:3", x: 0, y: 0, w: 0, touched: false };
+  const ratioOf = () => RATIOS[crop.ratio][0] / RATIOS[crop.ratio][1];
+  const cropH = () => crop.w / ratioOf();
+  const maxCropW = () => Math.min(crop.snap.W, crop.snap.H * ratioOf());
+  const clampW = (w) => Math.min(maxCropW(), Math.max(maxCropW() * MIN_FRACTION, w));
+
+  function clampCrop() {
+    crop.w = clampW(crop.w);
+    crop.x = Math.min(Math.max(crop.x, 0), crop.snap.W - crop.w);
+    crop.y = Math.min(Math.max(crop.y, 0), crop.snap.H - cropH());
+  }
+
+  /** Ridimensiona il riquadro di `factor` tenendo fermo il punto (mx, my) della mappa. */
+  function scaleCropAt(factor, mx = crop.x + crop.w / 2, my = crop.y + cropH() / 2) {
+    const rx = (mx - crop.x) / crop.w;
+    const ry = (my - crop.y) / cropH();
+    crop.w = clampW(crop.w * factor);
+    crop.x = mx - rx * crop.w;
+    crop.y = my - ry * cropH();
+    clampCrop();
+    scheduleRender();
+  }
+
+  function setRatio(r) {
+    const cx = crop.x + crop.w / 2;
+    const cy = crop.y + cropH() / 2;
+    crop.ratio = r;
+    [outCanvas.width, outCanvas.height] = RATIOS[r];
+    if (shareUi.dialog.open) layoutView();
+    crop.w = clampW(crop.w);
+    crop.x = cx - crop.w / 2;
+    crop.y = cy - cropH() / 2;
+    clampCrop();
+    shareUi.ratio.replaceChildren(
+      ...Object.keys(RATIOS).map((k) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = k;
+        b.setAttribute("aria-pressed", String(k === crop.ratio));
+        b.addEventListener("click", () => setRatio(k));
+        return b;
+      }),
+    );
+    scheduleRender();
+  }
+
+  /** Immagine finale: ritaglio della mappa + punti + intestazione + legenda e crediti. */
+  function renderOut() {
+    const [OW, OH] = RATIOS[crop.ratio];
+    const ctx = outCanvas.getContext("2d");
+    const { snap, texts } = crop;
+    const s = OW / crop.w; // px dell'immagine per px della mappa
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(snap.canvas, crop.x * snap.scale, crop.y * snap.scale, crop.w * snap.scale, cropH() * snap.scale, 0, 0, OW, OH);
+
+    // punti a grandezza fissa
+    const k = PT_SCALE;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    for (const p of snap.points) {
+      const px = (p.x - crop.x) * s;
+      const py = (p.y - crop.y) * s;
+      if (px < -40 || px > OW + 40 || py < -40 || py > OH + 40) continue;
+      const vx = px + p.dx * k;
+      const vy = py + p.dy * k;
       ctx.fillStyle = "rgba(0,0,0,0.25)";
-      roundRect(ctx, vx, vy + 1, vr.width, vr.height, 4);
+      roundRect(ctx, vx, vy + 1.5, p.w * k, p.h * k, 5);
       ctx.fill();
       ctx.fillStyle = "rgba(255,255,255,0.95)";
-      roundRect(ctx, vx, vy, vr.width, vr.height, 4);
+      roundRect(ctx, vx, vy, p.w * k, p.h * k, 5);
       ctx.fill();
       ctx.fillStyle = "#1d2330";
-      ctx.textAlign = "center";
-      ctx.fillText(val.textContent, vx + vr.width / 2, vy + vr.height / 2 + 0.5);
+      ctx.font = `600 ${12 * k}px ${FONT}`;
+      ctx.fillText(p.val, vx + (p.w * k) / 2, vy + (p.h * k) / 2 + 1);
       ctx.beginPath();
-      ctx.arc(cx, cy, 11, 0, Math.PI * 2);
-      ctx.fillStyle = getComputedStyle(num).backgroundColor || "#fff";
+      ctx.arc(px, py, 11 * k, 0, Math.PI * 2);
+      ctx.fillStyle = p.bg;
       ctx.fill();
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 2 * k;
       ctx.strokeStyle = "#1d2330";
       ctx.stroke();
-      ctx.fillStyle = getComputedStyle(num).color;
-      ctx.font = "700 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-      ctx.fillText(num.textContent, cx, cy + 0.5);
+      ctx.fillStyle = p.fg;
+      ctx.font = `700 ${12 * k}px ${FONT}`;
+      ctx.fillText(p.num, px, py + 1);
     }
-    ctx.restore();
 
-    // intestazione: modello, corsa, grandezza e istante
+    // intestazione in alto a sinistra: modello e corsa, grandezza e istante
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
-    let ty = 6;
+    ctx.font = `700 30px ${FONT}`;
+    const tw = ctx.measureText(texts.title).width;
+    ctx.font = `500 22px ${FONT}`;
+    const sw = ctx.measureText(texts.sub).width;
+    const hw = Math.min(OW - 48, Math.max(tw, sw) + 40);
+    ctx.fillStyle = "rgba(255,255,255,0.93)";
+    roundRect(ctx, 24, 24, hw, 94, 14);
+    ctx.fill();
     ctx.fillStyle = "#1d2330";
-    ctx.font = `700 17px ${FONT}`;
-    for (const l of titleLines) ctx.fillText(l, 12, (ty += 21));
+    ctx.font = `700 30px ${FONT}`;
+    ctx.fillText(texts.title, 44, 66, hw - 40);
     ctx.fillStyle = "#3d4656";
-    ctx.font = `500 14px ${FONT}`;
-    for (const l of subLines) ctx.fillText(l, 12, (ty += 18));
+    ctx.font = `500 22px ${FONT}`;
+    ctx.fillText(texts.sub, 44, 100, hw - 40);
 
-    // legenda orizzontale
-    const { thresholds, colors } = v.scale;
-    const n = thresholds.length;
-    const lw = Math.min(W - 24, 560);
-    const cw = lw / n;
-    const ly = HEAD + Hm + 10;
+    // fascia in basso: legenda e crediti
+    const BAND = 86;
+    ctx.fillStyle = "rgba(255,255,255,0.93)";
+    ctx.fillRect(0, OH - BAND, OW, BAND);
+    const { thresholds, colors } = texts.v.scale;
+    ctx.fillStyle = "#3d4656";
+    ctx.font = `600 16px ${FONT}`;
+    ctx.fillText(texts.v.units, 24, OH - BAND + 30);
+    const lx = 24 + ctx.measureText(texts.v.units).width + 14;
+    const cw = Math.min(64, (OW - lx - 24) / thresholds.length);
+    const ly = OH - BAND + 16;
+    ctx.font = `500 15px ${FONT}`;
     thresholds.forEach((t, i) => {
       ctx.fillStyle = colors[i];
-      ctx.fillRect(12 + i * cw, ly, cw, 10);
+      ctx.fillRect(lx + i * cw, ly, cw, 16);
       ctx.fillStyle = "#3d4656";
-      ctx.font = "500 10px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-      ctx.textAlign = "left";
-      ctx.fillText(String(t).replace("-", "−"), 12 + i * cw, ly + 22);
+      ctx.textAlign = i === 0 ? "left" : "center";
+      if (!(i === 0 && texts.v.scale.transparent_below == null)) ctx.fillText(String(t).replace("-", "−"), lx + i * cw, ly + 36);
     });
-    // fonti
-    ctx.font = `400 10px ${FONT}`;
+    ctx.textAlign = "left";
+    ctx.font = `400 13px ${FONT}`;
     ctx.fillStyle = "#5d6677";
-    attrLines.forEach((l, i) => ctx.fillText(l, 12, ly + 42 + i * 13));
-
-    const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.9));
-    const name = `weathermaps-${state.model}-${state.var}-${state.run}-${String(s).padStart(3, "0")}.jpg`;
-    shareText = `${modelLabel()} ${runText}: ${v.label.toLowerCase()}${modeText}, +${s}h (${fmtLocal(valid)})\n${shareUrl()}`;
-    return new File([blob], name, { type: "image/jpeg" });
+    ctx.fillText(texts.attr, 24, OH - 12, OW - 48);
   }
+
+  // vista nella modale: riquadro fisso al centro (il più grande che sta nello spazio), sotto la mappa fotografata
+  // che si sposta e si ingrandisce; fuori dal riquadro la mappa resta visibile ma velata.
+  const view = { dpr: 1, cw: 0, ch: 0, fx: 0, fy: 0, fw: 0, fh: 0 };
+  function layoutView() {
+    const r = shareUi.canvas.getBoundingClientRect();
+    view.dpr = window.devicePixelRatio || 1;
+    view.cw = r.width;
+    view.ch = r.height;
+    shareUi.canvas.width = Math.round(r.width * view.dpr);
+    shareUi.canvas.height = Math.round(r.height * view.dpr);
+    const ratio = ratioOf();
+    view.fw = Math.max(1, Math.min(r.width - 2 * FRAME_PAD, (r.height - 2 * FRAME_PAD) * ratio));
+    view.fh = view.fw / ratio;
+    view.fx = (r.width - view.fw) / 2;
+    view.fy = (r.height - view.fh) / 2;
+  }
+  const viewScale = () => view.fw / crop.w; // px della vista per px della mappa
+  function renderView() {
+    renderOut();
+    const ctx = shareUi.canvas.getContext("2d");
+    const { snap } = crop;
+    const fs = viewScale();
+    ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
+    ctx.clearRect(0, 0, view.cw, view.ch);
+    ctx.imageSmoothingQuality = "high";
+    // mappa intera nella stessa scala del riquadro, così fuori si vede il contesto
+    ctx.drawImage(snap.canvas, view.fx - crop.x * fs, view.fy - crop.y * fs, snap.W * fs, snap.H * fs);
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    ctx.beginPath();
+    ctx.rect(0, 0, view.cw, view.ch);
+    ctx.rect(view.fx, view.fy, view.fw, view.fh);
+    ctx.fill("evenodd");
+    ctx.drawImage(outCanvas, view.fx, view.fy, view.fw, view.fh);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#ffffff";
+    ctx.strokeRect(view.fx, view.fy, view.fw, view.fh);
+  }
+
+  let renderPending = false;
+  let fileTimer = null;
+  function scheduleRender() {
+    if (!renderPending) {
+      renderPending = true;
+      requestAnimationFrame(() => { renderPending = false; renderView(); });
+    }
+    // il file si rigenera a gesto concluso, così "Condividi" ha già l'immagine pronta
+    shareFile = null;
+    clearTimeout(fileTimer);
+    fileTimer = setTimeout(makeShareFile, 250);
+  }
+  function makeShareFile() {
+    return new Promise((res) => {
+      requestAnimationFrame(() => {
+        renderOut();
+        outCanvas.toBlob((blob) => {
+          shareFile = new File([blob], crop.texts.name, { type: "image/jpeg" });
+          res(shareFile);
+        }, "image/jpeg", 0.9);
+      });
+    });
+  }
+  async function readyShareFile() {
+    if (shareFile) return shareFile;
+    clearTimeout(fileTimer);
+    return makeShareFile();
+  }
+
+  function openShare() {
+    crop.snap = snapshotMap();
+    crop.texts = shareTexts();
+    shareText = crop.texts.message;
+    // all'apertura il riquadro più grande che sta nella mappa, centrato (la proporzione resta l'ultima scelta)
+    [outCanvas.width, outCanvas.height] = RATIOS[crop.ratio];
+    crop.w = maxCropW();
+    crop.x = (crop.snap.W - crop.w) / 2;
+    crop.y = (crop.snap.H - cropH()) / 2;
+    crop.touched = false;
+    shareUi.dialog.showModal();
+    layoutView();
+    setRatio(crop.ratio);
+    centerCropOnMe();
+  }
+
+  // Posizione del dispositivo per centrare il riquadro proposto: resta nel browser, non viene inviata a nessuno.
+  // Si usa una posizione recente (fino a 10 minuti) per non richiederla a ogni apertura.
+  function centerCropOnMe() {
+    if (!navigator.geolocation) return;
+    const snap = crop.snap;
+    navigator.geolocation.getCurrentPosition((pos) => {
+      if (!shareUi.dialog.open || crop.snap !== snap || crop.touched) return;
+      // il riquadro si sposta solo se la posizione cade nella mappa fotografata
+      const pt = map.latLngToContainerPoint([pos.coords.latitude, pos.coords.longitude]);
+      if (pt.x < 0 || pt.y < 0 || pt.x > snap.W || pt.y > snap.H) return;
+      crop.x = pt.x - crop.w / 2;
+      crop.y = pt.y - cropH() / 2;
+      clampCrop();
+      scheduleRender();
+    }, () => { /* permesso negato o posizione non disponibile: resta centrato sulla mappa */ },
+    { enableHighAccuracy: false, maximumAge: 10 * 60e3, timeout: 8000 });
+  }
+  new ResizeObserver(() => {
+    if (shareUi.dialog.open && crop.snap) { layoutView(); scheduleRender(); }
+  }).observe(shareUi.canvas);
+
+  function closeShare() {
+    if (shareUi.dialog.open) shareUi.dialog.close(); // chiusura immediata, senza animazione
+  }
+
+  // gesti sulla mappa sotto il riquadro: trascinare la sposta, pizzico e rotella la ingrandiscono
+  // (= riquadro più piccolo sulla mappa, più dettaglio)
+  const pointers = new Map();
+  let pinch = null;
+  const toView = (e) => {
+    const r = shareUi.canvas.getBoundingClientRect();
+    return [e.clientX - r.left, e.clientY - r.top];
+  };
+  /** Punto della mappa fotografata sotto un punto della vista. */
+  const viewToMap = ([vx, vy]) => [crop.x + (vx - view.fx) / viewScale(), crop.y + (vy - view.fy) / viewScale()];
+  shareUi.canvas.addEventListener("pointerdown", (e) => {
+    crop.touched = true;
+    shareUi.canvas.setPointerCapture(e.pointerId);
+    pointers.set(e.pointerId, toView(e));
+    pinch = null;
+  });
+  shareUi.canvas.addEventListener("pointermove", (e) => {
+    if (!pointers.has(e.pointerId)) return;
+    const prev = pointers.get(e.pointerId);
+    const now = toView(e);
+    pointers.set(e.pointerId, now);
+    if (pointers.size === 1) {
+      const fs = viewScale();
+      crop.x -= (now[0] - prev[0]) / fs;
+      crop.y -= (now[1] - prev[1]) / fs;
+      clampCrop();
+      scheduleRender();
+    } else if (pointers.size === 2) {
+      const [a, b] = [...pointers.values()];
+      const dist = Math.hypot(a[0] - b[0], a[1] - b[1]);
+      if (pinch && dist) scaleCropAt(pinch / dist, ...viewToMap([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]));
+      pinch = dist;
+    }
+  });
+  const endPointer = (e) => {
+    pointers.delete(e.pointerId);
+    pinch = null;
+  };
+  shareUi.canvas.addEventListener("pointerup", endPointer);
+  shareUi.canvas.addEventListener("pointercancel", endPointer);
+  shareUi.canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    crop.touched = true;
+    // rotella in avanti = mappa più grande (più dettaglio)
+    scaleCropAt(Math.exp(e.deltaY * 0.0015), ...viewToMap(toView(e)));
+  }, { passive: false });
+  shareUi.zoomIn.addEventListener("click", () => { crop.touched = true; scaleCropAt(1 / 1.25); });
+  shareUi.zoomOut.addEventListener("click", () => { crop.touched = true; scaleCropAt(1.25); });
 
   function toast(text) {
     shareUi.toast.textContent = text;
@@ -854,7 +1266,8 @@
     toast.t = setTimeout(() => { shareUi.toast.hidden = true; }, 4500);
   }
 
-  function downloadShareFile() {
+  async function downloadShareFile() {
+    await readyShareFile();
     const a = document.createElement("a");
     a.href = URL.createObjectURL(shareFile);
     a.download = shareFile.name;
@@ -864,6 +1277,7 @@
 
   /** Condivisione nativa (telefono: menu con WhatsApp); altrimenti scarica e apre WhatsApp con il link. */
   async function sendShare() {
+    await readyShareFile();
     const data = { files: [shareFile], text: shareText, title: "Weathermaps" };
     if (navigator.canShare?.(data)) {
       try {
@@ -875,7 +1289,7 @@
         return false; // gesto scaduto: si riprova dal pulsante dell'anteprima
       }
     }
-    downloadShareFile();
+    await downloadShareFile();
     window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`, "_blank", "noopener");
     toast("Immagine scaricata: allegala al messaggio WhatsApp che si è appena aperto.");
     return true;
@@ -885,10 +1299,8 @@
     if (!current) { toast("Niente da condividere: scegli un istante con dati."); return; }
     shareUi.btn.disabled = true;
     try {
-      shareFile = await composeImage();
-      shareUi.preview.src = URL.createObjectURL(shareFile);
-      // anteprima con pulsanti: il clic su "Condividi" è un gesto nuovo, valido per la condivisione nativa
-      shareUi.dialog.showModal();
+      // modale con ritaglio: il clic su "Condividi" è un gesto nuovo, valido per la condivisione nativa
+      openShare();
     } catch (e) {
       toast(`Impossibile creare l'immagine: ${e.message}`);
     } finally {
@@ -897,14 +1309,14 @@
   });
   shareUi.send.addEventListener("click", async () => {
     try {
-      if (await sendShare()) shareUi.dialog.close();
+      if (await sendShare()) closeShare();
     } catch (e) {
       toast(`Condivisione non riuscita: ${e.message}`);
     }
   });
   shareUi.download.addEventListener("click", () => { downloadShareFile(); });
-  shareUi.close.addEventListener("click", () => shareUi.dialog.close());
-  shareUi.dialog.addEventListener("close", () => { URL.revokeObjectURL(shareUi.preview.src); });
+  shareUi.close.addEventListener("click", closeShare);
+
 
   // ---------- tooltip puntuale (griglia nativa, nearest neighbour)
   map.on("mousemove", (e) => {
@@ -936,10 +1348,17 @@
     update();
   }
 
+  // icone Lucide "play" e "pause" del pulsante nella barra mobile
+  const M_PLAY = ui.mPlay.innerHTML;
+  const M_PAUSE = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" stroke="currentColor" stroke-width="2.25" ' +
+    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="14" y="4" width="4" height="16" rx="1"/>' +
+    '<rect x="6" y="4" width="4" height="16" rx="1"/></svg>';
   function togglePlay(force) {
     const on = force ?? !playTimer;
     if (on && !playTimer) {
       ui.play.textContent = "❚❚";
+      ui.mPlay.innerHTML = M_PAUSE;
+      ui.mPlay.setAttribute("aria-label", "Ferma animazione");
       playTimer = setInterval(() => {
         const s = steps();
         const avail = availableSteps();
@@ -957,12 +1376,28 @@
       clearInterval(playTimer);
       playTimer = null;
       ui.play.textContent = "▶";
+      ui.mPlay.innerHTML = M_PLAY;
+      ui.mPlay.setAttribute("aria-label", "Avvia animazione");
     }
   }
 
   ui.step.addEventListener("input", () => { state.step = steps()[+ui.step.value]; update(); });
   ui.prev.addEventListener("click", () => goStep(-1));
   ui.next.addEventListener("click", () => goStep(1));
+  // frecce del riquadro in basso su mobile: come quelle del pannello, ma fermano il play
+  $("m-prev").addEventListener("click", () => { togglePlay(false); goStep(-1); });
+  $("m-next").addEventListener("click", () => { togglePlay(false); goStep(1); });
+  ui.mPlay.addEventListener("click", () => togglePlay());
+  // «: torna al primo passo disponibile della corsa
+  $("m-first").addEventListener("click", () => {
+    togglePlay(false);
+    const s = steps();
+    const avail = availableSteps();
+    const i = Math.max(0, s.findIndex((x) => avail.has(x)));
+    state.step = s[i];
+    ui.step.value = i;
+    update();
+  });
   ui.play.addEventListener("click", () => togglePlay());
   ui.opacity.addEventListener("input", () => {
     state.opacity = +ui.opacity.value;
@@ -999,6 +1434,8 @@
     try {
       const [m] = await Promise.all([fetch(STATIC ? "data/meta.json" : "api/meta").then((r) => r.json()), refreshRuns()]);
       meta = m;
+      // versione dai tag git (vuota se non ci sono tag)
+      if (meta.version) { $("app-version").textContent = meta.version; $("app-version").hidden = false; }
     } catch (e) {
       setStatus(`Impossibile contattare il server: ${e.message}`, true);
       return;
@@ -1020,11 +1457,13 @@
       if (map.getZoom() < map.getMinZoom()) map.setZoom(map.getMinZoom(), { animate: false });
       map.panInsideBounds(box, { animate: false });
     });
-    bases.osm.addTo(map); // all'avvio sempre OpenStreetMap; il rilievo si sceglie dal selettore livelli
+    setBase("osm"); // all'avvio sempre OpenStreetMap; il rilievo si sceglie in "Impostazioni"
 
     ui.opacity.value = state.opacity;
     ui.crisp.checked = state.crisp;
     setupVars();
+    // su schermi stretti l'elenco delle località parte chiuso per non coprire la mappa
+    if (mobileMq.matches) ui.pointsBox.open = false;
     setupPoints();
     setupModels();
     setupModes();

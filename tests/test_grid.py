@@ -188,3 +188,63 @@ def test_bilinear_exact_on_linear_field():
     out = bilinear(vals, grid, tl, tn)
     np.testing.assert_allclose(out[:3, :3], tl[:3, None] * 2 + tn[None, :3] * 3, rtol=1e-5)
     assert np.isnan(out[3]).all() and np.isnan(out[:, 3]).all()  # fuori griglia
+
+
+# ---------- MeteoHub (WRF, MOLOCH): lettura delle intestazioni GRIB2 senza decodificare i dati
+import eccodes  # noqa: E402
+
+from app.sources import meteohub  # noqa: E402
+
+
+def _grib2(template: int, discipline: int, cat: int, num: int, ftime: int, length: int = 0) -> bytes:
+    gid = eccodes.codes_grib_new_from_samples("GRIB2")
+    try:
+        eccodes.codes_set(gid, "productDefinitionTemplateNumber", template)
+        eccodes.codes_set(gid, "discipline", discipline)
+        eccodes.codes_set(gid, "parameterCategory", cat)
+        eccodes.codes_set(gid, "parameterNumber", num)
+        eccodes.codes_set(gid, "indicatorOfUnitOfTimeRange", 1)
+        eccodes.codes_set(gid, "forecastTime", ftime)
+        if template == 8:
+            eccodes.codes_set(gid, "typeOfStatisticalProcessing", 1)
+            eccodes.codes_set(gid, "indicatorOfUnitForTimeRange", 1)
+            eccodes.codes_set(gid, "lengthOfTimeRange", length)
+        return eccodes.codes_get_message(gid)
+    finally:
+        eccodes.codes_release(gid)
+
+
+def test_meteohub_header_accumulated_from_start():
+    m = meteohub.parse_header(_grib2(8, 0, 1, 8, 0, 24), offset=123)
+    assert m.code == (0, 1, 8) and m.accum_from == 0 and m.step == 24 and m.offset == 123
+
+
+def test_meteohub_header_hourly_bucket_and_instant():
+    b = meteohub.parse_header(_grib2(8, 0, 1, 8, 23, 1), offset=0)  # pioggia fra 23 e 24h (MOLOCH)
+    assert b.accum_from == 23 and b.step == 24
+    t = meteohub.parse_header(_grib2(0, 0, 0, 0, 48), offset=0)  # temperatura istantanea
+    assert t.code == (0, 0, 0) and t.accum_from is None and t.step == 48
+
+
+def test_meteohub_urls_and_selectors():
+    run = _dt(2026, 11, 9, 0)
+    assert meteohub.wrf.url(run, get("tp")).endswith("/WRF/2026110900/tp/WRF_2026110900_surface-0.grib")
+    assert meteohub.wrf.url(run, get("t850")).endswith("/WRF/2026110900/t/WRF_2026110900_isobaricInhPa-850.grib")
+    assert not get("tp").selectors["wrf"].hourly_buckets
+    assert "moloch" not in get("tp").selectors  # escluso per ora
+
+
+# ---------- Météo-France AROME: paquets a blocchi di 6 ore
+from app.sources import arome as arome_mod  # noqa: E402
+
+
+def test_arome_urls_and_blocks():
+    run = _dt(2026, 11, 10, 3)
+    a = arome_mod.arome
+    assert a.url(run, get("tp"), 3).endswith(
+        "/2026-11-10T03:00:00Z/arome/0025/SP1/arome__0025__SP1__00H06H__2026-11-10T03:00:00Z.grib2")
+    assert "/SP1/arome__0025__SP1__49H51H__" in a.url(run, get("tp"), 51)
+    assert "arome" not in get("t850").selectors  # solo pioggia
+    assert [arome_mod.block(s) for s in (6, 7, 12, 48, 51)] == ["00H06H", "07H12H", "07H12H", "43H48H", "49H51H"]
+    with pytest.raises(ValueError):
+        arome_mod.block(54)

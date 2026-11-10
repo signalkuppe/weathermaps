@@ -2,8 +2,10 @@ name: Aggiorna dati e pubblica
 
 on:
   schedule:
-    - cron: "7,37 * * * *" # ogni 30 minuti (GitHub può ritardare di qualche minuto)
-  workflow_dispatch: {} # avvio manuale dalla scheda Actions
+    # riserva: l'avvio vero arriva ogni ora da un servizio esterno via workflow_dispatch, perché GitHub
+    # ritarda o salta spesso gli avvii programmati (vedi README, "Perché una volta all'ora")
+    - cron: "17 * * * *"
+  workflow_dispatch: {} # avvio orario dal servizio esterno (cron-job.org) e manuale dalla scheda Actions
   push:
     branches: [main]
 
@@ -25,6 +27,8 @@ jobs:
       SCHEDULER_ENABLED: "0"
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # serve la storia con i tag per la versione mostrata accanto al nome (git describe)
 
       - uses: actions/setup-python@v7
         with:
