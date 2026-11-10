@@ -1703,20 +1703,31 @@
       ctx.fillText(p.num, px, py + 1);
     }
 
-    // intestazione in alto a sinistra: modello e corsa, grandezza e istante
+    // intestazione in alto a sinistra: bandiera, modello e corsa, grandezza e istante
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
+    const flag = crop.flag; // immagine già caricata (vedi loadFlag), altrimenti niente bandiera
+    const fh = 26, fw = flag ? Math.round(fh * (flag.naturalWidth / flag.naturalHeight || 4 / 3)) : 0;
+    const fx = flag ? fw + 12 : 0; // spazio occupato dalla bandiera prima del titolo
     ctx.font = `700 30px ${FONT}`;
-    const tw = ctx.measureText(texts.title).width;
+    const tw = ctx.measureText(texts.title).width + fx;
     ctx.font = `500 22px ${FONT}`;
     const sw = ctx.measureText(texts.sub).width;
     const hw = Math.min(OW - 48, Math.max(tw, sw) + 40);
     ctx.fillStyle = "rgba(255,255,255,0.93)";
     roundRect(ctx, 24, 24, hw, 94, 14);
     ctx.fill();
+    if (flag) {
+      ctx.drawImage(flag, 44, 42, fw, fh);
+      if (flag.dataset.border) { // bandiere: bordino grigio come nella select (il bianco non si perde nel fondo)
+        ctx.strokeStyle = "rgba(29,35,48,0.25)";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(44.5, 42.5, fw - 1, fh - 1);
+      }
+    }
     ctx.fillStyle = "#1d2330";
     ctx.font = `700 30px ${FONT}`;
-    ctx.fillText(texts.title, 44, 66, hw - 40);
+    ctx.fillText(texts.title, 44 + fx, 66, hw - 40 - fx);
     ctx.fillStyle = "#3d4656";
     ctx.font = `500 22px ${FONT}`;
     ctx.fillText(texts.sub, 44, 100, hw - 40);
@@ -1837,7 +1848,40 @@
   // vista della mappa prima della condivisione: la mappa si centra per un attimo sulla posizione e poi ci torna
   let shareRestore = null;
 
+  // bandiera del modello per l'intestazione dell'immagine: lo stesso SVG di flag-icons usato nella pagina (letto dal
+  // CSS), per la mediana l'icona "layers"; caricata una volta per modello
+  const flagCache = new Map();
+  function loadFlag(modelId) {
+    if (!flagCache.has(modelId)) {
+      const m = meta.models.find((x) => x.id === modelId);
+      let url = null, border = false;
+      if (m?.country) {
+        const probe = document.createElement("span");
+        probe.className = `fi fi-${m.country}`;
+        probe.style.cssText = "position:absolute;visibility:hidden";
+        document.body.append(probe);
+        url = getComputedStyle(probe).backgroundImage.match(/url\(["']?([^"')]+)["']?\)/)?.[1] || null;
+        probe.remove();
+        border = true;
+      } else if (modelId === "mean") {
+        url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(LAYERS_ICON.replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" ').replace(/currentColor/g, "#1d2330"))}`;
+      }
+      flagCache.set(modelId, !url ? Promise.resolve(null) : new Promise((resolve) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous"; // senza, il canvas diventerebbe "sporco" e non si potrebbe esportare
+        if (border) img.dataset.border = "1";
+        img.onload = () => resolve(img);
+        img.onerror = () => resolve(null);
+        img.src = url;
+      }));
+    }
+    return flagCache.get(modelId);
+  }
+
   async function openShare() {
+    crop.flag = null;
+    const model = state.model;
+    loadFlag(model).then((img) => { if (state.model === model) { crop.flag = img; scheduleRender(); } });
     // la mappa si centra sulla posizione del dispositivo (stesso zoom), così il riquadro più grande parte da lì
     const pos = await knownPosition();
     shareRestore = null;

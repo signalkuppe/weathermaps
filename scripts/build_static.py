@@ -18,6 +18,7 @@ Uso:  python scripts/build_static.py [OUT_DIR]   (default: ./public)
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import sys
@@ -51,6 +52,13 @@ def main(out_dir: Path) -> int:
         shutil.copy(ROOT / "static" / name, out_dir / name)
     html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
     html = html.replace('<html lang="it">', '<html lang="it" data-mode="static">', 1)
+    # impronta del contenuto negli indirizzi di script e stile: dopo un aggiornamento il browser scarica subito i file
+    # nuovi invece di usare per 10 minuti quelli in cache (pagina nuova con script vecchio = voci che non funzionano)
+    for name, attr in (("app.js", "src"), ("style.css", "href")):
+        digest = hashlib.sha1((ROOT / "static" / name).read_bytes()).hexdigest()[:10]
+        old = f'{attr}="{name}"'
+        assert old in html, f"{old} non trovato in index.html"
+        html = html.replace(old, f'{attr}="{name}?v={digest}"', 1)
     (out_dir / "index.html").write_text(html, encoding="utf-8")
     (out_dir / ".nojekyll").write_text("")
 
