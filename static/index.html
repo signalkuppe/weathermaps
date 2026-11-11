@@ -38,58 +38,64 @@
       </div>
     </header>
     <div class="panel-body">
-      <div class="row">
-        <span class="label-info">Modello
-          <button id="model-info-btn" class="info-btn" type="button" aria-label="Informazioni sul modello"
-                  aria-expanded="false" aria-controls="model-info">
-            <!-- Lucide "info" (ISC) -->
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"
-                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>
-            </svg>
-          </button>
-        </span>
-        <select id="model" class="rich-select" aria-label="Modello">
-          <button><selectedcontent></selectedcontent></button>
-        </select>
-        <div id="model-info" class="model-info" role="note" hidden></div>
-      </div>
-      <label class="row" id="var-row" hidden>
-        <span>Grandezza</span>
-        <select id="var"></select>
-      </label>
-      <div class="run-block">
-        <!-- si mostra solo l'ultima corsa completa; quella in arrivo compare nell'avviso sotto -->
-        <div class="run-head"><span>Corsa</span><span id="run" class="run-line"></span><span id="run-age" class="run-age"></span></div>
-        <div id="run-live" class="run-live" hidden>
-          <span id="run-live-text"></span>
-          <button id="refresh" class="refresh-btn" type="button" title="Controlla subito se sono usciti nuovi passi">↻ Aggiorna</button>
+      <!-- sezioni (modelli e parametri, località, impostazioni, crediti): una aperta alla volta, con animazione
+           (app.js, "sezioni del pannello") -->
+      <details id="models-box" class="points-box models" open>
+        <summary>Modelli e parametri</summary>
+        <div class="models-body">
+          <div class="row">
+            <span class="label-info">Modello
+              <button id="model-info-btn" class="info-btn" type="button" aria-label="Informazioni sul modello"
+                      aria-expanded="false" aria-controls="model-info">
+                <!-- Lucide "info" (ISC) -->
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>
+                </svg>
+              </button>
+            </span>
+            <select id="model" class="rich-select" aria-label="Modello">
+              <button><selectedcontent></selectedcontent></button>
+            </select>
+            <div id="model-info" class="model-info" role="note" hidden></div>
+          </div>
+          <label class="row" id="var-row" hidden>
+            <span>Grandezza</span>
+            <select id="var"></select>
+          </label>
+          <div class="run-block">
+            <!-- si mostra solo l'ultima corsa completa; quella in arrivo compare nell'avviso sotto -->
+            <div class="run-head"><span>Corsa</span><span id="run" class="run-line"></span><span id="run-age" class="run-age"></span></div>
+            <div id="run-live" class="run-live" hidden>
+              <span id="run-live-text"></span>
+              <button id="refresh" class="refresh-btn" type="button" title="Controlla subito se sono usciti nuovi passi">↻ Aggiorna</button>
+            </div>
+            <div id="run-live-note" class="run-live-note" role="status"></div>
+          </div>
+          <div class="row" id="mode-row">
+            <span>Modalità</span>
+            <div class="seg" id="mode"></div>
+          </div>
+          <!-- istante mostrato e slider dei passi -->
+          <div class="time">
+            <span id="loading" class="spinner" role="status" aria-label="Caricamento" hidden></span>
+            <div id="valid" class="valid">—</div>
+            <div id="range" class="range">—</div>
+          </div>
+          <div class="stepper">
+            <button id="prev" class="icon-btn" type="button" title="Passo precedente (←)">‹</button>
+            <button id="play" class="icon-btn" type="button" title="Play/Pausa (spazio)">▶</button>
+            <button id="next" class="icon-btn" type="button" title="Passo successivo (→)">›</button>
+            <input id="step" type="range" min="0" max="0" value="0" aria-label="Istante di previsione">
+          </div>
         </div>
-        <div id="run-live-note" class="run-live-note" role="status"></div>
-      </div>
+      </details>
       <!-- combinazione modello/grandezza/ora senza dati (la mappa intanto è in grigio) -->
       <div id="nodata" class="nodata" role="status" hidden><b id="nodata-title"></b><span id="nodata-text"></span></div>
-      <div class="row" id="mode-row">
-        <span>Modalità</span>
-        <div class="seg" id="mode"></div>
-      </div>
 
-      <div class="time">
-        <span id="loading" class="spinner" role="status" aria-label="Caricamento" hidden></span>
-        <div id="valid" class="valid">—</div>
-        <div id="range" class="range">—</div>
-      </div>
-      <div class="stepper">
-        <button id="prev" class="icon-btn" type="button" title="Passo precedente (←)">‹</button>
-        <button id="play" class="icon-btn" type="button" title="Play/Pausa (spazio)">▶</button>
-        <button id="next" class="icon-btn" type="button" title="Passo successivo (→)">›</button>
-        <input id="step" type="range" min="0" max="0" value="0" aria-label="Istante di previsione">
-      </div>
-
-      <!-- sotto lo slider: eventuali errori -->
+      <!-- sotto la sezione dei modelli: eventuali errori -->
       <div id="status" class="status" role="status"></div>
-      <!-- sezioni: una aperta alla volta, con animazione (app.js, "sezioni del pannello") -->
-      <details id="points-box" class="points-box" open>
+      <details id="points-box" class="points-box">
         <summary>Località preferite</summary>
         <div class="places-tools">
           <div class="places-search">
@@ -109,9 +115,18 @@
             <span>Sfondo</span>
             <div class="seg" id="base"></div>
           </div>
+          <!-- linee sopra i colori, a livelli: stati (con coste e laghi), regioni, province (Natural Earth, scripts/make_borders.py) -->
+          <div class="row">
+            <span>Confini</span>
+            <div class="seg" id="borders"></div>
+          </div>
           <label class="row">
-            <span>Opacità</span>
-            <input id="opacity" type="range" min="0.1" max="1" step="0.05" value="0.55">
+            <span>Opacità colori</span>
+            <input id="opacity" type="range" min="0.1" max="1" step="0.05" value="0.75">
+          </label>
+          <label class="row">
+            <span>Opacità confini</span>
+            <input id="borders-opacity" type="range" min="0.1" max="1" step="0.05" value="0.75">
           </label>
           <label class="row check">
             <input id="crisp" type="checkbox">
@@ -127,7 +142,7 @@
         <summary>Info &amp; crediti <span class="credits-osm">© OpenStreetMap</span></summary>
         <p class="credits-data">Dati dei modelli: NOAA/NCEP GFS · ECMWF Open Data (CC-BY-4.0) ·
           ItaliaMeteo ICON-2I (CC-BY), WRF (CIMA, LaMMA) · DWD ICON-D2 · Météo-France AROME (Licence Ouverte) ·
-          MeteoSvizzera ICON-CH1/CH2 (CC-BY)</p>
+          MeteoSvizzera ICON-CH1/CH2 (CC-BY) · Confini: Natural Earth</p>
         <div id="attrib" class="attrib"></div>
         <p class="credits-data">Realizzato da <a href="https://www.signalkuppe.com/" target="_blank" rel="noopener">signalkuppe</a></p>
       </details>
@@ -212,6 +227,15 @@
       </div>
     </header>
     <div id="chart-body" class="chart-body"></div>
+    <!-- ora fissata (clic, tocco o trascinando il dito sul grafico): valori e azioni, sempre visibili in fondo -->
+    <div id="chart-readout" class="chart-readout" hidden>
+      <div class="chart-readout-values"></div>
+      <div class="chart-readout-links">
+        <button type="button" data-act="download">Scarica</button>
+        <button type="button" data-act="share">Condividi</button>
+        <button type="button" data-act="remove">Rimuovi</button>
+      </div>
+    </div>
   </dialog>
   <div id="legend" class="legend"></div>
   <div id="probe" class="probe" hidden></div>

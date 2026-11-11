@@ -8,7 +8,7 @@
     model: $("model"), varSel: $("var"), varRow: $("var-row"), run: $("run"),
     mode: $("mode"), modeRow: $("mode-row"), step: $("step"), prev: $("prev"),
     next: $("next"), play: $("play"), opacity: $("opacity"), crisp: $("crisp"),
-    valid: $("valid"), range: $("range"), status: $("status"), attrib: $("attrib"), base: $("base"), iso: $("iso"), isoRow: $("iso-row"), isoText: $("iso-text"), legend: $("legend"),
+    valid: $("valid"), range: $("range"), status: $("status"), attrib: $("attrib"), base: $("base"), borders: $("borders"), bordersOpacity: $("borders-opacity"), iso: $("iso"), isoRow: $("iso-row"), isoText: $("iso-text"), legend: $("legend"),
     probe: $("probe"), panel: $("panel"), collapse: $("collapse"),
     badge: $("badge"), badgeText: $("badge-text"), mPlay: $("m-play"), runAge: $("run-age"),
     runLive: $("run-live"), runLiveText: $("run-live-text"), refresh: $("refresh"), runLiveNote: $("run-live-note"),
@@ -18,7 +18,7 @@
   };
 
   // run: sempre l'ultima corsa completa del modello (non si sceglie più a mano)
-  const state = { model: null, var: null, run: null, step: null, mode: null, opacity: 0.55, crisp: false, iso: true, hours: 3, base: "topo" }; // predefiniti: Rilievo, opacità 0,55, celle sfumate
+  const state = { model: null, var: null, run: null, step: null, mode: null, opacity: 0.75, crisp: false, iso: true, hours: 3, base: "topo", borders: "none", bordersOpacity: 0.75 }; // predefiniti: Rilievo, opacità di colori e confini 0,75, celle sfumate, senza confini
   // "static": sito pubblicato su GitHub Pages (file JSON pre-generati, nessun server)
   const STATIC = document.documentElement.dataset.mode === "static";
   let publishedAt = null; // solo statico: quando sono stati pubblicati i dati
@@ -42,8 +42,6 @@
   });
   map.zoomControl.setPosition("topright");
   const bases = {
-    // "Essenziale": nessuna tessera, fondo bianco e solo coste e confini sopra i colori (stile carte meteo classiche)
-    plain: L.layerGroup(),
     osm: L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       crossOrigin: "anonymous",
       maxZoom: 19,
@@ -58,11 +56,28 @@
     }),
   };
   // sfondo: dalla sezione "Impostazioni" del pannello (niente selettore livelli di Leaflet)
-  const BASE_NAMES = { osm: "Strade", plain: "Essenziale", topo: "Rilievo" };
+  const BASE_NAMES = { osm: "Strade", topo: "Rilievo" }; // effetto "carta meteo": opacità al massimo e confini
   const baseCredit = () =>
-    state.base === "topo" ? "© Thunderforest, OpenStreetMap" : state.base === "plain" ? "Confini: Natural Earth" : "© OpenStreetMap";
+    state.base === "topo" ? "© Thunderforest, OpenStreetMap" : "© OpenStreetMap";
+  // confini sopra i colori (Impostazioni), a livelli: ogni scelta comprende le precedenti
+  const BORDER_NAMES = { none: "Nessuno", countries: "Stati", regions: "Regioni", provinces: "Province" };
+  function setBorders(name, save = true) {
+    state.borders = BORDER_NAMES[name] ? name : "none";
+    if (typeof styleBorders === "function") styleBorders();
+    if (save) saveSettings();
+    ui.borders.replaceChildren(
+      ...Object.entries(BORDER_NAMES).map(([k, text]) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = text;
+        b.setAttribute("aria-pressed", String(k === state.borders));
+        b.addEventListener("click", () => setBorders(k));
+        return b;
+      }),
+    );
+  }
   function setBase(name, save = true) {
-    state.base = bases[name] ? name : "osm";
+    state.base = bases[name] ? name : "topo"; // anche il vecchio "Essenziale" salvato nel browser
     const credit = ui.legend.querySelector(".lg-credit");
     if (credit) credit.textContent = baseCredit();
     const osm = document.querySelector(".credits-osm"); // credito breve accanto a "Info & crediti"
@@ -71,9 +86,7 @@
       if (k === state.base) layer.addTo(map);
       else map.removeLayer(layer);
     }
-    map.getContainer().classList.toggle("base-plain", state.base === "plain");
     if (save) saveSettings(); // all'avvio no: un link con l'opacità nell'URL non cambia quelle salvate
-    if (typeof styleBorders === "function") styleBorders(); // con "Essenziale" i contorni ci sono sempre
     ui.base.replaceChildren(
       ...Object.entries(BASE_NAMES).map(([k, text]) => {
         const b = document.createElement("button");
@@ -188,11 +201,13 @@
       if (Number.isFinite(d.opacity)) state.opacity = Math.min(1, Math.max(0.1, d.opacity));
       if (typeof d.crisp === "boolean") state.crisp = d.crisp;
       if (typeof d.iso === "boolean") state.iso = d.iso;
+      if (BORDER_NAMES[d.borders]) state.borders = d.borders;
+      if (Number.isFinite(d.bordersOpacity)) state.bordersOpacity = Math.min(1, Math.max(0.1, d.bordersOpacity));
     } catch { /* storage non disponibile o dato rovinato: valori predefiniti */ }
   }
   function saveSettings() {
     try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ base: state.base, opacity: state.opacity, crisp: state.crisp, iso: state.iso }));
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ base: state.base, opacity: state.opacity, crisp: state.crisp, iso: state.iso, borders: state.borders, bordersOpacity: state.bordersOpacity }));
     } catch { /* storage non disponibile */ }
   }
 
@@ -801,24 +816,39 @@
     coast: { weight: 1.5, opacity: 0.85 },
     lakes: { weight: 1.5, opacity: 0.85 },
     countries: { weight: 2, opacity: 0.9 },
-    regions: { weight: 1.1, opacity: 0.65 },
+    regions: { weight: 1.4, opacity: 0.8 },
+    provinces: { weight: 1.1, opacity: 0.75, dashArray: "4 3" }, // tratteggio: si distinguono dalle regioni
   };
-  // sopra i colori solo quando lo sfondo non si vede: opacità al massimo, oppure sfondo "Essenziale" (senza tessere)
-  const bordersOn = () => state.opacity >= 0.999 || state.base === "plain";
+  // quali linee, dalla scelta "Confini": Stati = coste, laghi e confini di stato (con l'opacità al massimo la mappa
+  // diventa una carta meteo classica), Regioni e Province aggiungono i confini interni
+  const BORDER_LEVELS = [[], ["coast", "lakes", "countries"], ["regions"], ["provinces"]];
+  function visibleBorders() {
+    const n = Object.keys(BORDER_NAMES).indexOf(state.borders);
+    return new Set(BORDER_LEVELS.slice(0, n + 1).flat());
+  }
+  const bordersOn = () => visibleBorders().size > 0;
+  const borderLines = {}; // chiave -> polyline, create al primo caricamento di borders.json
   let bordersLoad = null;
   function styleBorders() {
-    if (!bordersOn()) { bordersLayer.remove(); return; }
+    const keys = visibleBorders();
+    if (!keys.size) { bordersLayer.remove(); return; }
     bordersLayer.addTo(map);
+    const apply = () => { // stato letto al momento: se nel frattempo è cambiato, vale l'ultimo
+      const k = visibleBorders();
+      for (const [key, line] of Object.entries(borderLines)) {
+        if (k.has(key)) bordersLayer.addLayer(line);
+        else bordersLayer.removeLayer(line);
+      }
+    };
     bordersLoad ??= fetch("borders.json")
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.statusText))))
       .then((b) => {
         for (const [key, st] of Object.entries(BORDER_STYLE)) {
-          if (!b[key]?.length) continue;
-          L.polyline(b[key], { renderer: bordersRenderer, interactive: false, smoothFactor: 1, color: "#1f2328", ...st })
-            .addTo(bordersLayer);
+          if (b[key]?.length) borderLines[key] = L.polyline(b[key], { renderer: bordersRenderer, interactive: false, smoothFactor: 1, color: "#1f2328", ...st });
         }
       })
       .catch(() => { bordersLoad = null; }); // senza contorni la mappa funziona lo stesso: si riproverà
+    bordersLoad?.then(apply);
   }
   const isoLines = L.layerGroup().addTo(map);
   const isoLabels = L.layerGroup().addTo(map);
@@ -1595,7 +1625,9 @@
     const bordersCanvas = map.getPane("borders").querySelector("canvas");
     if (bordersCanvas && bordersOn()) {
       const r = bordersCanvas.getBoundingClientRect();
+      ctx.globalAlpha = state.bordersOpacity; // come nella pagina
       ctx.drawImage(bordersCanvas, r.left - cr.left, r.top - cr.top, r.width, r.height);
+      ctx.globalAlpha = 1;
     }
     const arrowsCanvas = map.getPane("arrows").querySelector("canvas");
     if (arrowsCanvas && current?.u) {
@@ -1651,7 +1683,7 @@
     const modeText = state.mode === "interval" ? ` in ${intervalHours(s)}h (+${s - intervalHours(s)}h → +${s}h)` : state.mode === "total" ? " totale" : "";
     const runText = state.model === "mean" ? `dalle ${cycle(state.run)} ${fmtRunDay(state.run)}` : `corsa ${cycle(state.run)} ${fmtRunDay(state.run)}`;
     const baseAttr = map.hasLayer(bases.topo) ? "Mappa © Thunderforest, dati © OpenStreetMap contributors"
-      : state.base === "plain" ? "Confini: Natural Earth" : "Mappa © OpenStreetMap contributors";
+      : "Mappa © OpenStreetMap contributors";
     return {
       v,
       title: `${modelLabel()} · ${runText}`,
@@ -2181,6 +2213,7 @@
     chartUi.body.innerHTML = '<div class="chart-empty">Caricamento…</div>';
     chartData = null;
     chartPin = null;
+    $("chart-readout").hidden = true;
     chartUi.dialog.showModal();
     const want = `${state.model}|${state.run}`;
     try {
@@ -2248,13 +2281,13 @@
     ctx.font = `500 15px ${FONT}`;
     ctx.fillText(chartUi.sub.textContent, sx, M + 50);
     ctx.drawImage(img, M, TOP, g.W, g.H);
-    if (g.pinBox) { // come nella pagina: la linea scende fino al riquadro con ora e valori, centrato sulla linea
+    if (g.pinBox) { // come nella pagina: la linea scende fino al riquadro con ora e valori, verso il lato con più spazio
       const pb = g.pinBox, lx = M + pb.x;
       const widthOf = (parts) => parts.reduce((w, [t, b]) => { ctx.font = `${b ? 650 : 400} ${PB.font}px ${FONT}`; return w + ctx.measureText(t).width; }, 0);
       ctx.font = `400 ${PB.font}px ${FONT}`;
       const bw = Math.ceil(Math.max(ctx.measureText(pb.head).width, ...pb.rows.map(widthOf))) + PB.pad * 2 + 4;
       const bh = PB.pad * 2 + PB.line * (1 + pb.rows.length) - 4;
-      const by = TOP + g.H + PB.stem, bx = Math.max(M, Math.min(lx - bw / 2, M + pb.right - bw));
+      const by = TOP + g.H + PB.stem, bx = Math.max(M, Math.min(pb.x < pb.right / 2 ? lx - 14 : lx - bw + 14, M + pb.right - bw));
       ctx.strokeStyle = c.fg; ctx.globalAlpha = 0.75; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.moveTo(lx, TOP + g.H - 1); ctx.lineTo(lx, by); ctx.stroke();
       ctx.globalAlpha = 1;
@@ -2312,6 +2345,12 @@
     }
   }
   $("chart-share").addEventListener("click", (e) => chartImage(e.currentTarget, true));
+  $("chart-readout").querySelector(".chart-readout-links").addEventListener("click", (ev) => {
+    const btn = ev.target.closest("button[data-act]");
+    if (!btn) return;
+    if (btn.dataset.act === "remove") clearChartPin();
+    else chartImage(btn, btn.dataset.act === "share"); // stessa immagine dei pulsanti in alto, con l'ora fissata
+  });
   $("chart-download").addEventListener("click", (e) => chartImage(e.currentTarget, false));
 
   /** 3–5 valori "tondi" fra lo e hi per l'asse. */
@@ -2461,32 +2500,30 @@
       return { markup: svg.join(""), W, H, pinBox };
     }
     svg.push(`<line class="ch-cursor" id="ch-cursor" x1="0" x2="0" y1="${HEAD + 2}" y2="${yBot}" visibility="hidden"/>`);
-    // ora fissata: linea fino in fondo (oltre l'asse dei tempi), poi sotto il grafico il riquadro con "Rimuovi"
-    svg.push(`<line class="ch-cursor pinned" id="ch-pinline" x1="0" x2="0" y1="${HEAD + 2}" y2="${H}" visibility="hidden"/>`);
+    // ora fissata: linea e pallini sulle curve; i valori stanno nella barra in fondo alla finestra (#chart-readout)
+    svg.push(`<line class="ch-cursor pinned" id="ch-pinline" x1="0" x2="0" y1="${HEAD + 2}" y2="${yBot}" visibility="hidden"/><g id="ch-pindots"></g>`);
     svg.push(`<rect id="ch-hit" x="${L}" y="${yTop}" width="${pw}" height="${yBot}" fill="transparent"/>`);
     chartUi.body.innerHTML = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="Andamento nel tempo">${svg.join("")}</svg>` +
-      '<div class="chart-pin" hidden><i class="chart-pin-stem"></i><div class="chart-pin-box"><div class="chart-pin-text"></div>' +
-      '<span class="chart-pin-links"><button type="button" data-act="download">Scarica</button>' +
-      '<button type="button" data-act="share">Condividi</button><button type="button" data-act="remove">Rimuovi</button></span>' +
-      '</div></div><div class="chart-tip" hidden></div>';
+      '<div class="chart-tip" hidden></div>';
 
     // lettura dei valori: il passo più vicino al puntatore, su tutti i pannelli
     const svgEl = chartUi.body.querySelector("svg"), tip = chartUi.body.querySelector(".chart-tip");
     const cursor = svgEl.querySelector("#ch-cursor"), pinLine = svgEl.querySelector("#ch-pinline");
-    const pinEl = chartUi.body.querySelector(".chart-pin");
+    const pinDots = svgEl.querySelector("#ch-pindots");
     const stepAt = (clientX) => {
       const r = svgEl.getBoundingClientRect();
       const h = x0 + ((((clientX - r.left) / r.width) * W - L) / pw) * (x1 - x0);
       return steps.reduce((a, b) => (Math.abs(b - h) < Math.abs(a - h) ? b : a));
     };
-    // ora e valori di tutti i pannelli a un passo: tooltip e riquadro dell'ora fissata
-    const valuesHtml = (st) => `<div class="t">${fmtLocal(new Date(t0 + st * 3600e3))} · +${st}h</div>` + panels.map((p) => {
+    // ora e valori di tutti i pannelli a un passo: tooltip e barra dell'ora fissata
+    const timeHtml = (st) => `<div class="t">${fmtLocal(new Date(t0 + st * 3600e3))} · +${st}h</div>`;
+    const rowsHtml = (st) => panels.map((p) => {
       const d = valueAt(p, st);
       return d ? `<div>${p.tip(d)} ${valueText(p, d, (x) => `<b>${x}</b>`, false)}</div>` : "";
     }).join("");
     const showAt = (st, clientX, clientY) => {
       cursor.setAttribute("x1", X(st)); cursor.setAttribute("x2", X(st)); cursor.setAttribute("visibility", "visible");
-      tip.innerHTML = valuesHtml(st);
+      tip.innerHTML = timeHtml(st) + rowsHtml(st);
       tip.hidden = false;
       const br = chartUi.body.getBoundingClientRect();
       const cx = clientX - br.left, w = tip.offsetWidth;
@@ -2494,44 +2531,50 @@
       tip.style.top = `${Math.max(4, clientY - br.top + chartUi.body.scrollTop - 20)}px`;
     };
     const hide = () => { tip.hidden = true; cursor.setAttribute("visibility", "hidden"); };
+    const readout = $("chart-readout");
     const renderPin = () => {
       const on = chartPin != null && steps.includes(chartPin);
       pinLine.setAttribute("visibility", on ? "visible" : "hidden");
-      pinEl.hidden = !on;
+      readout.hidden = !on;
+      pinDots.innerHTML = "";
       if (!on) return;
       pinLine.setAttribute("x1", X(chartPin)); pinLine.setAttribute("x2", X(chartPin));
-      pinEl.querySelector(".chart-pin-text").innerHTML = valuesHtml(chartPin);
-      const br = pinEl.getBoundingClientRect(), r = svgEl.getBoundingClientRect();
-      const x = r.left - br.left + (X(chartPin) / W) * r.width; // posizione della linea nella riga sotto il grafico
-      const box = pinEl.querySelector(".chart-pin-box");
-      pinEl.querySelector(".chart-pin-stem").style.left = `${x}px`;
-      const maxRight = r.left - br.left + (X(x1) / W) * r.width; // mai oltre il bordo destro dei grafici (ultima ora)
-      box.style.maxWidth = `${maxRight}px`;
-      box.style.left = `${Math.max(0, Math.min(x - box.offsetWidth / 2, maxRight - box.offsetWidth))}px`; // centrato sulla linea
+      pinDots.innerHTML = panels.map((p) => {
+        const d = p.kind === "line" ? valueAt(p, chartPin) : null;
+        return d && d.y != null ? `<circle class="ch-pin-dot" cx="${X(chartPin).toFixed(1)}" cy="${p.Y(d.y).toFixed(1)}" r="4" fill="${p.color}"/>` : "";
+      }).join("");
+      readout.querySelector(".chart-readout-values").innerHTML = timeHtml(chartPin) + rowsHtml(chartPin);
     };
     const hit = svgEl.querySelector("#ch-hit");
-    // passando il mouse si leggono i valori; un clic (o un tocco) fissa l'ora per l'immagine, un altro sulla stessa la toglie
+    // mouse: passandoci sopra si leggono i valori. Clic o tocco fissa l'ora (un altro sulla stessa la toglie);
+    // trascinando in orizzontale (dito o mouse premuto) l'ora fissata segue il puntatore; in verticale si scorre
+    let drag = null;
     hit.addEventListener("pointermove", (ev) => {
-      if (ev.pointerType !== "mouse") return;
       const st = stepAt(ev.clientX);
-      if (st === chartPin) hide(); // sull'ora fissata i valori sono già nel riquadro sotto: un solo riquadro
+      if (drag) {
+        if (st !== chartPin) { drag.moved = true; chartPin = st; renderPin(); }
+        return;
+      }
+      if (ev.pointerType !== "mouse") return;
+      if (st === chartPin) hide(); // sull'ora fissata i valori sono già nella barra in fondo
       else showAt(st, ev.clientX, ev.clientY);
     });
     hit.addEventListener("pointerdown", (ev) => {
       const st = stepAt(ev.clientX);
-      chartPin = chartPin === st ? null : st;
-      renderPin();
-      if (chartPin != null || ev.pointerType !== "mouse") hide(); // i valori sono già nel riquadro sotto il grafico
-      else showAt(st, ev.clientX, ev.clientY); // ora tolta col mouse: torna il riquadro del passaggio
+      drag = { wasPinned: chartPin === st, moved: false };
+      hit.setPointerCapture?.(ev.pointerId);
+      if (!drag.wasPinned) { chartPin = st; renderPin(); }
+      hide();
     });
-    hit.addEventListener("pointerleave", hide);
+    const endDrag = (ev) => {
+      if (!drag) return;
+      if (ev.type === "pointerup" && drag.wasPinned && !drag.moved) { chartPin = null; renderPin(); } // tocco sull'ora già fissata
+      drag = null;
+    };
+    hit.addEventListener("pointerup", endDrag);
+    hit.addEventListener("pointercancel", endDrag); // il browser ha preso il gesto (scorrimento verticale)
+    hit.addEventListener("pointerleave", () => { if (!drag) hide(); });
     clearChartPin = () => { chartPin = null; renderPin(); hide(); };
-    pinEl.querySelector(".chart-pin-links").addEventListener("click", (ev) => {
-      const btn = ev.target.closest("button[data-act]");
-      if (!btn) return;
-      if (btn.dataset.act === "remove") clearChartPin();
-      else chartImage(btn, btn.dataset.act === "share"); // stessa immagine dei pulsanti in alto, con l'ora fissata
-    });
     renderPin(); // ridisegno (finestra ridimensionata): l'ora fissata resta
   }
 
@@ -2640,8 +2683,14 @@
   ui.opacity.addEventListener("input", () => {
     state.opacity = +ui.opacity.value;
     overlay?.setOpacity(state.opacity);
-    styleBorders();
     writeHash();
+    saveSettings();
+  });
+  // opacità dei confini (Impostazioni), separata da quella dei colori: vale per tutto il livello delle linee
+  const applyBordersOpacity = () => { map.getPane("borders").style.opacity = state.bordersOpacity; };
+  ui.bordersOpacity.addEventListener("input", () => {
+    state.bordersOpacity = +ui.bordersOpacity.value;
+    applyBordersOpacity();
     saveSettings();
   });
   ui.crisp.addEventListener("change", () => { state.crisp = ui.crisp.checked; if (current) draw(current); writeHash(); saveSettings(); });
@@ -2655,6 +2704,7 @@
   const wantsOpen = (d) => d._want ?? d.open; // stato verso cui sta andando (durante l'animazione di chiusura è ancora open)
   function animateSection(d, open) {
     d._want = open;
+    d.classList.toggle("is-open", open); // la freccia ruota subito, anche mentre la sezione si chiude
     d._anim?.cancel();
     const cs = getComputedStyle(d);
     const px = (k) => parseFloat(cs[k]) || 0;
@@ -2667,8 +2717,24 @@
     d.style.overflow = "hidden";
     const a = d.animate({ height: [`${from}px`, `${to}px`] }, { duration: 240, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" });
     d._anim = a;
-    a.onfinish = () => { if (!open) d.open = false; d.style.overflow = ""; d._anim = null; };
+    a.onfinish = () => { if (!open) d.open = false; d.style.overflow = ""; d._anim = null; updateSectionFade(d); };
     a.oncancel = () => { d.style.overflow = ""; };
+  }
+  // su telefono la sezione aperta scorre: sfumatura in fondo se sotto c'è altro, ombra sotto il titolo se è già scorsa
+  function updateSectionFade(d) {
+    const below = d.open && d.scrollHeight - d.scrollTop - d.clientHeight > 2;
+    d.classList.toggle("more-below", below);
+    d.classList.toggle("more-above", d.open && d.scrollTop > 2);
+  }
+  const fadeRo = new ResizeObserver((entries) => {
+    for (const e of entries) { const d = e.target.closest("details"); if (d) updateSectionFade(d); }
+  });
+  for (const d of SECTIONS) {
+    d.classList.toggle("is-open", d.open); // stato iniziale (index.html)
+    d.addEventListener("scroll", () => updateSectionFade(d), { passive: true });
+    d.addEventListener("toggle", () => updateSectionFade(d));
+    fadeRo.observe(d);
+    for (const child of d.children) fadeRo.observe(child); // contenuto che cresce (nuove località) senza cambiare la sezione
   }
   for (const d of SECTIONS) {
     d.querySelector("summary").addEventListener("click", (e) => {
@@ -2747,15 +2813,16 @@
       if (map.getZoom() < map.getMinZoom()) map.setZoom(map.getMinZoom(), { animate: false });
       map.panInsideBounds(box, { animate: false });
     });
+    setBorders(state.borders, false);
     setBase(state.base, false); // l'ultimo scelto in "Impostazioni" (salvato nel browser), altrimenti Rilievo
 
     ui.opacity.value = state.opacity;
-    styleBorders(); // opacità al massimo dall'URL: contorni subito
+    ui.bordersOpacity.value = state.bordersOpacity;
+    applyBordersOpacity();
     ui.crisp.checked = state.crisp;
     ui.iso.checked = state.iso;
     setupVars();
-    // su schermi stretti l'elenco delle località parte chiuso per non coprire la mappa
-    if (mobileMq.matches) ui.pointsBox.open = false;
+    // stato iniziale (index.html): "Modelli e parametri" aperta, le altre sezioni chiuse, su ogni schermo
     setupPoints();
     setupModels();
     setupModes();

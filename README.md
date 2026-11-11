@@ -3,9 +3,9 @@
 **App: <https://signalkuppe.github.io/weathermaps/>** (aggiornata una volta all'ora)
 
 Mappe di precipitazione, temperatura a 850 hPa, neve, zero termico e vento previste da otto modelli sul Nord Italia.
-Sfondo a scelta nelle impostazioni: **Rilievo** (Thunderforest Outdoors, all'avvio), **Strade** (OpenStreetMap) o
-**Essenziale** (fondo bianco con solo coste e confini sopra i colori, come le carte meteo classiche). Sfondo, opacità,
-celle nette e isolinee restano salvati nel browser:
+Sfondo a scelta nelle impostazioni: **Rilievo** (Thunderforest Outdoors, all'avvio) o **Strade** (OpenStreetMap); con
+l'opacità al massimo e i confini attivi si ottiene una carta meteo classica. Sfondo, confini, opacità, celle nette e
+isolinee restano salvati nel browser:
 
 | Modello | Fonte | Risoluzione | Orizzonte | Corse |
 |---|---|---|---|---|
@@ -60,8 +60,8 @@ La **mediana dei modelli** è costruita per istante di validità da un orario co
 - **Linee di livello** sopra i colori, con etichette: isoterme ogni 2 °C a 850 hPa (marcata quella di 0 °C) e isoipse
   dello zero termico ogni 250 m (marcate le migliaia). Sono calcolate nel browser dal campo (ammorbidito sulle griglie
   fini), si spengono nelle impostazioni e compaiono anche nell'immagine condivisa.
-- **Contorni geografici** sopra i colori, con lo sfondo "Essenziale" oppure con l'opacità al massimo (quando la mappa di sfondo non si vede più):
-  coste, laghi, confini di stato e di provincia (Natural Earth 1:10m). Il file `static/borders.json` si scarica la
+- **Confini** sopra i colori, a scelta nelle impostazioni: Stati (con coste e laghi), Regioni o Province, ogni livello
+  con i precedenti (Natural Earth 1:10m). Le regioni sono quelle italiane e francesi, i cantoni svizzeri, i Länder. Il file `static/borders.json` si scarica la
   prima volta che servono e si rigenera con `scripts/make_borders.py` se cambia `BBOX`.
 - **Navigazione:** modello, istante (slider, frecce ←/→, spazio = play), opacità regolabile, celle nette senza
   interpolazione. Su mobile c'è una barra in basso con ora, ‹ › ▶, modello e legenda compatta.

@@ -1,4 +1,4 @@
-"""Genera static/borders.json: coste, laghi, confini di stato e regionali ritagliati su BBOX.
+"""Genera static/borders.json: coste, laghi, confini di stato, regionali e provinciali ritagliati su BBOX.
 
 Servono a riconoscere i luoghi anche quando i colori dei dati coprono la mappa di sfondo (opacità alta):
 la pagina li disegna come linee sottili sopra i colori. Dati: Natural Earth 1:10m (pubblico dominio).
@@ -23,6 +23,23 @@ from app.config import get_bbox  # noqa: E402
 MARGIN = 0.5  # gradi oltre il bordo: le linee non si interrompono proprio sul bordo dei dati
 TOLERANCE = 0.004  # semplificazione (~400 m): invisibile alle scale della mappa, file molto più piccolo
 MIN_LAKE_POINTS = 4  # laghetti minuscoli: solo rumore
+# Natural Earth chiama "Admin-1" il primo livello sotto lo stato, che non è lo stesso ovunque: in Italia e Francia
+# sono province e dipartimenti, raggruppati in regioni (linee "Admin-1 region boundary"); in Svizzera, Austria,
+# Germania, Croazia... i cantoni/Länder/contee sono già il livello "regione". In Slovenia gli Admin-1 sono i comuni.
+WITH_REGIONS = {"Italy", "France", "Hungary", "Slovenia"}
+MAX_MIN_ZOOM = 9  # oltre (comuni sloveni, Liechtenstein, San Marino) troppo fitti per questa scala
+
+
+def admin1_layer(props: dict) -> str | None:
+    """'regions', 'provinces' o None (linea da scartare) per una linea di ne_10m_admin_1_states_provinces_lines."""
+    cla, country = props.get("FEATURECLA") or "", props.get("ADM0_NAME")
+    if (props.get("MIN_ZOOM") or 0) > MAX_MIN_ZOOM and cla != "Admin-1 region boundary":
+        return None
+    if cla == "Admin-1 region boundary":
+        return "regions"
+    if cla == "Admin-1 boundary":
+        return "provinces" if country in WITH_REGIONS else "regions"
+    return None  # confini statistici
 
 
 def simplify(pts: list[list[float]], tol: float) -> list[list[float]]:
@@ -90,6 +107,7 @@ def main(ne_dir: Path) -> int:
         "lakes": "ne_10m_lakes.geojson",
         "countries": "ne_10m_admin_0_boundary_lines_land.geojson",
         "regions": "ne_10m_admin_1_states_provinces_lines.geojson",
+        "provinces": "ne_10m_admin_1_states_provinces_lines.geojson",
     }
     out: dict[str, list] = {}
     for key, name in layers.items():
@@ -100,6 +118,8 @@ def main(ne_dir: Path) -> int:
             seen = {f["properties"].get("name") for f in features}
             extra = json.loads((ne_dir / "ne_10m_lakes_europe.geojson").read_text(encoding="utf-8"))["features"]
             features = features + [f for f in extra if f["properties"].get("name") not in seen]
+        if key in ("regions", "provinces"):
+            features = [f for f in features if admin1_layer(f["properties"]) == key]
         parts = []
         for feat in features:
             for line in lines_of(feat["geometry"]):
