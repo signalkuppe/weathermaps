@@ -142,6 +142,17 @@ body {
 .panel.collapsed .panel-head { border-bottom: 0; }
 .panel-body { padding: 10px 12px 12px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; overflow-x: clip; min-height: 0; }
 @media (max-height: 560px) { .panel-body { overflow-y: auto; overscroll-behavior: contain; } } /* riserva: telefono in orizzontale */
+/* telefono: il pannello si ferma sopra la barra in basso; modello, corsa e slider restano fermi e la sezione aperta
+   (località, impostazioni, crediti) prende lo spazio che avanza, scorrendo al suo interno se non basta */
+/* versione mobile: telefoni e tablet in verticale (stessa regola in app.js, mobileMq) */
+@media (max-width: 600px), (orientation: portrait) and (pointer: coarse) and (max-width: 1100px) {
+  .panel-body { display: flex; flex-direction: column; }
+  .panel-body > * { flex: none; }
+  .panel-body > details[open] { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+    scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--muted) 45%, transparent) transparent; }
+  .panel-body > details[open] > summary { position: sticky; top: 0; z-index: 1; background: var(--panel); padding-bottom: 2px; }
+  .panel-body > details[open] .points { max-height: none; overflow: visible; } /* scorre la sezione intera, non l'elenco */
+}
 
 .row { display: grid; grid-template-columns: 80px 1fr; align-items: center; gap: 8px; }
 .row > span { color: var(--muted); font-size: 13px; }
@@ -156,7 +167,7 @@ select {
   border-radius: 6px;
   padding: 4px 6px;
 }
-input[type="range"] { accent-color: var(--accent); }
+input[type="range"] { accent-color: var(--accent); margin-inline: 0; } /* senza il margine del browser: largo 100% non sborda (scroll orizzontale) */
 
 .label-info { display: inline-flex; align-items: center; gap: 5px; }
 .info-btn {
@@ -502,8 +513,11 @@ input[type="range"] { accent-color: var(--accent); }
 .place-results { position: fixed; z-index: 1300; margin: 0; padding: 4px; box-sizing: border-box;
   list-style: none; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow);
   overflow: auto; overscroll-behavior: contain; font-family: system-ui, sans-serif;
-  scrollbar-width: none; } /* scorre lo stesso (rotella, dito, frecce), senza barra */
-.place-results::-webkit-scrollbar { display: none; }
+  scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--muted) 45%, transparent) transparent; }
+/* barra sottile come nel resto del pannello: si vede che ci sono altri risultati */
+.place-results::-webkit-scrollbar { width: 6px; }
+.place-results::-webkit-scrollbar-track { background: transparent; }
+.place-results::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--muted) 45%, transparent); border-radius: 3px; }
 .place-results li { display: grid; padding: 5px 8px; border-radius: 6px; cursor: pointer; }
 .place-results li:hover, .place-results li:focus { background: rgba(127, 127, 127, 0.14); outline: none; }
 .place-results .place-name { font-size: 13px; font-weight: 600; }
@@ -526,12 +540,13 @@ input[type="range"] { accent-color: var(--accent); }
 
 .wm-overlay.crisp { image-rendering: pixelated; }
 
-@media (max-width: 600px) {
+/* versione mobile: telefoni e tablet in verticale (stessa regola in app.js, mobileMq) */
+@media (max-width: 600px), (orientation: portrait) and (pointer: coarse) and (max-width: 1100px) {
   /* condivisione: si ingrandisce con due dita (niente −/+), proporzioni e interruttore su una riga, suggerimento sotto */
   .share-zoom { display: none; }
   .share-hint { order: 9; flex-basis: 100%; }
   /* sopra la barra in basso (ora, legenda), alta circa 90px */
-  .panel { top: 8px; left: 8px; right: 8px; width: auto; max-height: calc(100dvh - 108px); }
+  .panel { top: 8px; left: 8px; right: 8px; width: auto; max-width: none; max-height: calc(100dvh - 108px); } /* largo come la barra in basso */
   /* Safari iOS ingrandisce la pagina se un campo ha il testo sotto i 16px: ricerca, rinomina e menu a 16px */
   .places-search input, .points .pt-rename, select { font-size: 16px; }
   .places-search input { height: 36px; }
@@ -621,7 +636,7 @@ input[type="range"] { accent-color: var(--accent); }
 .legend .lg-continuous li:first-child i { border-radius: 2px 0 0 2px; }
 .legend .lg-continuous li:last-child i { border-radius: 0 2px 2px 0; }
 .legend .lg-tick-end { position: absolute; right: 0; top: 10px; transform: translateX(50%); }
-@media (max-width: 600px) { .legend .lg-tick-end { top: 8px; } }
+@media (max-width: 600px), (orientation: portrait) and (pointer: coarse) and (max-width: 1100px) { .legend .lg-tick-end { top: 8px; } }
 /* prima soglia della barra sfumata dentro il riquadro (allineata al bordo sinistro invece che centrata) */
 .legend .lg-continuous li:first-child .lg-tick:not(.lg-tick-end) { transform: none; }
 
@@ -634,20 +649,36 @@ input[type="range"] { accent-color: var(--accent); }
 .chart-sub svg { flex: none; width: 15px; height: 15px; }
 .chart-sub { font-size: 12px; color: var(--muted); }
 .chart-body { flex: 1; min-height: 0; overflow-y: auto; position: relative; touch-action: pan-y; padding-top: 30px; }
-.chart-body svg { display: block; width: 100%; font: 11px system-ui, sans-serif; font-variant-numeric: tabular-nums;
+.chart-body > svg { display: block; width: 100%; font: 11px system-ui, sans-serif; font-variant-numeric: tabular-nums;
   user-select: none; -webkit-user-select: none; }
 .chart-body .ch-title { font-size: 12.5px; font-weight: 650; fill: var(--fg); }
 .chart-body .ch-note { font-size: 11.5px; fill: var(--muted); }
 .chart-body .ch-tick { fill: var(--muted); }
 .chart-body .ch-grid { stroke: var(--line); stroke-width: 1; }
 .chart-body .ch-day { stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 3; }
-.chart-body .ch-now { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 4 3; }
 .chart-body .ch-cursor { stroke: var(--fg); stroke-width: 1; opacity: 0.6; }
+.chart-body .ch-cursor.pinned { stroke-width: 1.5; opacity: 0.9; } /* ora fissata con un clic o un tocco */
 .chart-body .ch-zero { stroke: var(--muted); stroke-width: 1; }
 .chart-tip { position: absolute; z-index: 2; pointer-events: none; padding: 6px 9px; border-radius: 7px;
   background: #1d2330; color: #fff; font: 12px/1.45 system-ui, sans-serif; font-variant-numeric: tabular-nums;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3); white-space: nowrap; }
 .chart-tip b { font-weight: 650; }
+/* ora fissata per l'immagine: la linea scende sotto l'asse dei tempi fino al riquadro con "Rimuovi" */
+.chart-pin { position: relative; padding: 12px 0 8px; }
+.chart-pin-stem { position: absolute; top: 0; height: 12px; border-left: 1.5px solid var(--fg); opacity: 0.9; transform: translateX(-0.75px); }
+.chart-pin-box { position: relative; width: fit-content; max-width: 100%; display: flex; flex-wrap: wrap; align-items: center;
+  gap: 4px 6px; padding: 8px 6px 6px 10px; flex-direction: column; align-items: flex-start; line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid var(--line); border-radius: 7px; background: var(--bg); color: var(--fg); font-size: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12); }
+.chart-pin-text b { font-weight: 650; }
+.chart-pin-text .t { color: var(--muted); margin-bottom: 2px; }
+.chart-pin-links { display: flex; margin-left: -7px; } /* testo dei link allineato ai valori */
+.chart-pin-links button { padding: 3px 7px; border: 0; border-radius: 5px; background: none; font: inherit; font-weight: 600;
+  color: var(--accent); cursor: pointer; }
+.chart-pin-links button:hover { background: var(--accent-tint); }
+.chart-pin-links button[data-act="remove"] { color: var(--muted); }
+.chart-pin-links button:disabled { opacity: 0.5; cursor: progress; }
 .chart-tip .t { color: rgba(255, 255, 255, 0.7); margin-bottom: 2px; }
 .chart-empty { padding: 24px 0; color: var(--muted); }
 .pt-pop-chart { margin-top: 6px; width: 100%; padding: 4px 8px; border: 1px solid rgba(255, 255, 255, 0.35);

@@ -91,7 +91,8 @@
   ui.attrib.appendChild(map.attributionControl.getContainer());
 
   // su mobile badge e legenda diventano un solo riquadro in basso: la legenda entra nel badge
-  const mobileMq = window.matchMedia("(max-width: 600px)");
+  // versione mobile: telefoni e tablet in verticale (stessa regola nei @media di style.css)
+  const mobileMq = window.matchMedia("(max-width: 600px), (orientation: portrait) and (pointer: coarse) and (max-width: 1100px)");
   const hoverMq = window.matchMedia("(hover: hover)"); // dispositivi col mouse: c'è il tooltip al passaggio
   const legendHome = ui.legend.parentNode;
   function placeLegend() {
@@ -1227,7 +1228,7 @@
     const el = ui.placeResults;
     el.style.left = `${Math.max(M, r.left)}px`;
     el.style.width = `${Math.min(r.width, window.innerWidth - 2 * M)}px`;
-    el.style.maxHeight = `${Math.max(80, Math.min(down ? below : above, 440))}px`; // 8 risultati senza scorrere
+    el.style.maxHeight = `${Math.max(80, Math.min(down ? below : above, 236))}px`; // circa 5 risultati, poi scorre
     el.style.top = down ? `${r.bottom + GAP}px` : "";
     el.style.bottom = down ? "" : `${window.innerHeight - r.top + GAP}px`;
   }
@@ -2136,6 +2137,12 @@
     dialog: $("chart-dialog"), body: $("chart-body"), title: $("chart-title"), sub: $("chart-sub"), close: $("chart-close"),
   };
   let chartData = null;
+  let chartPin = null; // ora (passo) fissata con un clic o un tocco: resta visibile e va nell'immagine condivisa
+  let clearChartPin = () => {}; // impostata da drawChart: toglie l'ora fissata (linea, riquadro e tooltip)
+  // Esc con un'ora fissata toglie solo quella; senza, chiude il grafico come al solito
+  chartUi.dialog.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && chartPin != null) { e.preventDefault(); clearChartPin(); }
+  });
   // margine uguale su tutti i lati (come --cm in style.css): a sinistra coincide con lo spazio dei numeri dell'asse,
   // così titolo della finestra e titoli dei grafici partono alla stessa distanza dal bordo che i grafici hanno a destra
   const CHART_AXIS = 40; // spazio dei numeri dell'asse dentro l'SVG, a sinistra del grafico
@@ -2173,6 +2180,7 @@
     chartUi.sub.innerHTML = `${m ? modelIcon(m) : ""}<span>${modelLabel()} · ${state.model === "mean" ? "dalle" : "corsa"} ${cycle(state.run)} ${fmtRunDay(state.run)}</span>`;
     chartUi.body.innerHTML = '<div class="chart-empty">Caricamento…</div>';
     chartData = null;
+    chartPin = null;
     chartUi.dialog.showModal();
     const want = `${state.model}|${state.run}`;
     try {
@@ -2198,8 +2206,10 @@
   const chartCss = (c) => [ // le classi della pagina non valgono dentro un'immagine: stessi stili e colori
     `.ch-title{font:650 12.5px system-ui,sans-serif;fill:${c.fg}}.ch-note{font-weight:400;font-size:11.5px;fill:${c.muted}}`,
     `.ch-tick{font:11px system-ui,sans-serif;fill:${c.muted}}.ch-grid{stroke:${c.line};stroke-width:1}`,
-    `.ch-day{stroke:${c.line};stroke-width:1;stroke-dasharray:3 3}.ch-now{stroke:${c.accent};stroke-width:1.5;stroke-dasharray:4 3}`,
+    `.ch-day{stroke:${c.line};stroke-width:1;stroke-dasharray:3 3}`,
     `.ch-zero{stroke:${c.muted};stroke-width:1}text{font-variant-numeric:tabular-nums}`,
+    `.ch-pin{stroke:${c.fg};stroke-width:1.5;opacity:.75}.ch-pin-dot{stroke:${c.bg};stroke-width:2}`,
+    `.ch-pin-bar{stroke:${c.fg};stroke-width:1.5}`,
   ].join("");
   async function makeChartFile() {
     const M = 48, EW = 1032, K = 2; // margine uguale su tutti i lati, larghezza dell'SVG, scala (nitidezza)
@@ -2214,7 +2224,9 @@
       im.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgText)}`;
     }), loadFlag(state.model, c.fg)]);
     const TOP = M + 78; // titolo, sottotitolo e spazio prima dei grafici
-    const cw = M + g.W - CHART_R + M, chh = TOP + g.H + 28 + M;
+    const PB = { stem: 14, pad: 10, line: 19, font: 13 }; // riquadro dell'ora fissata
+    const pbH = g.pinBox ? PB.stem + PB.pad * 2 + PB.line * (1 + g.pinBox.rows.length) + 12 : 0;
+    const cw = M + g.W - CHART_R + M, chh = TOP + g.H + pbH + 28 + M;
     const cv = document.createElement("canvas");
     cv.width = cw * K; cv.height = chh * K;
     const ctx = cv.getContext("2d");
@@ -2236,6 +2248,28 @@
     ctx.font = `500 15px ${FONT}`;
     ctx.fillText(chartUi.sub.textContent, sx, M + 50);
     ctx.drawImage(img, M, TOP, g.W, g.H);
+    if (g.pinBox) { // come nella pagina: la linea scende fino al riquadro con ora e valori, centrato sulla linea
+      const pb = g.pinBox, lx = M + pb.x;
+      const widthOf = (parts) => parts.reduce((w, [t, b]) => { ctx.font = `${b ? 650 : 400} ${PB.font}px ${FONT}`; return w + ctx.measureText(t).width; }, 0);
+      ctx.font = `400 ${PB.font}px ${FONT}`;
+      const bw = Math.ceil(Math.max(ctx.measureText(pb.head).width, ...pb.rows.map(widthOf))) + PB.pad * 2 + 4;
+      const bh = PB.pad * 2 + PB.line * (1 + pb.rows.length) - 4;
+      const by = TOP + g.H + PB.stem, bx = Math.max(M, Math.min(lx - bw / 2, M + pb.right - bw));
+      ctx.strokeStyle = c.fg; ctx.globalAlpha = 0.75; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(lx, TOP + g.H - 1); ctx.lineTo(lx, by); ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.beginPath(); ctx.roundRect(bx + 0.5, by + 0.5, bw, bh, 7);
+      ctx.fillStyle = c.bg; ctx.fill(); ctx.strokeStyle = c.line; ctx.lineWidth = 1; ctx.stroke();
+      let ty = by + PB.pad + PB.font;
+      ctx.font = `400 ${PB.font}px ${FONT}`; ctx.fillStyle = c.muted;
+      ctx.fillText(pb.head, bx + PB.pad, ty);
+      ctx.fillStyle = c.fg;
+      for (const parts of pb.rows) {
+        ty += PB.line;
+        let tx = bx + PB.pad;
+        for (const [t, b] of parts) { ctx.font = `${b ? 650 : 400} ${PB.font}px ${FONT}`; ctx.fillText(t, tx, ty); tx += ctx.measureText(t).width; }
+      }
+    }
     ctx.font = `400 12px ${FONT}`;
     const attr = shareTexts().attr;
     ctx.fillText(attr.slice(Math.max(0, attr.indexOf("Dati:"))), M, chh - M, cw - M * 2 - 230); // niente crediti della mappa
@@ -2334,6 +2368,14 @@
       panels.push({ title: "Vento 10 m", unit: "km/h", kind: "line", color: "#495057", data, dec: 0, arrows: true, min: 10,
         tip: () => "Vento 10 m" });
     }
+    // valori di un pannello a un passo: per il tooltip (con <b>) e per i titoli dell'immagine (testo semplice)
+    const valueAt = (p, st) => p.data.find((e) => (p.kind === "bar" ? e.b : e.x) === st);
+    const valueText = (p, d, b = (x) => x, span = true) => { // span: "in 3h" per le barre (il tooltip lo dice già)
+      const extra = p.arrows && d.y != null ? (dirName(d.u, d.v) ? ` da ${dirName(d.u, d.v)}` : "")
+        : p.kind === "bar" && d.cum != null ? ` · tot ${b(fmt(d.cum, p.dec))} ${p.unit}` : ""; // cumulata dall'inizio
+      return `${b(fmt(d.y, p.dec))} ${p.unit}${span && p.kind === "bar" ? ` in ${d.b - d.a}h` : ""}${extra}`;
+    };
+    const pin = exportW && chartPin != null && steps.includes(chartPin) ? chartPin : null;
     const H = panels.length * (HEAD + PH + GAP) + AXIS;
     const svg = [];
     // giorni (mezzanotte locale) e ore ogni 6 ore, ora di Roma come nel resto della pagina
@@ -2356,6 +2398,7 @@
       lo = Math.min(lo, ticks[0]); hi = Math.max(hi, ticks[ticks.length - 1]);
       const Y = (y) => bot - ((y - lo) / (hi - lo || 1)) * PH;
       p.Y = Y; p.top = top; p.bot = bot;
+      const pd = pin != null ? valueAt(p, pin) : null;
       svg.push(`<text class="ch-title" x="0" y="${top - 14}">${p.title} <tspan class="ch-note">(${p.unit})${p.note ? " · " + p.note : ""}</tspan></text>`);
       for (const t of ticks) {
         svg.push(`<line class="ch-grid" x1="${L}" x2="${L + pw}" y1="${Y(t)}" y2="${Y(t)}"/>`);
@@ -2366,7 +2409,7 @@
         for (const d of p.data) {
           if (d.y == null || d.y < 0.05) continue;
           const xa = X(d.a) + 1, xb = X(d.b) - 1, y = Y(d.y);
-          svg.push(`<rect x="${xa}" y="${y}" width="${Math.max(1, xb - xa)}" height="${Math.max(0, bot - y)}" rx="1.5" fill="${p.color}"/>`);
+          svg.push(`<rect x="${xa}" y="${y}" width="${Math.max(1, xb - xa)}" height="${Math.max(0, bot - y)}" rx="1.5" fill="${p.color}"${d.b === pin ? ' class="ch-pin-bar"' : ""}/>`);
         }
       } else {
         let path = "", pen = false;
@@ -2376,6 +2419,7 @@
           pen = true;
         }
         svg.push(`<path d="${path}" fill="none" stroke="${p.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`);
+        if (pd && pd.y != null) p.pinDot = `<circle class="ch-pin-dot" cx="${X(pin).toFixed(1)}" cy="${Y(pd.y).toFixed(1)}" r="4" fill="${p.color}"/>`;
       }
       if (p.arrows) {
         // frecce verso dove va il vento, una ogni ~22 px
@@ -2397,42 +2441,98 @@
       svg.push(`<text class="ch-tick" x="${X(h)}" y="${yBot + 12}" text-anchor="middle">00</text>`);
     }
     for (const [h, hh] of hours) svg.push(`<text class="ch-tick" x="${X(h)}" y="${yBot + 12}" text-anchor="middle">${String(hh).padStart(2, "0")}</text>`);
-    if (!exportW && state.step != null && state.run === run) { // ora della mappa: solo nella pagina
-      svg.push(`<line class="ch-now" x1="${X(state.step)}" x2="${X(state.step)}" y1="${HEAD + 2}" y2="${yBot}"/>`);
+    if (pin != null) { // linea dell'ora fissata sopra tutto, poi i pallini
+      svg.push(`<line class="ch-pin" x1="${X(pin)}" x2="${X(pin)}" y1="${HEAD + 2}" y2="${H}"/>`); // scende fino al riquadro
+      for (const p of panels) if (p.pinDot) svg.push(p.pinDot);
     }
-    if (exportW) return { markup: svg.join(""), W, H };
+    if (exportW) {
+      // riquadro dell'ora fissata, come nella pagina ma senza i link: righe di pezzi [testo, grassetto?]
+      const B = "\u0001", E = "\u0002"; // segnaposto del grassetto, poi divisi in pezzi
+      const pinBox = pin == null ? null : {
+        x: X(pin), right: X(x1),
+        head: `${fmtLocal(new Date(t0 + pin * 3600e3))} · +${pin}h`,
+        rows: panels.map((p) => {
+          const d = valueAt(p, pin);
+          if (!d) return null;
+          return `${p.tip(d)} ${valueText(p, d, (x) => B + x + E, false)}`.split(/(?=\u0001)|\u0002/)
+            .filter(Boolean).map((t) => (t[0] === B ? [t.slice(1), true] : [t, false]));
+        }).filter(Boolean),
+      };
+      return { markup: svg.join(""), W, H, pinBox };
+    }
     svg.push(`<line class="ch-cursor" id="ch-cursor" x1="0" x2="0" y1="${HEAD + 2}" y2="${yBot}" visibility="hidden"/>`);
+    // ora fissata: linea fino in fondo (oltre l'asse dei tempi), poi sotto il grafico il riquadro con "Rimuovi"
+    svg.push(`<line class="ch-cursor pinned" id="ch-pinline" x1="0" x2="0" y1="${HEAD + 2}" y2="${H}" visibility="hidden"/>`);
     svg.push(`<rect id="ch-hit" x="${L}" y="${yTop}" width="${pw}" height="${yBot}" fill="transparent"/>`);
-    chartUi.body.innerHTML = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="Andamento nel tempo">${svg.join("")}</svg><div class="chart-tip" hidden></div>`;
+    chartUi.body.innerHTML = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="Andamento nel tempo">${svg.join("")}</svg>` +
+      '<div class="chart-pin" hidden><i class="chart-pin-stem"></i><div class="chart-pin-box"><div class="chart-pin-text"></div>' +
+      '<span class="chart-pin-links"><button type="button" data-act="download">Scarica</button>' +
+      '<button type="button" data-act="share">Condividi</button><button type="button" data-act="remove">Rimuovi</button></span>' +
+      '</div></div><div class="chart-tip" hidden></div>';
 
     // lettura dei valori: il passo più vicino al puntatore, su tutti i pannelli
     const svgEl = chartUi.body.querySelector("svg"), tip = chartUi.body.querySelector(".chart-tip");
-    const cursor = svgEl.querySelector("#ch-cursor");
-    const show = (ev) => {
+    const cursor = svgEl.querySelector("#ch-cursor"), pinLine = svgEl.querySelector("#ch-pinline");
+    const pinEl = chartUi.body.querySelector(".chart-pin");
+    const stepAt = (clientX) => {
       const r = svgEl.getBoundingClientRect();
-      const px = ((ev.clientX - r.left) / r.width) * W;
-      const h = x0 + ((px - L) / pw) * (x1 - x0);
-      const st = steps.reduce((a, b) => (Math.abs(b - h) < Math.abs(a - h) ? b : a));
+      const h = x0 + ((((clientX - r.left) / r.width) * W - L) / pw) * (x1 - x0);
+      return steps.reduce((a, b) => (Math.abs(b - h) < Math.abs(a - h) ? b : a));
+    };
+    // ora e valori di tutti i pannelli a un passo: tooltip e riquadro dell'ora fissata
+    const valuesHtml = (st) => `<div class="t">${fmtLocal(new Date(t0 + st * 3600e3))} · +${st}h</div>` + panels.map((p) => {
+      const d = valueAt(p, st);
+      return d ? `<div>${p.tip(d)} ${valueText(p, d, (x) => `<b>${x}</b>`, false)}</div>` : "";
+    }).join("");
+    const showAt = (st, clientX, clientY) => {
       cursor.setAttribute("x1", X(st)); cursor.setAttribute("x2", X(st)); cursor.setAttribute("visibility", "visible");
-      const rows = panels.map((p) => {
-        const d = p.data.find((e) => (p.kind === "bar" ? e.b : e.x) === st);
-        if (!d) return "";
-        const extra = p.arrows && d.y != null ? (dirName(d.u, d.v) ? ` da ${dirName(d.u, d.v)}` : "")
-          : p.kind === "bar" && d.cum != null ? ` · tot <b>${fmt(d.cum, p.dec)}</b> ${p.unit}` : ""; // cumulata dall'inizio
-        return `<div>${p.tip(d)} <b>${fmt(d.y, p.dec)}</b> ${p.unit}${extra}</div>`;
-      }).join("");
-      tip.innerHTML = `<div class="t">${fmtLocal(new Date(t0 + st * 3600e3))} · +${st}h</div>${rows}`;
+      tip.innerHTML = valuesHtml(st);
       tip.hidden = false;
       const br = chartUi.body.getBoundingClientRect();
-      const cx = ev.clientX - br.left, w = tip.offsetWidth;
+      const cx = clientX - br.left, w = tip.offsetWidth;
       tip.style.left = `${Math.min(Math.max(cx + 14 + w > br.width ? cx - 14 - w : cx + 14, 4), br.width - w - 4)}px`;
-      tip.style.top = `${Math.max(4, ev.clientY - br.top + chartUi.body.scrollTop - 20)}px`;
+      tip.style.top = `${Math.max(4, clientY - br.top + chartUi.body.scrollTop - 20)}px`;
     };
     const hide = () => { tip.hidden = true; cursor.setAttribute("visibility", "hidden"); };
+    const renderPin = () => {
+      const on = chartPin != null && steps.includes(chartPin);
+      pinLine.setAttribute("visibility", on ? "visible" : "hidden");
+      pinEl.hidden = !on;
+      if (!on) return;
+      pinLine.setAttribute("x1", X(chartPin)); pinLine.setAttribute("x2", X(chartPin));
+      pinEl.querySelector(".chart-pin-text").innerHTML = valuesHtml(chartPin);
+      const br = pinEl.getBoundingClientRect(), r = svgEl.getBoundingClientRect();
+      const x = r.left - br.left + (X(chartPin) / W) * r.width; // posizione della linea nella riga sotto il grafico
+      const box = pinEl.querySelector(".chart-pin-box");
+      pinEl.querySelector(".chart-pin-stem").style.left = `${x}px`;
+      const maxRight = r.left - br.left + (X(x1) / W) * r.width; // mai oltre il bordo destro dei grafici (ultima ora)
+      box.style.maxWidth = `${maxRight}px`;
+      box.style.left = `${Math.max(0, Math.min(x - box.offsetWidth / 2, maxRight - box.offsetWidth))}px`; // centrato sulla linea
+    };
     const hit = svgEl.querySelector("#ch-hit");
-    hit.addEventListener("pointermove", show);
-    hit.addEventListener("pointerdown", show);
+    // passando il mouse si leggono i valori; un clic (o un tocco) fissa l'ora per l'immagine, un altro sulla stessa la toglie
+    hit.addEventListener("pointermove", (ev) => {
+      if (ev.pointerType !== "mouse") return;
+      const st = stepAt(ev.clientX);
+      if (st === chartPin) hide(); // sull'ora fissata i valori sono già nel riquadro sotto: un solo riquadro
+      else showAt(st, ev.clientX, ev.clientY);
+    });
+    hit.addEventListener("pointerdown", (ev) => {
+      const st = stepAt(ev.clientX);
+      chartPin = chartPin === st ? null : st;
+      renderPin();
+      if (chartPin != null || ev.pointerType !== "mouse") hide(); // i valori sono già nel riquadro sotto il grafico
+      else showAt(st, ev.clientX, ev.clientY); // ora tolta col mouse: torna il riquadro del passaggio
+    });
     hit.addEventListener("pointerleave", hide);
+    clearChartPin = () => { chartPin = null; renderPin(); hide(); };
+    pinEl.querySelector(".chart-pin-links").addEventListener("click", (ev) => {
+      const btn = ev.target.closest("button[data-act]");
+      if (!btn) return;
+      if (btn.dataset.act === "remove") clearChartPin();
+      else chartImage(btn, btn.dataset.act === "share"); // stessa immagine dei pulsanti in alto, con l'ora fissata
+    });
+    renderPin(); // ridisegno (finestra ridimensionata): l'ora fissata resta
   }
 
   // ---------- tooltip puntuale (griglia nativa, nearest neighbour)
@@ -2546,8 +2646,8 @@
   });
   ui.crisp.addEventListener("change", () => { state.crisp = ui.crisp.checked; if (current) draw(current); writeHash(); saveSettings(); });
   ui.iso.addEventListener("change", () => { state.iso = ui.iso.checked; drawContours(variable().contour_field ? currentContour : current); renderLegend(); writeHash(); saveSettings(); });
-  ui.model.addEventListener("change", () => { state.model = ui.model.value; renderModelInfo(); setupRuns(); setupSteps(); update(); });
-  ui.varSel.addEventListener("change", () => { state.var = ui.varSel.value; setupModels(); setupModes(); setupRuns(); setupSteps(); update(); });
+  ui.model.addEventListener("change", () => { togglePlay(false); state.model = ui.model.value; renderModelInfo(); setupRuns(); setupSteps(); update(); });
+  ui.varSel.addEventListener("change", () => { togglePlay(false); state.var = ui.varSel.value; setupModels(); setupModes(); setupRuns(); setupSteps(); update(); });
   // ---------- sezioni del pannello (località, impostazioni, crediti): una aperta alla volta, apertura e chiusura
   // animate. In JS e non con <details name>: così il browser chiuderebbe l'altra di colpo, senza animazione.
   const SECTIONS = [...document.querySelectorAll(".panel-body > details.points-box")];
@@ -2582,6 +2682,7 @@
   ui.collapse.addEventListener("click", () => {
     const c = ui.panel.classList.toggle("collapsed");
     ui.collapse.textContent = c ? "+" : "−";
+    if (!c) togglePlay(false); // riaprendo il menu l'animazione si ferma
   });
   document.addEventListener("keydown", (e) => {
     if (e.target.closest("select, input:not([type=range])")) return;
