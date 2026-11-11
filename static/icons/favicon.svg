@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- logo "Cella": una cella di pioggia vista dall'alto, anelli con i colori delle soglie della mappa (1-2, 5-10, 10-20, 30-50 mm) -->
+  <defs><path id="c" d="M30 5C45 4 59 13 58 29C57 45 47 59 31 58C15 57 5 45 6 30C7 16 16 6 30 5Z"/></defs>
+  <use href="#c" fill="#5fd0ff"/>
+  <use href="#c" fill="#1560e0" transform="translate(37 35) scale(.74) translate(-37 -35)"/>
+  <use href="#c" fill="#16a34a" transform="translate(37 35) scale(.5) translate(-37 -35)"/>
+  <use href="#c" fill="#ffe600" transform="translate(37 35) scale(.27) translate(-37 -35)"/>
+</svg>

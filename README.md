@@ -3,8 +3,9 @@
 **App: <https://signalkuppe.github.io/weathermaps/>** (aggiornata una volta all'ora)
 
 Mappe di precipitazione, temperatura a 850 hPa, neve, zero termico e vento previste da otto modelli sul Nord Italia.
-Sfondo a scelta nelle impostazioni: **Strade** (OpenStreetMap, all'avvio), **Essenziale** (fondo bianco con solo coste
-e confini sopra i colori, come le carte meteo classiche) o **Rilievo** (OpenTopoMap):
+Sfondo a scelta nelle impostazioni: **Rilievo** (Thunderforest Outdoors, all'avvio), **Strade** (OpenStreetMap) o
+**Essenziale** (fondo bianco con solo coste e confini sopra i colori, come le carte meteo classiche). Sfondo, opacità,
+celle nette e isolinee restano salvati nel browser:
 
 | Modello | Fonte | Risoluzione | Orizzonte | Corse |
 |---|---|---|---|---|
@@ -100,6 +101,7 @@ Test: `pytest`.
 | `DATA_DIR` | `./data` | Cartella dati |
 | `SCHEDULER_ENABLED` | `1` | Aggiornamento automatico |
 | `SCHEDULER_INTERVAL_MIN` | `10` | Frequenza aggiornamento |
+| `THUNDERFOREST_KEY` | — | Chiave [Thunderforest](https://manage.thunderforest.com) per lo sfondo Rilievo (nel sito statico: secret del repository) |
 | `APP_VERSION` | dai tag git | Versione mostrata accanto al nome: di norma `git describe` (`v1.2.0` sul tag, `v1.2.0+3` tre commit dopo); da impostare dove non c'è `.git`, per esempio nell'immagine Docker. Senza tag non si mostra |
 
 ## Località preferite
@@ -219,6 +221,6 @@ fallisce anche l'avvio esterno (risposta di errore su cron-job.org); basta riatt
 - DWD: [Open Data ICON-D2](https://opendata.dwd.de/weather/nwp/icon-d2/), griglia regolare 0.02°.
 - Météo-France: [Paquets AROME 0,025°](https://www.data.gouv.fr/datasets/paquets-arome-resolution-0-025/), Licence Ouverte Etalab 2.0. Precipitazione e neve (paquet SP1, a blocchi di 6 ore): si leggono le intestazioni GRIB2 e si scaricano solo i messaggi necessari. I dati validi finiscono fra 13°E (a 42°N) e 14,5°E (a 49°N).
 - MeteoSvizzera: [Open Data ICON-CH1/CH2-EPS](https://opendatadocs.meteoswiss.ch/e-forecast-data/e2-e3-numerical-weather-forecasting-model), licenza CC-BY. I campi sono su griglia ICON non strutturata e vengono riportati su una griglia regolare di ~2.2 km (punto del modello più vicino); le coordinate della griglia si scaricano una volta in `DATA_DIR/static`.
-- Mappe: © OpenStreetMap contributors, OpenTopoMap (CC-BY-SA)
+- Mappe: © OpenStreetMap contributors, Thunderforest
 - Contorni geografici: [Natural Earth](https://www.naturalearthdata.com/) 1:10m (pubblico dominio)
 - Ricerca delle località: [Photon](https://photon.komoot.io) su dati OpenStreetMap

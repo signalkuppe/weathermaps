@@ -1,7 +1,8 @@
 """Endpoint JSON."""
 from __future__ import annotations
 
-from datetime import timedelta
+import os
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -53,6 +54,8 @@ def meta(request: Request):
             "initial_view": get_initial_view(store.bbox).as_dict(),
             "steps": STEPS,
             "version": get_version(),
+            # chiave pubblica delle tessere Thunderforest (sfondo "Rilievo"): finisce comunque nella pagina
+            "thunderforest_key": os.environ.get("THUNDERFOREST_KEY", "").strip(),
             "series": {"dstep": series_mod.DSTEP, "tile": series_mod.TILE},
             "models": [m.as_dict() for m in MODELS.values()],
             "variables": variables.menu(),
@@ -67,6 +70,7 @@ def runs(request: Request):
     (marcata `incoming`: serve solo per l'avviso, i suoi campi non si mostrano né si pubblicano)."""
     store = _store(request)
     out: dict[str, list] = {}
+    updated = 0.0  # ultimo passo scritto fra le corse mostrate (la cartella della grandezza cambia a ogni passo)
     for model_id in MODELS:
         all_runs = store.runs(model_id)
         current = all_runs[0] if model_id == "mean" and all_runs else fetcher.latest_complete(store, model_id)
@@ -75,13 +79,21 @@ def runs(request: Request):
             item = _run_item(store, model_id, current)
             if item:
                 items.append(item)
+                for var_id in item["variables"]:
+                    try:
+                        updated = max(updated, store.var_dir(model_id, current, var_id).stat().st_mtime)
+                    except OSError:
+                        pass
             newer = [rid for rid in all_runs if rid > current]
             if newer and model_id != "mean":
                 item = _run_item(store, model_id, newer[0])
                 if item:
                     items.append({**item, "incoming": True})
         out[model_id] = items
-    return JSONResponse(out, headers={"Cache-Control": "max-age=120"})
+    headers = {"Cache-Control": "max-age=120"}
+    if updated:  # come `generated_at` di runs.json nel sito statico: l'ora mostrata in fondo al pannello
+        headers["X-Updated-At"] = datetime.fromtimestamp(updated, timezone.utc).isoformat(timespec="seconds")
+    return JSONResponse(out, headers=headers)
 
 
 def _run_item(store: Store, model_id: str, rid: str) -> dict | None:

@@ -60,8 +60,10 @@ body {
   padding: 8px 12px;
   border-bottom: 1px solid var(--line);
 }
-.panel-head h1 { font-size: 15px; margin: 0; font-weight: 650; }
-.app-version { margin-left: 4px; font-size: 11px; font-weight: 400; color: var(--muted); }
+.panel-head h1 { font-size: 15px; margin: 0; font-weight: 650; display: flex; align-items: center; gap: 4px; }
+.panel-head h1 .logo { flex: none; display: block; }
+.app-version { margin-left: 4px; font-size: 11px; font-weight: 400; color: var(--muted); } /* stessa linea di base del nome: le cifre stanno all'altezza delle minuscole */
+.updated-at { display: block; font-size: 10px; color: var(--muted); } /* in fondo al pannello, sempre visibile */
 .panel.collapsed .panel-body { display: none; }
 .head-actions { display: flex; gap: 6px; align-items: center; }
 /* icona "Condividi" in fondo alla barra di modello e ora (il badge non riceve clic, il pulsante sì) */

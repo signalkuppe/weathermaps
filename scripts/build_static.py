@@ -49,8 +49,9 @@ def main(out_dir: Path) -> int:
     out_dir.mkdir(parents=True)
 
     # pagina: stessi file del server, marcati come statici
-    for name in ("app.js", "style.css", "borders.json"):
+    for name in ("app.js", "style.css", "borders.json", "manifest.webmanifest"):
         shutil.copy(ROOT / "static" / name, out_dir / name)
+    shutil.copytree(ROOT / "static" / "icons", out_dir / "icons")  # logo: favicon e icone della home del telefono
     html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
     html = html.replace('<html lang="it">', '<html lang="it" data-mode="static">', 1)
     # impronta del contenuto negli indirizzi di script e stile: dopo un aggiornamento il browser scarica subito i file

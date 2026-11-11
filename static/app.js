@@ -18,7 +18,7 @@
   };
 
   // run: sempre l'ultima corsa completa del modello (non si sceglie più a mano)
-  const state = { model: null, var: null, run: null, step: null, mode: null, opacity: 0.55, crisp: false, iso: true, hours: 3, base: "osm" };
+  const state = { model: null, var: null, run: null, step: null, mode: null, opacity: 0.55, crisp: false, iso: true, hours: 3, base: "topo" }; // predefiniti: Rilievo, opacità 0,55, celle sfumate
   // "static": sito pubblicato su GitHub Pages (file JSON pre-generati, nessun server)
   const STATIC = document.documentElement.dataset.mode === "static";
   let publishedAt = null; // solo statico: quando sono stati pubblicati i dati
@@ -49,17 +49,19 @@
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     }),
-    topo: L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {
+    // Thunderforest Outdoors: la chiave arriva da /api/meta (vedi init), finché non c'è la tessera resta vuota
+    topo: L.tileLayer("https://{s}.tile.thunderforest.com/outdoors/{z}/{x}/{y}{r}.png?apikey={apikey}", {
       crossOrigin: "anonymous",
-      maxZoom: 17,
-      attribution: 'Mappa &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA), dati &copy; OpenStreetMap',
+      maxZoom: 22,
+      apikey: "",
+      attribution: 'Mappa &copy; <a href="https://www.thunderforest.com">Thunderforest</a>, dati &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     }),
   };
   // sfondo: dalla sezione "Impostazioni" del pannello (niente selettore livelli di Leaflet)
   const BASE_NAMES = { osm: "Strade", plain: "Essenziale", topo: "Rilievo" };
   const baseCredit = () =>
-    state.base === "topo" ? "© OpenTopoMap, OpenStreetMap" : state.base === "plain" ? "Confini: Natural Earth" : "© OpenStreetMap";
-  function setBase(name) {
+    state.base === "topo" ? "© Thunderforest, OpenStreetMap" : state.base === "plain" ? "Confini: Natural Earth" : "© OpenStreetMap";
+  function setBase(name, save = true) {
     state.base = bases[name] ? name : "osm";
     const credit = ui.legend.querySelector(".lg-credit");
     if (credit) credit.textContent = baseCredit();
@@ -70,6 +72,7 @@
       else map.removeLayer(layer);
     }
     map.getContainer().classList.toggle("base-plain", state.base === "plain");
+    if (save) saveSettings(); // all'avvio no: un link con l'opacità nell'URL non cambia quelle salvate
     if (typeof styleBorders === "function") styleBorders(); // con "Essenziale" i contorni ci sono sempre
     ui.base.replaceChildren(
       ...Object.entries(BASE_NAMES).map(([k, text]) => {
@@ -171,6 +174,25 @@
   function setStatus(text, warn = false) {
     ui.status.textContent = text || "";
     ui.status.classList.toggle("warn", !!warn);
+  }
+
+  // ---------- impostazioni (sfondo, opacità, celle nette, isolinee) salvate nel browser; un link con i parametri
+  // nell'URL vince su quelle salvate (readHash viene dopo)
+  const SETTINGS_KEY = "weathermaps.settings.v1";
+  function loadSettings() {
+    try {
+      const d = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null");
+      if (!d || typeof d !== "object") return;
+      if (typeof d.base === "string") state.base = d.base;
+      if (Number.isFinite(d.opacity)) state.opacity = Math.min(1, Math.max(0.1, d.opacity));
+      if (typeof d.crisp === "boolean") state.crisp = d.crisp;
+      if (typeof d.iso === "boolean") state.iso = d.iso;
+    } catch { /* storage non disponibile o dato rovinato: valori predefiniti */ }
+  }
+  function saveSettings() {
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ base: state.base, opacity: state.opacity, crisp: state.crisp, iso: state.iso }));
+    } catch { /* storage non disponibile */ }
   }
 
   // ---------- stato nell'URL
@@ -1632,7 +1654,7 @@
     const valid = new Date(runDate(state.run).getTime() + s * 3600e3);
     const modeText = state.mode === "interval" ? ` in ${intervalHours(s)}h (+${s - intervalHours(s)}h → +${s}h)` : state.mode === "total" ? " totale" : "";
     const runText = state.model === "mean" ? `dalle ${cycle(state.run)} ${fmtRunDay(state.run)}` : `corsa ${cycle(state.run)} ${fmtRunDay(state.run)}`;
-    const baseAttr = map.hasLayer(bases.topo) ? "Mappa © OpenTopoMap (CC-BY-SA), dati © OpenStreetMap"
+    const baseAttr = map.hasLayer(bases.topo) ? "Mappa © Thunderforest, dati © OpenStreetMap contributors"
       : state.base === "plain" ? "Confini: Natural Earth" : "Mappa © OpenStreetMap contributors";
     return {
       v,
@@ -2520,9 +2542,10 @@
     overlay?.setOpacity(state.opacity);
     styleBorders();
     writeHash();
+    saveSettings();
   });
-  ui.crisp.addEventListener("change", () => { state.crisp = ui.crisp.checked; if (current) draw(current); writeHash(); });
-  ui.iso.addEventListener("change", () => { state.iso = ui.iso.checked; drawContours(variable().contour_field ? currentContour : current); renderLegend(); writeHash(); });
+  ui.crisp.addEventListener("change", () => { state.crisp = ui.crisp.checked; if (current) draw(current); writeHash(); saveSettings(); });
+  ui.iso.addEventListener("change", () => { state.iso = ui.iso.checked; drawContours(variable().contour_field ? currentContour : current); renderLegend(); writeHash(); saveSettings(); });
   ui.model.addEventListener("change", () => { state.model = ui.model.value; renderModelInfo(); setupRuns(); setupSteps(); update(); });
   ui.varSel.addEventListener("change", () => { state.var = ui.varSel.value; setupModels(); setupModes(); setupRuns(); setupSteps(); update(); });
   ui.collapse.addEventListener("click", () => {
@@ -2542,18 +2565,35 @@
       publishedAt = data.generated_at;
       runs = data.models;
     } else {
-      runs = await fetch("api/runs", { cache: "no-cache" }).then((r) => r.json());
+      const r = await fetch("api/runs", { cache: "no-cache" });
+      runs = await r.json();
+      publishedAt = r.headers.get("X-Updated-At");
     }
+    renderUpdated();
+  }
+  /** In fondo al pannello: quando sono stati aggiornati i dati ("oggi alle 14:17", "il 10 nov alle 20:05"). */
+  function renderUpdated() {
+    const el = $("updated-at");
+    const d = publishedAt ? new Date(publishedAt) : null;
+    if (!d || Number.isNaN(d.getTime())) { el.hidden = true; return; }
+    const day = (x) => x.toLocaleDateString("it-IT", { timeZone: "Europe/Rome", day: "numeric", month: "short" });
+    const hm = d.toLocaleTimeString("it-IT", { timeZone: "Europe/Rome", hour: "2-digit", minute: "2-digit" });
+    el.textContent = `Dati aggiornati ${day(d) === day(new Date()) ? "oggi" : `il ${day(d)}`} alle ${hm}`;
+    el.dateTime = publishedAt;
+    el.hidden = false;
   }
 
   // ---------- avvio
   async function init() {
+    loadSettings();
     readHash();
     try {
       const [m] = await Promise.all([fetch(STATIC ? "data/meta.json" : "api/meta").then((r) => r.json()), refreshRuns()]);
       meta = m;
       // versione dai tag git (vuota se non ci sono tag)
       if (meta.version) { $("app-version").textContent = meta.version; $("app-version").hidden = false; }
+      bases.topo.options.apikey = meta.thunderforest_key || "";
+      if (map.hasLayer(bases.topo)) bases.topo.redraw();
     } catch (e) {
       setStatus(`Impossibile contattare il server: ${e.message}`, true);
       return;
@@ -2575,7 +2615,7 @@
       if (map.getZoom() < map.getMinZoom()) map.setZoom(map.getMinZoom(), { animate: false });
       map.panInsideBounds(box, { animate: false });
     });
-    setBase("osm"); // all'avvio sempre OpenStreetMap; gli altri sfondi si scelgono in "Impostazioni"
+    setBase(state.base, false); // l'ultimo scelto in "Impostazioni" (salvato nel browser), altrimenti Rilievo
 
     ui.opacity.value = state.opacity;
     styleBorders(); // opacità al massimo dall'URL: contorni subito
