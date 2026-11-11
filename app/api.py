@@ -56,6 +56,8 @@ def meta(request: Request):
             "version": get_version(),
             # chiave pubblica delle tessere Thunderforest (sfondo "Rilievo"): finisce comunque nella pagina
             "thunderforest_key": os.environ.get("THUNDERFOREST_KEY", "").strip(),
+            # token pubblico Mapbox (sfondi Streets/Outdoors, se c'è): limitarlo ai domini del sito nel pannello Mapbox
+            "mapbox_token": os.environ.get("MAPBOX_TOKEN", "").strip(),
             "series": {"dstep": series_mod.DSTEP, "tile": series_mod.TILE},
             "models": [m.as_dict() for m in MODELS.values()],
             "variables": variables.menu(),

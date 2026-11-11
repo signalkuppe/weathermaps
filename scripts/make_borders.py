@@ -8,10 +8,17 @@ Uso:
     ne_10m_coastline, ne_10m_admin_0_boundary_lines_land,
     ne_10m_admin_1_states_provinces_lines
   python scripts/make_borders.py CARTELLA_NE   (BBOX dall'ambiente, come il resto dell'app)
+
+Coste più precise (aggiorna solo "coast" nel borders.json esistente):
+  costa dal contorno del mare di OpenStreetMap, gli stessi dati degli sfondi Mapbox (niente fiumi, a differenza del
+  contorno dell'acqua di Mapbox): https://osmdata.openstreetmap.de/download/simplified-water-polygons-split-3857.zip
+  python scripts/make_borders.py --water CARTELLA_OSM_ESTRATTA
 """
 from __future__ import annotations
 
 import json
+import math
+import struct
 import sys
 from pathlib import Path
 
@@ -98,6 +105,76 @@ def lines_of(geom: dict | None) -> list[list[list[float]]]:
     return []
 
 
+FINE_TOL = 0.001  # coste: ~100 m, devono ricalcare lo sfondo anche ingrandendo
+FINE_DEC = 4
+
+
+def shp_polygons(path: Path):
+    """Anelli dei poligoni di uno shapefile (tipo 5), senza librerie: [[(x, y), ...], ...] per record."""
+    data = path.read_bytes()
+    pos = 100  # intestazione del file
+    while pos + 8 <= len(data):
+        _, length = struct.unpack(">ii", data[pos:pos + 8])
+        rec = data[pos + 8:pos + 8 + length * 2]
+        pos += 8 + length * 2
+        if len(rec) < 44 or struct.unpack("<i", rec[:4])[0] != 5:
+            continue
+        nparts, npoints = struct.unpack("<ii", rec[36:44])
+        parts = list(struct.unpack(f"<{nparts}i", rec[44:44 + 4 * nparts])) + [npoints]
+        base = 44 + 4 * nparts
+        pts = struct.unpack(f"<{2 * npoints}d", rec[base:base + 16 * npoints])
+        yield [[(pts[2 * i], pts[2 * i + 1]) for i in range(parts[k], parts[k + 1])] for k in range(nparts)]
+
+
+def merc_to_lonlat(x: float, y: float) -> list[float]:
+    r = 6378137.0
+    return [math.degrees(x / r), math.degrees(2 * math.atan(math.exp(y / r)) - math.pi / 2)]
+
+
+def osm_coast(osm_dir: Path, box) -> list:
+    """Contorno del mare: i bordi dei poligoni dell'acqua, tolti i tagli rettilinei della suddivisione in riquadri."""
+    lat0, lat1, lon0, lon1 = box
+    shp = next(osm_dir.rglob("simplified_water_polygons.shp"))
+    parts = []
+    for rings in shp_polygons(shp):
+        for ring in rings:
+            # bordi della suddivisione: segmenti esattamente orizzontali o verticali (la costa non lo è mai)
+            cur: list = []
+            for a, b in zip(ring, ring[1:]):
+                if a[0] == b[0] or a[1] == b[1]:
+                    if len(cur) >= 2:
+                        parts.append(cur)
+                    cur = []
+                    continue
+                if not cur:
+                    cur = [merc_to_lonlat(*a)]
+                cur.append(merc_to_lonlat(*b))
+            if len(cur) >= 2:
+                parts.append(cur)
+    out = []
+    for line in parts:
+        xs, ys = [p[0] for p in line], [p[1] for p in line]
+        if max(xs) < lon0 or min(xs) > lon1 or max(ys) < lat0 or min(ys) > lat1:
+            continue
+        for seg in clip(line, box):
+            seg = simplify(seg, FINE_TOL)
+            if len(seg) >= 2:
+                out.append([[round(y, FINE_DEC), round(x, FINE_DEC)] for x, y in seg])
+    return out
+
+
+def main_water(osm_dir: Path) -> int:
+    b = get_bbox()
+    box = (b.lat_min - MARGIN, b.lat_max + MARGIN, b.lon_min - MARGIN, b.lon_max + MARGIN)
+    path = ROOT / "static" / "borders.json"
+    out = json.loads(path.read_text(encoding="utf-8"))
+    out["coast"] = osm_coast(osm_dir, box)
+    print(f"coast: {len(out['coast'])} linee, {sum(len(p) for p in out['coast'])} punti")
+    path.write_text(json.dumps(out, separators=(",", ":")), encoding="utf-8")
+    print(f"{path}: {path.stat().st_size / 1e3:.0f} kB")
+    return 0
+
+
 def main(ne_dir: Path) -> int:
     b = get_bbox()
     box = (b.lat_min - MARGIN, b.lat_max + MARGIN, b.lon_min - MARGIN, b.lon_max + MARGIN)
@@ -130,6 +207,8 @@ def main(ne_dir: Path) -> int:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) == 3 and sys.argv[1] == "--water":
+        raise SystemExit(main_water(Path(sys.argv[2])))
     if len(sys.argv) != 2:
         print(__doc__)
         raise SystemExit(2)

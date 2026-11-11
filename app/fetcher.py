@@ -96,6 +96,13 @@ def _fetch_field(source, client, run: datetime, step: int, var, bbox) -> Field:
         if other.values.shape != field.values.shape:
             raise ValueError(f"{source.MODEL.id}: griglie diverse fra {sel.param} e {extra.param}")
         field.values = (field.values + other.values).astype(np.float32)
+    if sel.dew is not None:
+        # grandezza calcolata (bulbo umido): serve anche il secondo campo, sulla stessa griglia
+        alt = dataclasses.replace(var, selectors={**var.selectors, source.MODEL.id: sel.dew})
+        other = _fetch_with_retry(source, client, run, step, alt, bbox)
+        if other.values.shape != field.values.shape:
+            raise ValueError(f"{source.MODEL.id}: griglie diverse fra {sel.param or sel.var} e {sel.dew.param or sel.dew.var}")
+        field.values = np.asarray(var.combine(field.values, other.values), dtype=np.float32)
     if sel.pair is not None and sel.lambert:
         # vento riferito alla griglia Lambert (WRF): serve anche l'altra componente per ruotarlo verso nord
         alt = dataclasses.replace(var, selectors={**var.selectors, source.MODEL.id: sel.pair})

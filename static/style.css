@@ -172,8 +172,17 @@ body {
 
 .row { display: grid; grid-template-columns: 80px 1fr; align-items: center; gap: 8px; }
 .row > span { color: var(--muted); font-size: 13px; }
-.row.check { grid-template-columns: auto 1fr; }
+/* interruttori (celle nette, isolinee): testo a sinistra, interruttore a destra, come share-switch */
+.row.check { grid-template-columns: 1fr auto; align-items: center; cursor: pointer; user-select: none; }
 .row.check span { color: var(--fg); }
+.row.check small { display: block; color: var(--muted); font-size: 11px; line-height: 1.3; }
+.row.check input { order: 2; appearance: none; -webkit-appearance: none; margin: 0; position: relative; flex: none;
+  width: 34px; height: 20px; border-radius: 10px; background: var(--line); cursor: pointer; transition: background 0.15s; }
+.row.check input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); transition: transform 0.15s; }
+.row.check input:checked { background: var(--accent); }
+.row.check input:checked::after { transform: translateX(14px); }
+.row.check input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 select, input[type="range"] { width: 100%; }
 select {
   font: inherit;
@@ -418,8 +427,9 @@ input[type="range"] { accent-color: var(--accent); margin-inline: 0; } /* senza 
    solo l'animazione del radar (più condividi e, su mobile, la legenda) */
 body.radar-mode .wm-overlay, body.radar-mode .leaflet-contours-pane, body.radar-mode .leaflet-contourLabels-pane,
 body.radar-mode .leaflet-arrows-pane { display: none; }
-.badge-radar { display: none; }
-body.radar-mode .badge > :not(.badge-radar):not(.share-btn):not(.legend) { display: none; }
+.badge-radar, .extra-close { display: none; }
+body.radar-mode .badge .extra-close { display: flex; margin-left: 6px; } /* .share-btn: stesso aspetto della condivisione */
+body.radar-mode .badge > :not(.badge-radar):not(.share-btn):not(.legend) { display: none; } /* .extra-close è .share-btn */
 body.radar-mode .badge-radar { display: flex; align-items: center; gap: 8px; pointer-events: auto; } /* la barra su desktop non riceve clic, i controlli sì */
 .badge-radar-time { font-variant-numeric: tabular-nums; }
 /* caricamento del radar: riquadro al centro della pagina, controlli nascosti finché le immagini non sono pronte */
@@ -634,6 +644,7 @@ body.radar-mode .badge-radar .badge-btn:hover { background: var(--accent-tint); 
   #m-next { order: 3; width: 26px; justify-content: flex-start; }
   #m-play { order: 4; width: 30px; }
   .share-btn { order: 6; width: 34px; height: 40px; margin: 0 -8px 0 4px; }
+  body.radar-mode .badge .extra-close { margin-left: 4px; }
   .badge .legend { order: 7; flex-basis: 100%; padding-left: 8px; flex-wrap: wrap; }
   /* legenda compatta sopra l'etichetta della corsa: unità a sinistra, barra colori con le soglie sotto */
   .legend { position: static; min-width: 0; padding: 0; border: 0; box-shadow: none; background: none;
@@ -766,3 +777,10 @@ body.radar-mode .badge-radar .badge-btn:hover { background: var(--accent-tint); 
   border-radius: 50%; animation: spin 0.7s linear infinite; pointer-events: none; }
 .places-search.searching input { padding-right: 32px; }
 .place-results .place-wait { font-style: italic; }
+
+/* logo Mapbox in basso a sinistra (vedi setupMapbox); su mobile sopra il riquadro in basso */
+.wm-mapbox-logo { margin: 0 0 8px 8px !important; pointer-events: auto; line-height: 0; }
+.wm-mapbox-logo .mapboxgl-ctrl-logo { display: block; }
+@media (max-width: 600px), (orientation: portrait) and (pointer: coarse) and (max-width: 1100px) {
+  .wm-mapbox-logo { margin-bottom: var(--logo-bottom, 104px) !important; }
+}

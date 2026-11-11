@@ -2,9 +2,11 @@
 
 **App: <https://signalkuppe.github.io/weathermaps/>** (aggiornata una volta all'ora)
 
-Mappe di precipitazione, temperatura a 850 hPa, neve, zero termico e vento previste da otto modelli sul Nord Italia.
-Sfondo a scelta nelle impostazioni: **Rilievo** (Thunderforest Outdoors, all'avvio) o **Strade** (OpenStreetMap); con
-l'opacità al massimo e i confini attivi si ottiene una carta meteo classica. Sfondo, confini, opacità, celle nette e
+Mappe di precipitazione, temperatura a 850 hPa e a 2 m, bulbo umido a 2 m, neve, zero termico e vento previste da
+otto modelli sul Nord Italia. Sfondo [Mapbox](https://www.mapbox.com) a scelta nelle impostazioni: **Outdoors** (con il
+rilievo marcato, all'avvio) o **Base** (Streets ricolorato come una carta meteo); i colori dei dati stanno dentro la
+mappa, sotto confini e nomi delle località, che restano leggibili a qualunque opacità. Senza token Mapbox si torna alle
+tessere Thunderforest / OpenStreetMap. Sfondo, confini, opacità, celle nette e
 isolinee restano salvati nel browser:
 
 | Modello | Fonte | Risoluzione | Orizzonte | Corse |
@@ -21,19 +23,21 @@ isolinee restano salvati nel browser:
 
 Grandezze disponibili per modello:
 
-| Modello | Pioggia | T 850 hPa | Neve | Zero termico |
-|---|---|---|---|---|
-| GFS | ✓ | ✓ | — (non pubblica la neve caduta) | ✓ |
-| ECMWF | ✓ | ✓ | ✓ | — (non tra i dati aperti) |
-| ICON-2I | ✓ | ✓ | ✓ | ✓ |
-| WRF | ✓ | ✓ | — | — |
-| ICON-D2 | ✓ | ✓ | ✓ | ✓ |
-| AROME | ✓ | — | ✓ | — |
-| ICON-CH2 / CH1 | ✓ | — | ✓ | ✓ |
+| Modello | Pioggia | T 850 hPa | T e bulbo umido 2 m | Neve | Zero termico |
+|---|---|---|---|---|---|
+| GFS | ✓ | ✓ | ✓ | — (non pubblica la neve caduta) | ✓ |
+| ECMWF | ✓ | ✓ | ✓ | ✓ | — (non tra i dati aperti) |
+| ICON-2I | ✓ | ✓ | ✓ | ✓ | ✓ |
+| WRF | ✓ | ✓ | ✓ | — | — |
+| ICON-D2 | ✓ | ✓ | ✓ | ✓ | ✓ |
+| AROME | ✓ | — | — | ✓ | — |
+| ICON-CH2 / CH1 | ✓ | — | ✓ | ✓ | ✓ |
 
 La **neve** è in cm di neve fresca: i modelli danno l'acqua equivalente (mm), convertita col rapporto standard
 10:1 (1 mm d'acqua = 1 cm di neve). È una stima: la neve umida si accumula meno, quella farinosa di più. Nei modelli ICON
 è la somma della neve di griglia e di quella convettiva. Lo **zero termico** è la quota (m sul livello del mare) dell'isoterma 0 °C.
+Il **bulbo umido a 2 m** si calcola da temperatura e punto di rugiada a 2 m con l'equazione psicrometrica (pressione
+fissa a 1013 hPa: in montagna il valore vero è appena più basso); sotto 0 °C la neve arriva facilmente al suolo.
 
 Di ogni modello si tiene e si mostra **solo l'ultima corsa completa**. Mentre la corsa successiva esce, la pagina
 ne mostra l'avanzamento ("12Z in arrivo · 20/56 passi"); quando è completa prende il posto della precedente, che viene cancellata.
@@ -61,8 +65,10 @@ La **mediana dei modelli** è costruita per istante di validità da un orario co
   dello zero termico ogni 250 m (marcate le migliaia). Sono calcolate nel browser dal campo (ammorbidito sulle griglie
   fini), si spengono nelle impostazioni e compaiono anche nell'immagine condivisa.
 - **Confini** sopra i colori, a scelta nelle impostazioni: Stati (con le coste), Regioni o Province, ogni livello
-  con i precedenti (Natural Earth 1:10m). Le regioni sono quelle italiane e francesi, i cantoni svizzeri, i Länder. Il file `static/borders.json` si scarica la
-  prima volta che servono e si rigenera con `scripts/make_borders.py` se cambia `BBOX`.
+  con i precedenti. Con Mapbox sono i suoi (gli stessi dello sfondo, ridisegnati scuri e continui; le province sono uno
+  strato in più sui suoi dati), le coste vengono da OpenStreetMap (`static/borders.json`, `scripts/make_borders.py --water`).
+  Senza Mapbox si usano i contorni di Natural Earth 1:10m dello stesso file, da rigenerare con
+  `scripts/make_borders.py` se cambia `BBOX`.
 - **Navigazione:** modello, istante (slider, frecce ←/→, spazio = play), opacità regolabile, celle nette senza
   interpolazione. Su mobile c'è una barra in basso con ora, ‹ › ▶, modello e legenda compatta.
 - **Legenda** orizzontale (titolo con unità, barra dei colori con le soglie), su desktop in basso a destra e su mobile
@@ -101,7 +107,8 @@ Test: `pytest`.
 | `DATA_DIR` | `./data` | Cartella dati |
 | `SCHEDULER_ENABLED` | `1` | Aggiornamento automatico |
 | `SCHEDULER_INTERVAL_MIN` | `10` | Frequenza aggiornamento |
-| `THUNDERFOREST_KEY` | — | Chiave [Thunderforest](https://manage.thunderforest.com) per lo sfondo Rilievo (nel sito statico: secret del repository) |
+| `MAPBOX_TOKEN` | — | Token pubblico [Mapbox](https://account.mapbox.com) (`pk.…`) per gli sfondi Outdoors e Base: finisce nella pagina, va limitato ai domini del sito nel pannello Mapbox (nel sito statico: secret del repository) |
+| `THUNDERFOREST_KEY` | — | Chiave [Thunderforest](https://manage.thunderforest.com) per lo sfondo di riserva senza Mapbox (nel sito statico: secret del repository) |
 | `APP_VERSION` | dai tag git | Versione mostrata accanto al nome: di norma `git describe` (`v1.2.0` sul tag, `v1.2.0+3` tre commit dopo); da impostare dove non c'è `.git`, per esempio nell'immagine Docker. Senza tag non si mostra |
 
 ## Località preferite
@@ -148,6 +155,8 @@ Fetcher, API e frontend la gestiscono senza altre modifiche; il selettore "Grand
 Il workflow `.github/workflows/pages.yml` gira una volta all'ora su GitHub Actions:
 recupera dalla cache i dati già scaricati, scarica solo i passi nuovi (`scripts/fetch_once.py`),
 genera il sito statico (`scripts/build_static.py`) e lo pubblica su GitHub Pages.
+I campi sono pubblicati in un formato compatto (`.bin`, valori in interi a 16 bit, `app/packed.py`): circa un
+terzo del JSON, per stare largamente sotto il limite di 1 GB di GitHub Pages.
 Nel sito statico la modalità Intervallo è calcolata nel browser e il pulsante "Aggiorna"
 ricarica i dati pubblicati (il download vero avviene una volta all'ora).
 
@@ -221,6 +230,7 @@ fallisce anche l'avvio esterno (risposta di errore su cron-job.org); basta riatt
 - DWD: [Open Data ICON-D2](https://opendata.dwd.de/weather/nwp/icon-d2/), griglia regolare 0.02°.
 - Météo-France: [Paquets AROME 0,025°](https://www.data.gouv.fr/datasets/paquets-arome-resolution-0-025/), Licence Ouverte Etalab 2.0. Precipitazione e neve (paquet SP1, a blocchi di 6 ore): si leggono le intestazioni GRIB2 e si scaricano solo i messaggi necessari. I dati validi finiscono fra 13°E (a 42°N) e 14,5°E (a 49°N).
 - MeteoSvizzera: [Open Data ICON-CH1/CH2-EPS](https://opendatadocs.meteoswiss.ch/e-forecast-data/e2-e3-numerical-weather-forecasting-model), licenza CC-BY. I campi sono su griglia ICON non strutturata e vengono riportati su una griglia regolare di ~2.2 km (punto del modello più vicino); le coordinate della griglia si scaricano una volta in `DATA_DIR/static`.
-- Mappe: © OpenStreetMap contributors, Thunderforest
+- Mappe: © [Mapbox](https://www.mapbox.com/about/maps/), © OpenStreetMap contributors (di riserva: Thunderforest)
+- Coste: [OpenStreetMap Data](https://osmdata.openstreetmap.de/) (ODbL)
 - Contorni geografici: [Natural Earth](https://www.naturalearthdata.com/) 1:10m (pubblico dominio)
 - Ricerca delle località: [Photon](https://photon.komoot.io) su dati OpenStreetMap

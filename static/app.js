@@ -18,7 +18,7 @@
   };
 
   // run: sempre l'ultima corsa completa del modello (non si sceglie più a mano)
-  const state = { model: null, var: null, run: null, step: null, mode: null, opacity: 0.75, crisp: false, iso: true, hours: 3, base: "topo", borders: "none", bordersOpacity: 0.75, extra: "none" }; // predefiniti: Rilievo, opacità di colori e confini 0,75, celle sfumate, senza confini
+  const state = { model: null, var: null, run: null, step: null, mode: null, opacity: 0.7, crisp: false, iso: true, hours: 3, base: "topo", borders: "regions", bordersOpacity: 1, extra: "none" }; // predefiniti: Outdoors, colori al 70%, confini fino alle regioni a pieno contrasto, celle sfumate
   // "static": sito pubblicato su GitHub Pages (file JSON pre-generati, nessun server)
   const STATIC = document.documentElement.dataset.mode === "static";
   let publishedAt = null; // solo statico: quando sono stati pubblicati i dati
@@ -56,8 +56,182 @@
       attribution: 'Mappa &copy; <a href="https://www.thunderforest.com">Thunderforest</a>, dati &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     }),
   };
+  // Mapbox (se c'è il token in /api/meta): un solo livello vettoriale (Mapbox GL dentro Leaflet) a cui si cambia lo
+  // stile, così passare da Base a Outdoors non conta come un nuovo caricamento della mappa. Senza token si resta
+  // sulle tessere OpenStreetMap / Thunderforest qui sopra.
+  const MAPBOX_STYLES = { osm: "mapbox://styles/mapbox/streets-v12", topo: "mapbox://styles/mapbox/outdoors-v12" };
+  const MAPBOX_ATTR = '&copy; <a href="https://www.mapbox.com/about/maps/">Mapbox</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+  let glBase = null;
+  /** Nomi in italiano dove ci sono (name_it), altrimenti il nome locale: niente "Genova / Genoa". */
+  function italianLabels(m) {
+    for (const layer of m.getStyle().layers) {
+      const tf = layer.type === "symbol" && m.getLayoutProperty(layer.id, "text-field");
+      if (!tf) continue;
+      const s = JSON.stringify(tf);
+      if (s.includes('"name')) m.setLayoutProperty(layer.id, "text-field", JSON.parse(s.replace(/"name_en"/g, '"name_it"')));
+    }
+  }
+  /** "Base": Streets di Mapbox ricolorato come una carta meteo (tavolozza simile a meteoblue): fondo beige chiaro, boschi
+   *  verde tenue, acqua azzurra, strade bianche sottili. Sotto i colori dei dati non deve competere con loro. */
+  const LAND = "hsl(47, 26%, 88%)", GREEN = "hsla(82, 46%, 72%, 0.55)", WATER = "hsl(205, 56%, 73%)";
+  /** Outdoors: rilievo più marcato, ombreggiatura calcolata dal modello del terreno di Mapbox (oltre a quella, tenue,
+   *  già nello stile). Sotto strade, colori dei dati e confini. */
+  function strongRelief(m) {
+    if (m.__style !== MAPBOX_STYLES.topo || m.getLayer("wm-relief")) return;
+    m.addSource("wm-dem", { type: "raster-dem", url: "mapbox://mapbox.mapbox-terrain-dem-v1", tileSize: 512, maxzoom: 14 });
+    const before = m.getLayer("hillshade") ? "hillshade" : glBefore(m);
+    m.addLayer({
+      id: "wm-relief", type: "hillshade", source: "wm-dem",
+      paint: {
+        "hillshade-exaggeration": 0.75,
+        "hillshade-shadow-color": "hsl(30, 20%, 22%)",
+        "hillshade-highlight-color": "hsla(45, 60%, 97%, 0.9)",
+        "hillshade-accent-color": "hsl(30, 15%, 35%)",
+        "hillshade-illumination-direction": 315,
+      },
+    }, before);
+  }
+  function meteoPalette(m) {
+    if (m.__style !== MAPBOX_STYLES.osm) return;
+    const set = (id, prop, v) => { if (m.getLayer(id)) m.setPaintProperty(id, prop, v); };
+    set("land", "background-color", LAND);
+    set("land-structure-polygon", "fill-color", LAND);
+    set("land-structure-line", "line-color", LAND);
+    set("landcover", "fill-color", ["match", ["get", "class"], "snow", "hsl(47, 22%, 96%)", GREEN]);
+    set("national-park", "fill-color", "hsla(82, 46%, 72%, 0.25)");
+    set("landuse", "fill-color", ["match", ["get", "class"], ["park", "wood", "grass", "scrub", "agriculture", "cemetery", "pitch"], GREEN, "hsl(39, 30%, 84%)"]);
+    for (const id of ["water", "water-shadow"]) set(id, "fill-color", WATER);
+    for (const id of ["waterway", "waterway-shadow"]) set(id, "line-color", WATER);
+    if (m.getLayer("water-depth")) m.setLayoutProperty("water-depth", "visibility", "none");
+    for (const l of m.getStyle().layers) { // strade: bianche, bordo appena più scuro del fondo
+      if (l.type !== "line" || !/^(road|bridge|tunnel)-/.test(l.id) || /rail|path|steps|pedestrian|construction|oneway/.test(l.id)) continue;
+      m.setPaintProperty(l.id, "line-color", /case/.test(l.id) ? "hsl(39, 20%, 76%)" : "#ffffff");
+    }
+  }
+  /* Colori dentro Mapbox: le immagini dei dati (modello, radar, satellite) diventano strati dello stile, inseriti
+   * sotto confini e nomi (e sopra terreno, acqua e strade). Così confini e città di Mapbox restano leggibili sopra i
+   * colori a qualunque opacità, e coincidono con quelli dello sfondo. Un registro le ricrea quando cambia lo stile. */
+  const glImgs = new Map(); // id -> { url, bounds, opacity, crisp, visible }
+  let glStyleReady = false;
+  const glMap = () => (glBase && glStyleReady ? glBase.getMapboxMap() : null);
+  const glCoords = (b) => [[b.getWest(), b.getNorth()], [b.getEast(), b.getNorth()], [b.getEast(), b.getSouth()], [b.getWest(), b.getSouth()]];
+  /** Primo strato da tenere sopra i colori: i confini (dopo strade e ponti, che restano sotto), se mancano le scritte
+   *  dei luoghi. */
+  const glBefore = (m) => {
+    const ls = m.getStyle().layers;
+    return (ls.find((l) => /^(wm-)?admin-/.test(l.id)) || ls.find((l) => /label/.test(l.id)))?.id;
+  };
+  function glApply(m, id, c) {
+    const coordinates = glCoords(c.bounds);
+    const src = m.getSource(id);
+    if (!src) {
+      m.addSource(id, { type: "image", url: c.url, coordinates });
+      // già con l'opacità giusta e senza transizioni: Mapbox altrimenti parte da 1 e sfuma in 300 ms (le immagini del radar
+      // in caricamento si vedevano per un attimo, e la dissolvenza dell'animazione arrivava in ritardo)
+      m.addLayer({ id, type: "raster", source: id, paint: {
+        "raster-fade-duration": 0, "raster-opacity": c.visible ? c.opacity : 0, "raster-opacity-transition": { duration: 0, delay: 0 },
+      } }, glBefore(m));
+    } else if (src.__url !== c.url || JSON.stringify(src.__coords) !== JSON.stringify(coordinates)) {
+      src.updateImage({ url: c.url, coordinates });
+    }
+    Object.assign(m.getSource(id), { __url: c.url, __coords: coordinates });
+    m.setPaintProperty(id, "raster-opacity", c.visible ? c.opacity : 0);
+    m.setPaintProperty(id, "raster-resampling", c.crisp ? "nearest" : "linear");
+  }
+  function glPut(id, o) {
+    const c = Object.assign(glImgs.get(id) || { opacity: 1, crisp: false, visible: true }, o);
+    glImgs.set(id, c);
+    const m = glMap();
+    if (m && c.url) glApply(m, id, c);
+  }
+  function glRemove(id) {
+    glImgs.delete(id);
+    const m = glMap();
+    if (m?.getLayer(id)) m.removeLayer(id);
+    if (m?.getSource(id)) m.removeSource(id);
+  }
+  /** "Confini" (Impostazioni) sui confini di Mapbox, sopra i colori: Nessuno li nasconde, Stati / Regioni /
+   *  Province li mostrano scuri fino a quel livello, con l'opacità scelta. Le province (admin_level 2) ci sono nei
+   *  dati di Mapbox ma non nello stile: le aggiunge uno strato nostro. */
+  let glWater = null; // GeoJSON delle coste, da borders.json
+  let glWaterLoad = null;
+  function glBorders() {
+    glWaterLoad ??= fetch("borders.json").then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.statusText))))
+      .then((b) => {
+        const lonlat = (line) => line.map(([la, lo]) => [lo, la]);
+        glWater = { type: "Feature", properties: {}, geometry: { type: "MultiLineString", coordinates: (b.coast || []).map(lonlat) } };
+        glBorders();
+      })
+      .catch(() => { glWaterLoad = null; });
+    const m = glMap();
+    if (!m) return;
+    const n = Object.keys(BORDER_NAMES).indexOf(state.borders), op = state.bordersOpacity;
+    if (!m.getLayer("wm-admin-2") && m.getLayer("admin-1-boundary-bg")) {
+      m.addLayer({
+        id: "wm-admin-2", type: "line", source: "composite", "source-layer": "admin",
+        filter: ["all", ["==", ["get", "admin_level"], 2], ["!=", ["to-string", ["get", "maritime"]], "true"],
+          ["match", ["get", "worldview"], ["all", "US"], true, false]],
+        layout: { "line-join": "round" },
+        paint: { "line-color": "#1f2328", "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0.9, 10, 1.6], "line-dasharray": [3, 2] },
+      }, "admin-1-boundary-bg");
+    }
+    // coste (sotto i colori il mare non si vede più): da borders.json, da OpenStreetMap come lo sfondo.
+    // Il contorno dell'acqua di Mapbox comprenderebbe anche i fiumi, a trattini sparsi.
+    if (!m.getLayer("wm-coast") && m.getLayer("admin-1-boundary-bg") && glWater) {
+      m.addSource("wm-coast", { type: "geojson", data: glWater });
+      m.addLayer({
+        id: "wm-coast", type: "line", source: "wm-coast",
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: { "line-color": "#1f2328", "line-width": ["interpolate", ["linear"], ["zoom"], 5, 1, 10, 1.8] },
+      }, "admin-1-boundary-bg");
+    }
+    const levels = { "wm-coast": 1, "admin-0-boundary": 1, "admin-0-boundary-bg": 1, "admin-0-boundary-disputed": 1,
+      "admin-1-boundary": 2, "admin-1-boundary-bg": 2, "wm-admin-2": 3 };
+    for (const [id, lvl] of Object.entries(levels)) {
+      if (!m.getLayer(id)) continue;
+      m.setLayoutProperty(id, "visibility", n >= lvl ? "visible" : "none");
+      if (id.endsWith("-bg")) { // alone chiaro sotto la linea: bianco come in Streets (Outdoors lo ha rosato)
+        m.setPaintProperty(id, "line-color", "#ffffff");
+        continue;
+      }
+      m.setPaintProperty(id, "line-opacity", op);
+      if (id.startsWith("wm-")) continue;
+      // stati e regioni a linea continua e scura (negli stili Mapbox sono tratteggiati e chiari: sopra i colori sparivano)
+      m.setPaintProperty(id, "line-color", "#1f2328");
+      if (id !== "admin-0-boundary-disputed") m.setPaintProperty(id, "line-dasharray", [10, 0]);
+      m.setPaintProperty(id, "line-width", ["interpolate", ["linear"], ["zoom"], 5, lvl === 1 ? 1.8 : 1.2, 10, lvl === 1 ? 3 : 2]);
+    }
+  }
+  function setupMapbox(token) {
+    if (!token || !window.mapboxgl || !L.mapboxGL) return;
+    glBase = L.mapboxGL({
+      accessToken: token,
+      style: MAPBOX_STYLES[state.base] || MAPBOX_STYLES.topo,
+      attribution: MAPBOX_ATTR,
+      preserveDrawingBuffer: true, // per l'immagine condivisa (si copia il canvas)
+      language: "it",
+    });
+    glBase.addTo(map);
+    // logo Mapbox (obbligatorio per le condizioni d'uso): quello di Mapbox GL finisce fuori vista (il suo riquadro è più
+    // grande della mappa), lo si mette in basso a sinistra come controllo di Leaflet
+    const logo = L.control({ position: "bottomleft" });
+    logo.onAdd = () => L.DomUtil.create("div", "wm-mapbox-logo");
+    logo.addTo(map);
+    logo.getContainer().innerHTML = '<a class="mapboxgl-ctrl-logo" href="https://www.mapbox.com/" target="_blank" rel="noopener" aria-label="Mapbox"></a>';
+    glBase.getMapboxMap().__style = glBase.options.style; // stile attuale, per non ricaricarlo in setBase
+    glBase.getMapboxMap().on("style.load", () => {
+      const m = glBase.getMapboxMap();
+      glStyleReady = true;
+      italianLabels(m);
+      meteoPalette(m);
+      strongRelief(m);
+      glBorders();
+      for (const [id, c] of glImgs) if (c.url) glApply(m, id, c); // lo stile nuovo non ha i nostri strati
+    });
+    for (const layer of Object.values(bases)) map.removeLayer(layer);
+  }
   // sfondo: dalla sezione "Impostazioni" del pannello (niente selettore livelli di Leaflet)
-  const BASE_NAMES = { osm: "Strade", topo: "Rilievo" }; // effetto "carta meteo": opacità al massimo e confini
+  const BASE_NAMES = { osm: "Base", topo: "Outdoors" }; // effetto "carta meteo": opacità al massimo e confini
   // confini sopra i colori (Impostazioni), a livelli: ogni scelta comprende le precedenti
   const BORDER_NAMES = { none: "Nessuno", countries: "Stati", regions: "Regioni", provinces: "Province" };
   function setBorders(name, save = true) {
@@ -77,7 +251,10 @@
   }
   function setBase(name, save = true) {
     state.base = bases[name] ? name : "topo"; // anche il vecchio "Essenziale" salvato nel browser
-    for (const [k, layer] of Object.entries(bases)) {
+    if (glBase) {
+      const m = glBase.getMapboxMap(), style = MAPBOX_STYLES[state.base];
+      if (m && m.__style !== style) { if (m.__style) { glStyleReady = false; m.setStyle(style, { diff: false }); } m.__style = style; }
+    } else for (const [k, layer] of Object.entries(bases)) {
       if (k === state.base) layer.addTo(map);
       else map.removeLayer(layer);
     }
@@ -493,7 +670,7 @@
   const ctxNow = () => ({ model: state.model, var: dataVar(), run: state.run });
 
   function fieldUrl(step, mode, ctx, prev) {
-    if (STATIC) return `data/field/${ctx.model}/${ctx.var}/${ctx.run}/${step}.json`;
+    if (STATIC) return `data/field/${ctx.model}/${ctx.var}/${ctx.run}/${step}.bin`;
     const p = new URLSearchParams({ ...ctx, step, mode });
     if (mode === "interval") p.set("prev", prev);
     return `api/field?${p}`;
@@ -514,12 +691,33 @@
     if (!cache.has(url)) {
       const pr = fetch(url).then(async (r) => {
         if (!r.ok) throw Object.assign(new Error((await r.json().catch(() => ({}))).detail || r.statusText), { status: r.status });
-        return r.json();
+        return STATIC ? unpackField(await r.arrayBuffer()) : r.json();
       });
       cache.set(url, pr);
       pr.catch(() => cache.delete(url));
     }
     return cache.get(url);
+  }
+
+  /** Sito statico: campo in formato compatto (vedi app/packed.py). Intestazione JSON con le liste di valori sostituite
+   *  da {"$q": [inizio, quanti, scala]}, poi i valori in interi a 16 bit (-32768 = mancante). Torna lo stesso oggetto
+   *  di /api/field. */
+  function unpackField(buf) {
+    const n = new DataView(buf).getUint32(0, true);
+    const header = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 4, n)));
+    const base = 4 + n + ((4 + n) % 2);
+    const ints = new Int16Array(buf, base, (buf.byteLength - base) >> 1);
+    const walk = (x) => {
+      if (Array.isArray(x)) return x.map(walk);
+      if (!x || typeof x !== "object") return x;
+      if (x.$q) {
+        const [start, len, scale] = x.$q, out = new Array(len);
+        for (let k = 0; k < len; k++) { const v = ints[start + k]; out[k] = v === -32768 ? null : v / scale; }
+        return out;
+      }
+      return Object.fromEntries(Object.entries(x).map(([k, v]) => [k, walk(v)]));
+    };
+    return walk(header);
   }
 
   function getIntervalStatic(step, ctx, prevStep) {
@@ -624,10 +822,18 @@
   // ---------- Livelli extra: radar o satellite (uno alla volta), animati sulle ultime immagini. Servizi WMS pubblici
   // chiesti dal browser (CORS aperto, anche nel sito statico); ogni tessera si ripulisce in un canvas (clean) così resta
   // solo il fenomeno sopra la mappa. Con un livello extra acceso spariscono i livelli del modello.
-  const RADAR_CLASSES = [ // radar: dalla legenda del servizio (GetLegendGraphic), limite inferiore in mm/h e colore
-    [0.1, "#A3F5E3"], [1, "#1AE4B7"], [2, "#2DBF00"], [5, "#BAEB09"], [10, "#EBE300"], [15, "#FEBF00"],
-    [20, "#F56200"], [30, "#FF3E3B"], [50, "#FF0000"], [75, "#FC0599"], [100, "#F75DFC"],
+  /* radar: classi nostre (limite inferiore in mm/h e colore), scala classica delle mappe radar italiane. Il servizio
+   * colora l'immagine con queste soglie sui valori veri: le riceve come stile (SLD) insieme alla richiesta. */
+  const RADAR_CLASSES = [
+    [0.2, "#9a8a9b"], [1, "#2400ff"], [2, "#47904a"], [4, "#80ff5a"], [6, "#ffff55"], [10, "#f2c84c"],
+    [20, "#ec8a35"], [40, "#e5382b"], [60, "#9a25d6"],
   ];
+  const radarSld = (layer) => `<StyledLayerDescriptor version="1.0.0" xmlns="http://www.opengis.net/sld"><NamedLayer><Name>${layer}</Name>` +
+    `<UserStyle><FeatureTypeStyle><Rule><RasterSymbolizer><ColorMap type="intervals">` +
+    // "intervals": ogni colore vale fino alla soglia dichiarata; sotto la prima trasparente
+    `<ColorMapEntry color="#000000" quantity="${RADAR_CLASSES[0][0]}" opacity="0"/>` +
+    RADAR_CLASSES.map(([, c], i) => `<ColorMapEntry color="${c}" quantity="${RADAR_CLASSES[i + 1]?.[0] ?? 1e6}"/>`).join("") +
+    `</ColorMap></RasterSymbolizer></Rule></FeatureTypeStyle></UserStyle></NamedLayer></StyledLayerDescriptor>`;
   const SAT_SHADES = ["#969ea6", "#cbcfd4", "#ffffff"]; // legenda del satellite: nubi sottili/basse → spesse/alte
   const wmsUrl = (base, params) => `${base}?${new URLSearchParams({ service: "WMS", version: "1.3.0", styles: "", ...params })}`;
   const EXTRAS = {
@@ -636,7 +842,10 @@
       name: "Radar", wms: "https://maps.mistralportal.it/wms", layer: "meteohub:radar-sri", stepMin: 5, frames: 13, opacity: 0.9,
       credit: "Radar: Protezione Civile, ItaliaMeteo (MeteoHub)", shareTitle: "Radar precipitazioni · Protezione Civile / ItaliaMeteo",
       shareSub: "Intensità (mm/h)",
-      clean(d) { for (let i = 3; i < d.length; i += 4) if (d[i] < 250) d[i] = 0; }, // "sotto 0,1 mm/h": grigio semitrasparente, via
+      // colori dalle nostre classi (RADAR_CLASSES), non quelli del servizio; i valori vengono interpolati (bilineare) prima
+      // di essere colorati: contorni morbidi invece dei quadratini da 1 km del dato
+      sld: true,
+      clean(d) { for (let i = 3; i < d.length; i += 4) if (d[i] < 250) d[i] = 0; }, // bordi sfumati: via
       /** Ultima immagine: si prova all'indietro di 5 in 5 minuti con un'immagine di 1 pixel (per un'ora che non c'è
        *  ancora il servizio risponde con un errore XML invece che con un PNG). */
       async latest() {
@@ -700,7 +909,7 @@
       };
       img.onerror = () => resolve(null); // immagine mancante: quell'istante resta vuoto
       img.src = wmsUrl(cfg.wms, { request: "GetMap", layers: cfg.layer, crs: "EPSG:3857", bbox: [sw.x, sw.y, ne.x, ne.y].join(","),
-        width: W, height: h, format: "image/png", transparent: "true", time });
+        width: W, height: h, format: "image/png", transparent: "true", time, ...(cfg.sld ? { sld_body: radarSld(cfg.layer), interpolations: "bilinear" } : {}) });
     });
   }
   // animazione: le ultime `frames` immagini, un livello per immagine caricato subito; si passa da una all'altra cambiando
@@ -729,7 +938,8 @@
   /** Dissolvenza fra l'immagine `i` e la seguente (`t` da 0 a 1, ciclica): la seguente compare sopra nella prima metà
    *  mentre l'altra resta piena, poi l'altra sfuma. Così nelle zone in comune la pioggia non si affievolisce a metà. */
   function paintRadar(i, t) {
-    const n = radarFrames.length, op = extraCfg()?.opacity ?? 0, j = (i + 1) % n;
+    // finché non sono arrivate tutte le immagini non se ne mostra nessuna (niente pezzi mentre si carica)
+    const n = radarFrames.length, op = radarReadyOnce ? extraCfg()?.opacity ?? 0 : 0, j = (i + 1) % n;
     radarFrames.forEach((f, k) => {
       const o = k === i ? op * Math.min(1, 2 * (1 - t)) : k === j && t > 0 ? op * Math.min(1, 2 * t) : 0;
       if (f.op === o) return;
@@ -786,7 +996,9 @@
       extraImage(cfg, f.time).then((url) => {
         if (!radarFrames.includes(f)) { if (url) URL.revokeObjectURL(url); return; } // livello già cambiato
         f.url = url;
-        if (url) { f.layer = L.imageOverlay(url, bounds, { pane: "radar", opacity: 0, interactive: false }).addTo(map); f.op = 0; }
+        if (url && glBase) f.layer = glFrameLayer(`wm-x-${f.time}`, url, bounds); // dentro Mapbox, sotto confini e nomi
+        else if (url) f.layer = L.imageOverlay(url, bounds, { pane: "radar", opacity: 0, interactive: false }).addTo(map);
+        f.op = 0;
         f.ready = true;
         updateRadarLoading();
       });
@@ -794,6 +1006,11 @@
     $("radar-slider").max = radarFrames.length - 1;
     if (wasLast && !radarPlay) showRadarFrame(radarFrames.length - 1); // senza animazione si resta sull'ultima immagine
     updateRadarLoading();
+  }
+  /** Immagine del radar/satellite come strato Mapbox, con gli stessi metodi usati dall'animazione. */
+  function glFrameLayer(id, url, bounds) {
+    glPut(id, { url, bounds, opacity: 0 });
+    return { setOpacity: (o) => glPut(id, { opacity: o }), setZIndex() {}, remove: () => glRemove(id), getElement: () => null };
   }
   const EXTRA_NAMES = { none: "Nessuno", radar: "Radar", sat: "Satellite" };
   function setExtra(name, save = true) {
@@ -806,6 +1023,7 @@
     // con un livello extra: spariscono colori, isolinee e frecce del modello (sarebbe illeggibile), legenda e barra in
     // alto passano al livello; il modello resta scelto e torna togliendolo
     document.body.classList.toggle("radar-mode", !!cfg);
+    if (glImgs.has("wm-model")) glPut("wm-model", { visible: !cfg }); // i colori del modello spariscono anche in Mapbox
     $("extra-name").textContent = cfg?.name || "";
     if (cfg) togglePlay(false);
     if (meta && state.var) { renderLegend(); renderPoints(); } // all'avvio le disegnano setupVars e setupPoints
@@ -829,6 +1047,7 @@
     );
     if (save) saveSettings();
   }
+  $("extra-close").addEventListener("click", () => setExtra("none"));
   $("radar-play").addEventListener("click", () => (radarPlay ? stopRadarPlay() : startRadarPlay()));
   $("radar-slider").addEventListener("input", (e) => { stopRadarPlay(); showRadarFrame(+e.target.value); });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshRadar(); }); // tornando sulla pagina
@@ -1020,19 +1239,22 @@
 
     const bounds = L.latLngBounds([south, west], [north, east]);
     const url = canvas.toDataURL("image/png");
-    if (!overlay) {
+    if (glBase) {
+      glPut("wm-model", { url, bounds, opacity: state.opacity, crisp: state.crisp, visible: state.extra === "none" });
+    } else if (!overlay) {
       overlay = L.imageOverlay(url, bounds, { opacity: state.opacity, className: "wm-overlay", interactive: false }).addTo(map);
     } else {
       overlay.setUrl(url);
       overlay.setBounds(bounds);
     }
-    overlay.getElement()?.classList.toggle("crisp", state.crisp);
+    overlay?.getElement()?.classList.toggle("crisp", state.crisp);
     drawContours(variable().contour_field ? currentContour : f);
     drawArrows();
   }
 
   function clearOverlay() {
     if (overlay) { map.removeLayer(overlay); overlay = null; }
+    glRemove("wm-model");
     currentContour = null;
     currentArrows = null;
     drawContours(null);
@@ -1073,6 +1295,7 @@
   const borderLines = {}; // chiave -> polyline, create al primo caricamento di borders.json
   let bordersLoad = null;
   function styleBorders() {
+    if (glBase) { bordersLayer.remove(); glBorders(); return; } // con Mapbox i confini sono i suoi
     const keys = visibleBorders();
     if (!keys.size) { bordersLayer.remove(); return; }
     bordersLayer.addTo(map);
@@ -1884,6 +2107,10 @@
       for (const lvl of levels) for (const img of lvl.querySelectorAll("img.leaflet-tile-loaded")) drawImg(img);
     };
     drawTiles(map.getPane("tilePane"));
+    if (glBase) { // sfondo Mapbox: il canvas WebGL (conservato con preserveDrawingBuffer)
+      const c = glBase.getCanvas(), r = c.getBoundingClientRect();
+      ctx.drawImage(c, r.left - cr.left, r.top - cr.top, r.width, r.height);
+    }
     if (overlay?.getElement() && state.extra === "none") {
       ctx.imageSmoothingEnabled = !state.crisp;
       drawImg(overlay.getElement(), state.opacity);
@@ -1897,7 +2124,7 @@
     }
     // isoterme: il canvas delle linee e le etichette (testo con alone bianco, come sullo schermo)
     const bordersCanvas = map.getPane("borders").querySelector("canvas");
-    if (bordersCanvas && bordersOn()) {
+    if (bordersCanvas && bordersOn() && !glBase) { // con Mapbox i confini sono già nel suo canvas
       const r = bordersCanvas.getBoundingClientRect();
       ctx.globalAlpha = state.bordersOpacity; // come nella pagina
       ctx.drawImage(bordersCanvas, r.left - cr.left, r.top - cr.top, r.width, r.height);
@@ -1956,13 +2183,13 @@
     const valid = new Date(runDate(state.run).getTime() + s * 3600e3);
     const modeText = state.mode === "interval" ? ` in ${intervalHours(s)}h (+${s - intervalHours(s)}h → +${s}h)` : state.mode === "total" ? " totale" : "";
     const runText = state.model === "mean" ? `dalle ${cycle(state.run)} ${fmtRunDay(state.run)}` : `corsa ${cycle(state.run)} ${fmtRunDay(state.run)}`;
-    const baseAttr = map.hasLayer(bases.topo) ? "Mappa © Thunderforest, dati © OpenStreetMap contributors"
+    const baseAttr = glBase ? "Mappa © Mapbox, dati © OpenStreetMap contributors" : map.hasLayer(bases.topo) ? "Mappa © Thunderforest, dati © OpenStreetMap contributors"
       : "Mappa © OpenStreetMap contributors";
     if (extraCfg()) { // radar o satellite: l'immagine è del livello extra (ora dell'immagine mostrata), con la sua legenda
       const cfg = extraCfg(), f = radarFrames[radarIdx];
       const t = f ? new Date(f.time) : new Date();
       const v = state.extra === "radar"
-        ? { units: "mm/h", scale: { thresholds: RADAR_CLASSES.map(([x]) => x), colors: RADAR_CLASSES.map(([, c]) => c), transparent_below: 0.1 } }
+        ? { units: "mm/h", scale: { thresholds: RADAR_CLASSES.map(([x]) => x), colors: RADAR_CLASSES.map(([, c]) => c), transparent_below: RADAR_CLASSES[0][0] } }
         : { units: "Nubi", scale: { continuous: true, thresholds: ["basse", "", "alte"], colors: SAT_SHADES } };
       return {
         v,
@@ -2126,7 +2353,12 @@
     const lx = 24 + ctx.measureText(texts.v.units).width + 14;
     const cont = !!texts.v.scale.continuous;
     const nseg = cont ? thresholds.length - 1 : thresholds.length;
-    const cw = Math.min(64, (OW - lx - 24) / nseg);
+    // la barra si ferma prima di "Realizzato da signalkuppe.com" (a destra sulla stessa riga)
+    ctx.font = `700 15px ${FONT}`;
+    let creditW = ctx.measureText("signalkuppe.com").width;
+    ctx.font = `400 15px ${FONT}`;
+    creditW += ctx.measureText("Realizzato da ").width;
+    const cw = Math.min(64, (OW - lx - 24 - creditW - 32) / nseg);
     const ly = OH - BAND + 16;
     const every = thresholds.length > 14 ? 2 : 1; // come nella legenda della pagina
     ctx.font = `500 15px ${FONT}`;
@@ -2143,7 +2375,9 @@
       ctx.fillStyle = "#3d4656";
       ctx.textAlign = i === 0 ? "left" : i === thresholds.length - 1 && cont ? "right" : "center";
       const skip = (i === 0 && !cont && texts.v.scale.transparent_below == null) || i % every;
-      if (!skip) ctx.fillText(String(t).replace("-", "−"), lx + i * cw, ly + 36);
+      // pioggia e radar partono da 0, come nella legenda della pagina
+      const zero = i === 0 && (t === 0.1 || texts.v.units === "mm/h");
+      if (!skip) ctx.fillText(zero ? "0" : String(t).replace("-", "−"), lx + i * cw, ly + 36);
     });
     // autore in basso a destra, sulla riga della legenda (la barra arriva al massimo a ~900 px)
     ctx.textAlign = "right";
@@ -2299,6 +2533,13 @@
   /** Aspetta le tessere dello sfondo dopo lo spostamento (al massimo 2 s) e un paio di frame per le linee. */
   function tilesReady() {
     return new Promise((resolve) => {
+      if (glBase) { // Mapbox: "idle" quando stile e tessere della vista sono pronti e disegnati
+        const m = glBase.getMapboxMap();
+        const done = () => { clearTimeout(t); requestAnimationFrame(() => requestAnimationFrame(resolve)); };
+        const t = setTimeout(done, 2000);
+        if (m.loaded() && m.areTilesLoaded()) done(); else m.once("idle", done);
+        return;
+      }
       const layer = bases[state.base];
       const done = () => { layer.off("load", done); clearTimeout(t); requestAnimationFrame(() => requestAnimationFrame(resolve)); };
       const t = setTimeout(done, 2000);
@@ -2982,11 +3223,12 @@
   ui.opacity.addEventListener("input", () => {
     state.opacity = +ui.opacity.value;
     overlay?.setOpacity(state.opacity);
+    if (glImgs.has("wm-model")) glPut("wm-model", { opacity: state.opacity });
     writeHash();
     saveSettings();
   });
   // opacità dei confini (Impostazioni), separata da quella dei colori: vale per tutto il livello delle linee
-  const applyBordersOpacity = () => { map.getPane("borders").style.opacity = state.bordersOpacity; };
+  const applyBordersOpacity = () => { map.getPane("borders").style.opacity = state.bordersOpacity; glBorders(); };
   ui.bordersOpacity.addEventListener("input", () => {
     state.bordersOpacity = +ui.bordersOpacity.value;
     applyBordersOpacity();
@@ -3107,6 +3349,7 @@
     map.setMaxBounds(box);
     updateMinZoom();
     map.fitBounds(start, { animate: false });
+    setupMapbox(meta.mapbox_token); // dopo la prima vista: Leaflet aggiunge i livelli solo a mappa posizionata
     map.on("resize", () => {
       updateMinZoom();
       if (map.getZoom() < map.getMinZoom()) map.setZoom(map.getMinZoom(), { animate: false });

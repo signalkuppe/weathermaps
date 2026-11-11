@@ -41,6 +41,9 @@ class GribSelector:
     pair: "GribSelector | None" = None
     lambert: tuple[float, float, float] | None = None
     component: str | None = None
+    # secondo ingrediente da scaricare insieme a questo campo (es. il punto di rugiada per il bulbo umido): i due
+    # campi grezzi passano a Variable.combine, che ne ricava quello da salvare
+    dew: "GribSelector | None" = None
 
 
 @dataclass(frozen=True)
@@ -84,6 +87,8 @@ class Variable:
     half_res: bool = False
     # altre grandezze (nascoste) mostrate nel riquadro della località: [{"var": id, "label": nome}]
     details: list | None = None
+    # grandezze calcolate da due campi (selettore con `dew`): (campo, secondo campo) grezzi -> campo grezzo
+    combine: Callable | None = None
 
     @property
     def modes(self) -> list[str]:
@@ -244,6 +249,97 @@ register(
     )
 )
 
+
+# Temperatura e bulbo umido a 2 m: stessa scala, più ampia di quella a 850 hPa (fino a 40 °C).
+T2M_SCALE = ColorScale(
+    thresholds=list(range(-20, 42, 2)),
+    colors=T850_SCALE.colors + [
+        "#9e0a2c",  # 20..22
+        "#8a0b33",  # 22..24
+        "#760c3c",  # 24..26
+        "#630d45",  # 26..28
+        "#520e4d",  # 28..30
+        "#6a2a6a",  # 30..32
+        "#834888",  # 32..34
+        "#9d68a5",  # 34..36
+        "#b88bc2",  # 36..38
+        "#d3b0dc",  # > 38
+    ],
+    transparent_below=None,
+    continuous=True,
+)
+# AROME escluso: temperatura e umidità a 2 m sono nei pacchetti SP1 da indicizzare messaggio per messaggio (come il vento)
+T2M_SEL = {
+    "gfs": GribSelector(var="TMP", level="2_m_above_ground", short_name="2t"),
+    "ecmwf": GribSelector(param="2t", levtype="sfc", short_name="2t"),
+    "icon-d2": GribSelector(param="t_2m", levtype="single-level"),
+    "icon-2i": GribSelector(param="T_2M", levtype="heightAboveGround", levelist="2"),
+    "wrf": GribSelector(param="2t", levtype="heightAboveGround", levelist="2", code=(0, 0, 0)),
+    "icon-ch2": GribSelector(param="T_2M"),
+    "icon-ch1": GribSelector(param="T_2M"),
+}
+TD2M_SEL = {
+    "gfs": GribSelector(var="DPT", level="2_m_above_ground", short_name="2d"),
+    "ecmwf": GribSelector(param="2d", levtype="sfc", short_name="2d"),
+    "icon-d2": GribSelector(param="td_2m", levtype="single-level"),
+    "icon-2i": GribSelector(param="TD_2M", levtype="heightAboveGround", levelist="2"),
+    "wrf": GribSelector(param="2d", levtype="heightAboveGround", levelist="2", code=(0, 0, 6)),
+    "icon-ch2": GribSelector(param="TD_2M"),
+    "icon-ch1": GribSelector(param="TD_2M"),
+}
+
+
+def wet_bulb_k(t_k, td_k, p_hpa: float = 1013.25):
+    """Temperatura di bulbo umido (K) da temperatura e punto di rugiada (K): equazione psicrometrica risolta per
+    bisezione, e(Td) = es(Tw) - A·p·(T - Tw), con A = 6,6·10⁻⁴ (1 + 0,00115·Tw) /K e tensione di vapore di Magnus.
+
+    Pressione fissa a 1013 hPa (i modelli non danno qui la pressione al suolo): in montagna il bulbo umido vero è
+    appena più basso, un paio di decimi di grado a 1500-2000 m.
+    """
+    t = np.asarray(t_k, dtype=np.float64) - 273.15
+    td = np.minimum(np.asarray(td_k, dtype=np.float64) - 273.15, t)
+    es = lambda x: 6.112 * np.exp(17.62 * x / (243.12 + x))  # noqa: E731 (hPa, sull'acqua)
+    e = es(td)
+    lo, hi = td.copy(), t.copy()  # il bulbo umido sta fra rugiada e temperatura
+    for _ in range(30):  # 30 dimezzamenti: precisione ben sotto il centesimo di grado
+        mid = (lo + hi) / 2
+        f = es(mid) - 6.6e-4 * (1 + 0.00115 * mid) * p_hpa * (t - mid) - e
+        hi = np.where(f > 0, mid, hi)
+        lo = np.where(f > 0, lo, mid)
+    return (lo + hi) / 2 + 273.15
+
+
+register(
+    Variable(
+        id="t2m",
+        label="Temperatura 2 m",
+        units="°C",
+        kind="instant",
+        selectors=T2M_SEL,
+        convert={m: _k_to_c for m in T2M_SEL},
+        scale=T2M_SCALE,
+        decimals=1,
+        rank="asc",
+        contours={"label": "Isoterme", "step": 2, "bold": [0], "signed": True},
+    )
+)
+register(
+    Variable(
+        id="tw2m",
+        label="Bulbo umido 2 m",
+        units="°C",
+        kind="instant",
+        # si scarica la temperatura con accanto il punto di rugiada; il bulbo umido si calcola subito
+        selectors={m: dataclasses.replace(sel, dew=TD2M_SEL[m]) for m, sel in T2M_SEL.items()},
+        convert={m: _k_to_c for m in T2M_SEL},
+        combine=wet_bulb_k,
+        scale=T2M_SCALE,
+        decimals=1,
+        rank="asc",
+        # sotto 0 °C di bulbo umido la neve arriva al suolo facilmente: lo zero marcato
+        contours={"label": "Isolinee", "step": 1, "bold": [0], "signed": True},
+    )
+)
 
 # Neve fresca in cm: i modelli danno l'acqua equivalente (kg/m² = mm), convertita col rapporto standard 10:1
 # (1 mm d'acqua = 1 cm di neve). È una stima: la neve umida si accumula meno, quella farinosa di più.

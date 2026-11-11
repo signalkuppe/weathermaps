@@ -135,27 +135,27 @@ def test_field_errors(client):
 
 
 def test_new_variable_appears_without_other_changes(client):
-    t2m = variables.Variable(
-        id="t2m",
-        label="Temperatura 2 m",
+    demo = variables.Variable(
+        id="tprova",
+        label="Grandezza di prova",
         units="°C",
         kind="instant",
         selectors={"gfs": variables.GribSelector(var="TMP", level="2_m_above_ground", short_name="2t")},
         convert={"gfs": lambda k: k - 273.15},
         scale=variables.ColorScale(thresholds=[-10, 0, 10, 20], colors=["#00f", "#0ff", "#ff0", "#f00"]),
     )
-    variables.register(t2m)
+    variables.register(demo)
     try:
         m = client.get("/api/meta").json()
-        v = next(x for x in m["variables"] if x["id"] == "t2m")
+        v = next(x for x in m["variables"] if x["id"] == "tprova")
         assert v["modes"] == ["value"] and v["models"] == ["gfs"]
-        client.app.state.store.save("gfs", RUN, "t2m", 3, _field(12.0))
-        f = client.get("/api/field", params={"model": "gfs", "run": RUN, "step": 3, "var": "t2m"}).json()
+        client.app.state.store.save("gfs", RUN, "tprova", 3, _field(12.0))
+        f = client.get("/api/field", params={"model": "gfs", "run": RUN, "step": 3, "var": "tprova"}).json()
         assert f["mode"] == "value" and f["values"][0] == 12.0
-        bad = client.get("/api/field", params={"model": "gfs", "run": RUN, "step": 3, "var": "t2m", "mode": "interval"})
+        bad = client.get("/api/field", params={"model": "gfs", "run": RUN, "step": 3, "var": "tprova", "mode": "interval"})
         assert bad.status_code == 400
     finally:
-        variables.REGISTRY.pop("t2m")
+        variables.REGISTRY.pop("tprova")
 
 
 def test_store_namespaced_by_bbox(tmp_path):

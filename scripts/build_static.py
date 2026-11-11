@@ -5,11 +5,12 @@ Produce in OUT_DIR:
   borders.json                       contorni geografici (da scripts/make_borders.py)
   data/meta.json                     come /api/meta
   data/runs.json                     come /api/runs + istante di generazione
-  data/field/{model}/{var}/{run}/{step}.json   campo "totale" (o "valore") come /api/field
+  data/field/{model}/{var}/{run}/{step}.bin    campo "totale" (o "valore") come /api/field, in formato compatto:
+                                               valori in interi a 16 bit (app/packed.py), circa 1/3 del JSON
   data/series/{model}/{run}/{riga}_{colonna}.json   meteogrammi in riquadri di 2°×2° (app/series.py)
 
 Per contenere il numero di file (GitHub Pages li sincronizza uno per uno, entro 10 minuti):
-  - le due componenti del vento stanno in un solo file per passo: data/field/{model}/{vettore}/{run}/{step}.json
+  - le due componenti del vento stanno in un solo file per passo: data/field/{model}/{vettore}/{run}/{step}.bin
     con "u" e "v" al posto di "values" (vettore = wind10, wind700);
   - i campi dei dettagli (es. z850, quota di 850 hPa) stanno nel file della grandezza a cui appartengono (t850),
     sotto "extra": {"z850": {grid, values, ...}}.
@@ -31,9 +32,16 @@ sys.path.insert(0, str(ROOT))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import series, variables  # noqa: E402
+from app import packed, series, variables  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.store import Store  # noqa: E402
+
+
+def write_bin(path: Path, obj) -> int:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = packed.pack(obj)
+    path.write_bytes(data)
+    return len(data)
 
 
 def write_json(path: Path, obj) -> int:
@@ -102,7 +110,7 @@ def main(out_dir: Path) -> int:
                                 extra = get(model, dvar, run, step)
                                 if extra:
                                     body.setdefault("extra", {})[dvar] = extra
-                        size += write_json(out_dir / "data" / "field" / model / var / run / f"{step}.json", body)
+                        size += write_bin(out_dir / "data" / "field" / model / var / run / f"{step}.bin", body)
                         files += 1
                 for vec in variables.VECTORS:
                     su, sv = have.get(vec["u"], {}).get("steps", []), have.get(vec["v"], {}).get("steps", [])
@@ -112,7 +120,7 @@ def main(out_dir: Path) -> int:
                             continue
                         body = {k: x for k, x in fu.items() if k not in ("values", "max", "min", "var")}
                         body.update(var=vec["id"], u=fu["values"], v=fv["values"])
-                        size += write_json(out_dir / "data" / "field" / model / vec["id"] / run / f"{step}.json", body)
+                        size += write_bin(out_dir / "data" / "field" / model / vec["id"] / run / f"{step}.bin", body)
                         files += 1
         # meteogrammi: serie temporali su una griglia di 0,1° in riquadri di 2°×2° (vedi app/series.py)
         nser = 0
@@ -123,7 +131,7 @@ def main(out_dir: Path) -> int:
                 for (ty, tx), body in series.build_tiles(store, model, item["run"]).items():
                     size += write_json(out_dir / "data" / "series" / model / item["run"] / f"{ty}_{tx}.json", body)
                     nser += 1
-    print(f"Sito statico in {out_dir}: {files} campi, {nser} riquadri di serie, {size / 1e6:.1f} MB di JSON")
+    print(f"Sito statico in {out_dir}: {files} campi, {nser} riquadri di serie, {size / 1e6:.1f} MB di dati")
     return 0
 
 
