@@ -88,6 +88,7 @@
             <button id="next" class="icon-btn" type="button" title="Passo successivo (→)">›</button>
             <input id="step" type="range" min="0" max="0" value="0" aria-label="Istante di previsione">
           </div>
+          <time id="updated-at" class="updated-at" hidden></time>
         </div>
       </details>
       <!-- combinazione modello/grandezza/ora senza dati (la mappa intanto è in grigio) -->
@@ -144,18 +145,16 @@
         <div class="settings-body">
           <!-- uno alla volta: radar (mosaico nazionale, ogni 5 minuti) o satellite (nubi, Meteosat, ogni 10 minuti) -->
           <div class="seg" id="extra-seg"></div>
-          <span id="radar-time" class="radar-time"></span>
         </div>
       </details>
       <details id="credits" class="points-box credits">
-        <summary>Info &amp; crediti <span class="credits-osm">© OpenStreetMap</span></summary>
+        <summary>Info &amp; crediti</summary>
         <p class="credits-data">Dati dei modelli: NOAA/NCEP GFS · ECMWF Open Data (CC-BY-4.0) ·
           ItaliaMeteo ICON-2I (CC-BY), WRF (CIMA, LaMMA) · DWD ICON-D2 · Météo-France AROME (Licence Ouverte) ·
           MeteoSvizzera ICON-CH1/CH2 (CC-BY) · Radar: Protezione Civile / ItaliaMeteo (MeteoHub) · Satellite: EUMETSAT · Confini: Natural Earth</p>
         <div id="attrib" class="attrib"></div>
         <p class="credits-data">Realizzato da <a href="https://www.signalkuppe.com/" target="_blank" rel="noopener">signalkuppe</a></p>
       </details>
-      <time id="updated-at" class="updated-at" hidden></time>
     </div>
   </aside>
 

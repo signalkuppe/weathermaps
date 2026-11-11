@@ -58,8 +58,6 @@
   };
   // sfondo: dalla sezione "Impostazioni" del pannello (niente selettore livelli di Leaflet)
   const BASE_NAMES = { osm: "Strade", topo: "Rilievo" }; // effetto "carta meteo": opacità al massimo e confini
-  const baseCredit = () =>
-    state.base === "topo" ? "© Thunderforest, OpenStreetMap" : "© OpenStreetMap";
   // confini sopra i colori (Impostazioni), a livelli: ogni scelta comprende le precedenti
   const BORDER_NAMES = { none: "Nessuno", countries: "Stati", regions: "Regioni", provinces: "Province" };
   function setBorders(name, save = true) {
@@ -79,10 +77,6 @@
   }
   function setBase(name, save = true) {
     state.base = bases[name] ? name : "topo"; // anche il vecchio "Essenziale" salvato nel browser
-    const credit = ui.legend.querySelector(".lg-credit");
-    if (credit) credit.textContent = baseCredit();
-    const osm = document.querySelector(".credits-osm"); // credito breve accanto a "Info & crediti"
-    if (osm) osm.textContent = baseCredit();
     for (const [k, layer] of Object.entries(bases)) {
       if (k === state.base) layer.addTo(map);
       else map.removeLayer(layer);
@@ -100,8 +94,7 @@
     );
   }
   // attribuzione della mappa sempre nel pannello, nella sezione "Info & crediti" (dove ci sono anche le fonti
-  // dei dati dei modelli, in index.html); Leaflet continua ad aggiornarla da solo. Un credito breve, sempre
-  // visibile anche a pannello ridotto (obbligatorio), sta in piccolo nella legenda: vedi baseCredit.
+  // dei dati dei modelli, in index.html); Leaflet continua ad aggiornarla da solo.
   ui.attrib.appendChild(map.attributionControl.getContainer());
 
   // su mobile badge e legenda diventano un solo riquadro in basso: la legenda entra nel badge
@@ -452,8 +445,7 @@
       ui.legend.innerHTML =
         `<h2><span class="lg-label">Nubi da satellite </span>(infrarosso)</h2><ol class="lg-continuous">` +
         `<li><i style="background:linear-gradient(to right, ${SAT_SHADES[0]}, ${SAT_SHADES[1]})"></i><span class="lg-tick">basse</span></li>` +
-        `<li><i style="background:linear-gradient(to right, ${SAT_SHADES[1]}, ${SAT_SHADES[2]})"></i><span class="lg-tick"></span><span class="lg-tick lg-tick-end">alte</span></li></ol>` +
-        `<a class="lg-credit" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">${baseCredit()}</a>`;
+        `<li><i style="background:linear-gradient(to right, ${SAT_SHADES[1]}, ${SAT_SHADES[2]})"></i><span class="lg-tick"></span><span class="lg-tick lg-tick-end">alte</span></li></ol>`;
       return;
     }
     if (state.extra === "radar") { // radar acceso: la sua legenda (classi del servizio, mm/h) al posto di quella del modello
@@ -461,9 +453,8 @@
         `<h2><span class="lg-label">Radar, intensità </span>(mm/h)</h2><ol>` +
         RADAR_CLASSES.map(([t, c], i) => {
           const next = RADAR_CLASSES[i + 1]?.[0];
-          return `<li><i style="background:${c}"></i><span class="lg-text">${next == null ? `> ${t}` : `${t} … ${next}`}</span><span class="lg-tick">${t}</span></li>`;
-        }).join("") + "</ol>" +
-        `<a class="lg-credit" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">${baseCredit()}</a>`;
+          return `<li><i style="background:${c}"></i><span class="lg-text">${next == null ? `> ${t}` : `${t} … ${next}`}</span><span class="lg-tick">${i === 0 ? 0 : t}</span></li>`;
+        }).join("") + "</ol>";
       return;
     }
     const v = variable();
@@ -482,8 +473,7 @@
         return `<li><i style="background:linear-gradient(to right, ${colors[i]}, ${colors[i + 1]})"></i><span class="lg-tick">${tick}</span>${end}</li>`;
       });
       ui.legend.innerHTML =
-        `<h2><span class="lg-label">${baseLabel()} ${modeLabel} </span>(${v.units})${isoNote()}</h2><ol class="lg-continuous">${segs.join("")}</ol>` +
-        `<a class="lg-credit" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">${baseCredit()}</a>`;
+        `<h2><span class="lg-label">${baseLabel()} ${modeLabel} </span>(${v.units})${isoNote()}</h2><ol class="lg-continuous">${segs.join("")}</ol>`;
       return;
     }
     const items = thresholds.map((t, i) => {
@@ -491,12 +481,12 @@
       const text =
         next == null ? `> ${num(t)}` : i === 0 && openLow ? `< ${num(next)}` : `${num(t)} … ${num(next)}`;
       // tick: soglia inferiore della classe, mostrata solo nella barra compatta su mobile
-      const tick = (i === 0 && openLow) || i % every ? "" : num(t);
+      // la prima classe della pioggia (da 0.1 mm) si legge "da 0": il primo numero sta sul bordo sinistro della barra
+      const tick = (i === 0 && openLow) || i % every ? "" : i === 0 && t === 0.1 ? "0" : num(t);
       return `<li><i style="background:${colors[i]}"></i><span class="lg-text">${text}</span><span class="lg-tick">${tick}</span></li>`;
     });
     ui.legend.innerHTML =
-      `<h2><span class="lg-label">${baseLabel()} ${modeLabel} </span>(${v.units})${isoNote()}</h2><ol>${items.join("")}</ol>` +
-      `<a class="lg-credit" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">${baseCredit()}</a>`;
+      `<h2><span class="lg-label">${baseLabel()} ${modeLabel} </span>(${v.units})${isoNote()}</h2><ol>${items.join("")}</ol>`;
   }
 
   // ---------- dati
@@ -753,7 +743,6 @@
     paintRadar(radarIdx, 0);
     const f = radarFrames[radarIdx];
     $("radar-slider").value = radarIdx;
-    $("radar-time").textContent = f ? `ultima immagine ${fmtRadarTime(radarFrames.at(-1).time)}` : "";
     $("radar-badge-time").textContent = f ? fmtRadarTime(f.time) : "—";
   }
   function stopRadarPlay() {
@@ -783,7 +772,7 @@
     let latest = null;
     try { latest = await cfg.latest(); } catch { /* rete assente: si riprova al prossimo giro */ }
     if (extraCfg() !== cfg) return; // nel frattempo è cambiato livello
-    if (!latest) { if (!radarFrames.length) $("radar-time").textContent = "non disponibile"; return; }
+    if (!latest) { if (!radarFrames.length) $("radar-loader-count").textContent = "non disponibile, riprovo tra poco"; return; }
     if (radarFrames.at(-1)?.time === latest) return;
     const times = Array.from({ length: cfg.frames }, (_, k) => new Date(Date.parse(latest) - (cfg.frames - 1 - k) * cfg.stepMin * 60e3).toISOString());
     const keep = new Map(radarFrames.map((f) => [f.time, f]));
@@ -818,7 +807,6 @@
     // alto passano al livello; il modello resta scelto e torna togliendolo
     document.body.classList.toggle("radar-mode", !!cfg);
     $("extra-name").textContent = cfg?.name || "";
-    $("radar-time").textContent = "";
     if (cfg) togglePlay(false);
     if (meta && state.var) { renderLegend(); renderPoints(); } // all'avvio le disegnano setupVars e setupPoints
     ui.probe.hidden = true;
@@ -3080,7 +3068,7 @@
     }
     renderUpdated();
   }
-  /** In fondo al pannello: quando sono stati aggiornati i dati ("oggi alle 14:17", "il 10 nov alle 20:05"). */
+  /** In fondo alla sezione "Modelli e parametri": quando sono stati aggiornati i dati ("oggi alle 14:17", "il 10 nov alle 20:05"). */
   function renderUpdated() {
     const el = $("updated-at");
     const d = publishedAt ? new Date(publishedAt) : null;

@@ -66,7 +66,8 @@ body {
 .panel-head h1 { font-size: 15px; margin: 0; font-weight: 650; display: flex; align-items: center; gap: 4px; }
 .panel-head h1 .logo { flex: none; display: block; }
 .app-version { margin-left: 4px; font-size: 11px; font-weight: 400; color: var(--muted); } /* stessa linea di base del nome: le cifre stanno all'altezza delle minuscole */
-.updated-at { display: block; font-size: 10px; color: var(--muted); } /* in fondo al pannello, sempre visibile */
+.updated-at { display: block; text-align: right; font-size: 10px; color: var(--muted); } /* in fondo alla sezione dei modelli */
+.updated-at[hidden] { display: none; }
 .panel.collapsed .panel-body { display: none; }
 .head-actions { display: flex; gap: 6px; align-items: center; }
 /* icona "Condividi" in fondo alla barra di modello e ora (il badge non riceve clic, il pulsante sì) */
@@ -405,7 +406,6 @@ input[type="range"] { accent-color: var(--accent); margin-inline: 0; } /* senza 
 
 /* attribuzione di Leaflet spostata nel pannello (vedi placeAttribution in app.js) */
 /* "© OpenStreetMap" resta visibile anche a sezione chiusa: l'attribuzione OSM è obbligatoria */
-.credits summary .credits-osm { float: right; font-size: 11px; }
 .attrib .leaflet-control-attribution {
   float: none; /* Leaflet fa flottare i controlli: nel pannello ciò che segue andrebbe di fianco */
   margin: 0; padding: 6px 0 0;
@@ -414,7 +414,6 @@ input[type="range"] { accent-color: var(--accent); margin-inline: 0; } /* senza 
 .attrib .leaflet-control-attribution a { color: inherit; text-decoration: underline; }
 .settings-body, .models-body { display: grid; gap: 8px; margin-top: 8px; }
 /* Livelli extra: radar con ora dell'ultima immagine e legenda propria (colori del servizio) */
-.radar-time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 /* modalità radar: via i livelli del modello (colori, isolinee, frecce, valori sulle località); la barra in alto mostra
    solo l'animazione del radar (più condividi e, su mobile, la legenda) */
 body.radar-mode .wm-overlay, body.radar-mode .leaflet-contours-pane, body.radar-mode .leaflet-contourLabels-pane,
@@ -478,9 +477,6 @@ body.radar-mode .badge-radar .badge-btn:hover { background: var(--accent-tint); 
 .legend .lg-text { display: none; }
 .legend .lg-tick { display: block; height: 14px; padding-top: 3px; font-size: 10px; line-height: 11px;
   transform: translateX(-50%); width: max-content; color: var(--muted); font-variant-numeric: tabular-nums; }
-/* credito breve della mappa, sempre visibile (obbligatorio) */
-.legend .lg-credit { display: block; margin-top: 2px; font-size: 8px; line-height: 1; color: var(--muted);
-  text-decoration: none; text-align: right; pointer-events: auto; }
 
 .probe {
   position: absolute;
@@ -639,7 +635,6 @@ body.radar-mode .badge-radar .badge-btn:hover { background: var(--accent-tint); 
   #m-play { order: 4; width: 30px; }
   .share-btn { order: 6; width: 34px; height: 40px; margin: 0 -8px 0 4px; }
   .badge .legend { order: 7; flex-basis: 100%; padding-left: 8px; flex-wrap: wrap; }
-  .legend .lg-credit { flex-basis: 100%; margin: 0 0 1px; }
   /* legenda compatta sopra l'etichetta della corsa: unità a sinistra, barra colori con le soglie sotto */
   .legend { position: static; min-width: 0; padding: 0; border: 0; box-shadow: none; background: none;
     display: flex; align-items: flex-start; gap: 0 8px; }
