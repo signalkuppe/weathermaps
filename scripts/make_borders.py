@@ -1,11 +1,11 @@
-"""Genera static/borders.json: coste, laghi, confini di stato, regionali e provinciali ritagliati su BBOX.
+"""Genera static/borders.json: coste, confini di stato, regionali e provinciali ritagliati su BBOX.
 
 Servono a riconoscere i luoghi anche quando i colori dei dati coprono la mappa di sfondo (opacità alta):
 la pagina li disegna come linee sottili sopra i colori. Dati: Natural Earth 1:10m (pubblico dominio).
 
 Uso:
   scarica in una cartella i GeoJSON di https://github.com/nvkelso/natural-earth-vector/tree/master/geojson
-    ne_10m_coastline, ne_10m_lakes, ne_10m_lakes_europe, ne_10m_admin_0_boundary_lines_land,
+    ne_10m_coastline, ne_10m_admin_0_boundary_lines_land,
     ne_10m_admin_1_states_provinces_lines
   python scripts/make_borders.py CARTELLA_NE   (BBOX dall'ambiente, come il resto dell'app)
 """
@@ -22,7 +22,6 @@ from app.config import get_bbox  # noqa: E402
 
 MARGIN = 0.5  # gradi oltre il bordo: le linee non si interrompono proprio sul bordo dei dati
 TOLERANCE = 0.004  # semplificazione (~400 m): invisibile alle scale della mappa, file molto più piccolo
-MIN_LAKE_POINTS = 4  # laghetti minuscoli: solo rumore
 # Natural Earth chiama "Admin-1" il primo livello sotto lo stato, che non è lo stesso ovunque: in Italia e Francia
 # sono province e dipartimenti, raggruppati in regioni (linee "Admin-1 region boundary"); in Svizzera, Austria,
 # Germania, Croazia... i cantoni/Länder/contee sono già il livello "regione". In Slovenia gli Admin-1 sono i comuni.
@@ -104,7 +103,6 @@ def main(ne_dir: Path) -> int:
     box = (b.lat_min - MARGIN, b.lat_max + MARGIN, b.lon_min - MARGIN, b.lon_max + MARGIN)
     layers = {
         "coast": "ne_10m_coastline.geojson",
-        "lakes": "ne_10m_lakes.geojson",
         "countries": "ne_10m_admin_0_boundary_lines_land.geojson",
         "regions": "ne_10m_admin_1_states_provinces_lines.geojson",
         "provinces": "ne_10m_admin_1_states_provinces_lines.geojson",
@@ -113,11 +111,6 @@ def main(ne_dir: Path) -> int:
     for key, name in layers.items():
         data = json.loads((ne_dir / name).read_text(encoding="utf-8"))
         features = data["features"]
-        if key == "lakes":
-            # i laghi minori d'Europa (Iseo, Lugano...) sono in un file a parte; quelli già presenti si saltano
-            seen = {f["properties"].get("name") for f in features}
-            extra = json.loads((ne_dir / "ne_10m_lakes_europe.geojson").read_text(encoding="utf-8"))["features"]
-            features = features + [f for f in extra if f["properties"].get("name") not in seen]
         if key in ("regions", "provinces"):
             features = [f for f in features if admin1_layer(f["properties"]) == key]
         parts = []
@@ -125,8 +118,6 @@ def main(ne_dir: Path) -> int:
             for line in lines_of(feat["geometry"]):
                 for seg in clip(line, box):
                     seg = simplify(seg, TOLERANCE)
-                    if key == "lakes" and len(seg) < MIN_LAKE_POINTS:
-                        continue
                     if len(seg) >= 2:
                         # [lat, lon] con 3 decimali (~100 m), l'ordine che usa Leaflet
                         parts.append([[round(y, 3), round(x, 3)] for x, y in seg])

@@ -814,14 +814,13 @@
   const bordersLayer = L.layerGroup();
   const BORDER_STYLE = {
     coast: { weight: 1.5, opacity: 0.85 },
-    lakes: { weight: 1.5, opacity: 0.85 },
     countries: { weight: 2, opacity: 0.9 },
     regions: { weight: 1.4, opacity: 0.8 },
     provinces: { weight: 1.1, opacity: 0.75, dashArray: "4 3" }, // tratteggio: si distinguono dalle regioni
   };
-  // quali linee, dalla scelta "Confini": Stati = coste, laghi e confini di stato (con l'opacità al massimo la mappa
-  // diventa una carta meteo classica), Regioni e Province aggiungono i confini interni
-  const BORDER_LEVELS = [[], ["coast", "lakes", "countries"], ["regions"], ["provinces"]];
+  // quali linee, dalla scelta "Confini": Stati = coste e confini di stato (con l'opacità al massimo la mappa diventa
+  // una carta meteo classica), Regioni e Province aggiungono i confini interni
+  const BORDER_LEVELS = [[], ["coast", "countries"], ["regions"], ["provinces"]];
   function visibleBorders() {
     const n = Object.keys(BORDER_NAMES).indexOf(state.borders);
     return new Set(BORDER_LEVELS.slice(0, n + 1).flat());

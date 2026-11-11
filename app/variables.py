@@ -118,21 +118,35 @@ def _k_to_c(x):
     return x - 273.15
 
 
+# Scala delle carte di pioggia LaMMA (MOLOCH): sopra i 20 mm soglie e colori dalla loro legenda, sotto ricostruiti
+# dai colori delle loro mappe (azzurri e blu, poi verdi); arriva oltre i 350 mm, utile per i totali di più giorni
+# sulle Alpi in caso di sbarramento
 PRECIP_SCALE = ColorScale(
-    thresholds=[0.1, 1, 2, 5, 10, 20, 30, 50, 75, 100, 150, 200],
+    thresholds=[0.1, 1, 2, 4, 6, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 100, 125, 150, 175, 200, 250, 300, 350],
     colors=[
-        "#a6f0ff",  # 0.1-1
-        "#5fd0ff",  # 1-2
-        "#1e9bff",  # 2-5
-        "#1560e0",  # 5-10
-        "#16a34a",  # 10-20
-        "#7ed321",  # 20-30
-        "#ffe600",  # 30-50
-        "#ffa200",  # 50-75
-        "#ff5a00",  # 75-100
-        "#e0001b",  # 100-150
-        "#b0007a",  # 150-200
-        "#7a00c8",  # >200
+        "#a5fcfb",  # 0.1-1
+        "#68fafd",  # 1-2
+        "#46c2fc",  # 2-4
+        "#4597fa",  # 4-6
+        "#424ff5",  # 6-10
+        "#41ba3c",  # 10-15
+        "#a6d621",  # 15-20
+        "#f4e015",  # 20-25
+        "#ffc301",  # 25-30
+        "#fe7e03",  # 30-40
+        "#fd0100",  # 40-50
+        "#c70100",  # 50-60
+        "#d364c3",  # 60-70
+        "#b41a9c",  # 70-80
+        "#820094",  # 80-100
+        "#b4b4b4",  # 100-125
+        "#8c8c8c",  # 125-150
+        "#5a5a5a",  # 150-175
+        "#323232",  # 175-200
+        "#a37a22",  # 200-250
+        "#815202",  # 250-300
+        "#623201",  # 300-350
+        "#4d2200",  # >350
     ],
     transparent_below=0.1,
 )

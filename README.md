@@ -60,7 +60,7 @@ La **mediana dei modelli** è costruita per istante di validità da un orario co
 - **Linee di livello** sopra i colori, con etichette: isoterme ogni 2 °C a 850 hPa (marcata quella di 0 °C) e isoipse
   dello zero termico ogni 250 m (marcate le migliaia). Sono calcolate nel browser dal campo (ammorbidito sulle griglie
   fini), si spengono nelle impostazioni e compaiono anche nell'immagine condivisa.
-- **Confini** sopra i colori, a scelta nelle impostazioni: Stati (con coste e laghi), Regioni o Province, ogni livello
+- **Confini** sopra i colori, a scelta nelle impostazioni: Stati (con le coste), Regioni o Province, ogni livello
   con i precedenti (Natural Earth 1:10m). Le regioni sono quelle italiane e francesi, i cantoni svizzeri, i Länder. Il file `static/borders.json` si scarica la
   prima volta che servono e si rigenera con `scripts/make_borders.py` se cambia `BBOX`.
 - **Navigazione:** modello, istante (slider, frecce ←/→, spazio = play), opacità regolabile, celle nette senza
