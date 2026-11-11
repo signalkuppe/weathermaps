@@ -366,23 +366,27 @@
   // ---------- impostazioni (sfondo, opacità, celle nette, isolinee) salvate nel browser; un link con i parametri
   // nell'URL vince su quelle salvate (readHash viene dopo)
   const SETTINGS_KEY = "weathermaps.settings.v1";
+  // versione delle impostazioni salvate: con la 2 (sfondi Mapbox) cambiano i predefiniti di colori e confini, e chi
+  // aveva salvato quelli vecchi (confini spenti) riparte una volta dai nuovi; il resto delle scelte resta
+  const SETTINGS_VERSION = 2;
   function loadSettings() {
     try {
       const d = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null");
       if (!d || typeof d !== "object") return;
+      const current = d.v >= SETTINGS_VERSION;
       if (typeof d.base === "string") state.base = d.base;
-      if (Number.isFinite(d.opacity)) state.opacity = Math.min(1, Math.max(0.1, d.opacity));
+      if (current && Number.isFinite(d.opacity)) state.opacity = Math.min(1, Math.max(0.1, d.opacity));
       if (typeof d.crisp === "boolean") state.crisp = d.crisp;
       if (typeof d.iso === "boolean") state.iso = d.iso;
-      if (BORDER_NAMES[d.borders]) state.borders = d.borders;
+      if (current && BORDER_NAMES[d.borders]) state.borders = d.borders;
       if (d.extra === "radar" || d.extra === "sat") state.extra = d.extra;
       else if (d.radar === true) state.extra = "radar"; // impostazione salvata dalla prima versione del radar
-      if (Number.isFinite(d.bordersOpacity)) state.bordersOpacity = Math.min(1, Math.max(0.1, d.bordersOpacity));
+      if (current && Number.isFinite(d.bordersOpacity)) state.bordersOpacity = Math.min(1, Math.max(0.1, d.bordersOpacity));
     } catch { /* storage non disponibile o dato rovinato: valori predefiniti */ }
   }
   function saveSettings() {
     try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ base: state.base, opacity: state.opacity, crisp: state.crisp, iso: state.iso, borders: state.borders, bordersOpacity: state.bordersOpacity, extra: state.extra }));
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ v: SETTINGS_VERSION, base: state.base, opacity: state.opacity, crisp: state.crisp, iso: state.iso, borders: state.borders, bordersOpacity: state.bordersOpacity, extra: state.extra }));
     } catch { /* storage non disponibile */ }
   }
 
