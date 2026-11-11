@@ -202,15 +202,63 @@
       m.setPaintProperty(id, "line-width", ["interpolate", ["linear"], ["zoom"], 5, lvl === 1 ? 1.8 : 1.2, 10, lvl === 1 ? 3 : 2]);
     }
   }
+  /** Mapbox dentro Leaflet più leggero, soprattutto sui telefoni:
+   *  - pinch: invece di ridisegnare la mappa a ogni movimento delle dita (lento ad alta densità di pixel) si ingrandisce
+   *    l'ultimo disegno con una trasformazione CSS, come Leaflet fa con le sue tessere; si ridisegna una volta alla fine;
+   *  - ridimensionamento della finestra: cambiare la dimensione del canvas WebGL lo svuota e Mapbox ridisegna al
+   *    fotogramma dopo (la mappa lampeggia): si ridisegna subito. */
+  function smoothGl(layer) {
+    layer._zoomStart = function () {
+      this._zooming = true;
+      const pad = this._map.getSize().multiplyBy(this.options.padding);
+      this._pinchFrom = { zoom: this._map.getZoom(), nw: this._map.containerPointToLatLng(pad.multiplyBy(-1)) };
+    };
+    layer._pinchZoom = function () {
+      const f = this._pinchFrom;
+      if (!f || !this._container) return;
+      const scale = this._map.getZoomScale(this._map.getZoom(), f.zoom);
+      L.DomUtil.setTransform(this._container, this._map.latLngToLayerPoint(f.nw), scale);
+    };
+    const zoomEnd = layer._zoomEnd;
+    layer._zoomEnd = function () {
+      this._pinchFrom = null;
+      zoomEnd.call(this); // rimette la posizione del riquadro e ridisegna alla vista nuova
+    };
+    layer.once("add", () => {
+      const m = layer.getMapboxMap();
+      const resize = m.resize.bind(m);
+      m.resize = (...args) => {
+        const out = resize(...args);
+        try { if (glStyleReady) m._render(); } catch { /* al prossimo fotogramma lo fa Mapbox */ }
+        return out;
+      };
+    });
+  }
+  /** Copia del disegno di Mapbox per l'immagine condivisa: senza preserveDrawingBuffer (più lento) il canvas WebGL si
+   *  può leggere solo subito dopo un disegno, nell'evento "render". */
+  function glCapture() {
+    return new Promise((resolve) => {
+      const m = glBase.getMapboxMap();
+      m.once("render", () => {
+        const src = m.getCanvas(), copy = document.createElement("canvas");
+        copy.width = src.width; copy.height = src.height;
+        copy.getContext("2d").drawImage(src, 0, 0);
+        resolve(copy);
+      });
+      m.triggerRepaint();
+    });
+  }
+  let glShot = null; // ultima copia di glCapture, usata da snapshotMap
   function setupMapbox(token) {
     if (!token || !window.mapboxgl || !L.mapboxGL) return;
     glBase = L.mapboxGL({
       accessToken: token,
       style: MAPBOX_STYLES[state.base] || MAPBOX_STYLES.topo,
       attribution: MAPBOX_ATTR,
-      preserveDrawingBuffer: true, // per l'immagine condivisa (si copia il canvas)
+      fadeDuration: 0, // niente dissolvenza delle scritte: meno fotogrammi da disegnare dopo ogni spostamento
       language: "it",
     });
+    smoothGl(glBase);
     glBase.addTo(map);
     // logo Mapbox (obbligatorio per le condizioni d'uso): quello di Mapbox GL finisce fuori vista (il suo riquadro è più
     // grande della mappa), lo si mette in basso a sinistra come controllo di Leaflet
@@ -2111,9 +2159,9 @@
       for (const lvl of levels) for (const img of lvl.querySelectorAll("img.leaflet-tile-loaded")) drawImg(img);
     };
     drawTiles(map.getPane("tilePane"));
-    if (glBase) { // sfondo Mapbox: il canvas WebGL (conservato con preserveDrawingBuffer)
-      const c = glBase.getCanvas(), r = c.getBoundingClientRect();
-      ctx.drawImage(c, r.left - cr.left, r.top - cr.top, r.width, r.height);
+    if (glBase && glShot) { // sfondo Mapbox con colori, confini e nomi: la copia fatta da glCapture
+      const r = glBase.getCanvas().getBoundingClientRect();
+      ctx.drawImage(glShot, r.left - cr.left, r.top - cr.top, r.width, r.height);
     }
     if (overlay?.getElement() && state.extra === "none") {
       ctx.imageSmoothingEnabled = !state.crisp;
@@ -2512,7 +2560,9 @@
       map.setView([pos.lat, pos.lon], map.getZoom(), { animate: false });
       await tilesReady();
     }
+    glShot = glBase ? await glCapture() : null;
     crop.snap = snapshotMap();
+    glShot = null;
     crop.texts = shareTexts();
     // all'apertura il riquadro più grande che sta nella mappa (zoom minimo), centrato sulla posizione se c'è,
     // altrimenti sulla mappa (la proporzione resta l'ultima scelta)
@@ -2712,7 +2762,7 @@
   // margine uguale su tutti i lati (come --cm in style.css): a sinistra coincide con lo spazio dei numeri dell'asse,
   // così titolo della finestra e titoli dei grafici partono alla stessa distanza dal bordo che i grafici hanno a destra
   const CHART_AXIS = 40; // spazio dei numeri dell'asse dentro l'SVG, a sinistra del grafico
-  const CHART_R = 14; // dentro l'SVG, a destra (l'ultima ora sull'asse non viene tagliata)
+  const CHART_R = 30; // dentro l'SVG, a destra: la scala dell'accumulo della pioggia e l'ultima ora sull'asse
   chartUi.close.addEventListener("click", () => chartUi.dialog.close());
 
   /** Serie nel punto: dal server (api/series) o, nel sito statico, dal riquadro di 2°×2° che lo contiene. */
@@ -2743,7 +2793,7 @@
   async function openChart(p) {
     chartUi.title.textContent = p.name;
     const m = meta.models.find((x) => x.id === state.model);
-    chartUi.sub.innerHTML = `${m ? modelIcon(m) : ""}<span>${modelLabel()} · ${state.model === "mean" ? "dalle" : "corsa"} ${cycle(state.run)} ${fmtRunDay(state.run)}</span>`;
+    chartUi.sub.innerHTML = `${m ? modelIcon(m) : ""}<span>${modelLabel()} · ${state.model === "mean" ? "dalle" : "corsa"} ${cycle(state.run)} ${fmtRunDay(state.run)} · fino a +${state.step}h</span>`;
     chartUi.body.innerHTML = '<div class="chart-empty">Caricamento…</div>';
     chartData = null;
     chartPin = null;
@@ -2753,7 +2803,7 @@
     try {
       const series = await getSeries(state.model, state.run, p.lat, p.lon);
       if (want !== `${state.model}|${state.run}` || !chartUi.dialog.open) return;
-      chartData = { series, run: state.run };
+      chartData = { series, run: state.run, until: state.step }; // fino all'ora dello slider della mappa
       drawChart();
     } catch (e) {
       chartUi.body.innerHTML = `<div class="chart-empty">Grafico non disponibile: ${e.message}</div>`;
@@ -2768,7 +2818,8 @@
     const cs = getComputedStyle(chartUi.dialog);
     const v = (n, d) => cs.getPropertyValue(n).trim() || d;
     return { bg: v("--bg", "#ffffff"), fg: v("--fg", "#1d2330"), muted: v("--muted", "#5d6677"),
-      line: v("--line", "#d8dde6"), accent: v("--accent", "#1560e0") };
+      line: v("--line", "#d8dde6"), accent: v("--accent", "#1560e0"),
+      acc: getComputedStyle(chartUi.body).getPropertyValue("--acc").trim() || "#12357a" }; // accumulo della pioggia
   }
   const chartCss = (c) => [ // le classi della pagina non valgono dentro un'immagine: stessi stili e colori
     `.ch-title{font:650 12.5px system-ui,sans-serif;fill:${c.fg}}.ch-note{font-weight:400;font-size:11.5px;fill:${c.muted}}`,
@@ -2777,6 +2828,7 @@
     `.ch-zero{stroke:${c.muted};stroke-width:1}text{font-variant-numeric:tabular-nums}`,
     `.ch-pin{stroke:${c.fg};stroke-width:1.5;opacity:.75}.ch-pin-dot{stroke:${c.bg};stroke-width:2}`,
     `.ch-pin-bar{stroke:${c.fg};stroke-width:1.5}`,
+    `.ch-acc{stroke:${c.acc}}.ch-acc-area{fill:${c.acc};fill-opacity:.1}.ch-acc-tick{fill:${c.acc}}`,
   ].join("");
   async function makeChartFile() {
     const M = 48, EW = 1032, K = 2; // margine uguale su tutti i lati, larghezza dell'SVG, scala (nitidezza)
@@ -2903,8 +2955,12 @@
 
   /** Disegna il meteogramma nella finestra; con `exportW` restituisce invece l'SVG largo exportW (per l'immagine). */
   function drawChart(exportW) {
-    const { series, run } = chartData;
-    const V = series.vars;
+    const { series, run, until } = chartData;
+    // il grafico arriva all'ora scelta con lo slider della mappa (+0h … +24h): anche il totale è quello della mappa
+    const V = Object.fromEntries(Object.entries(series.vars).map(([k, v]) => {
+      const keep = v.steps.map((x, i) => (until == null || x <= until ? i : -1)).filter((i) => i >= 0);
+      return [k, { ...v, steps: keep.map((i) => v.steps[i]), values: keep.map((i) => v.values[i]) }];
+    }));
     const t0 = runDate(run).getTime();
     const W = exportW || Math.max(280, chartUi.body.clientWidth);
     const L = CHART_AXIS, R = CHART_R, pw = W - L - R;
@@ -2926,9 +2982,22 @@
     });
     const points = (v) => v.steps.map((x, i) => ({ x, y: v.values[i] }));
     const last = (v) => [...v.values].reverse().find((x) => x != null);
+    /** Pioggia: barre sempre al passo del modello (3 ore, 6 dopo +144h), per vedere quando piove; sopra, la curva
+     *  dell'accumulo dall'inizio della corsa (scala a destra). Con una cumulata scelta sulla mappa (es. 24h) il tooltip
+     *  dice anche quanto vale quella cumulata a quell'ora: lo stesso numero della mappa. */
+    const rainHours = variable()?.modes?.includes("interval") && state.mode === "interval" ? state.hours : null;
     const panels = [];
-    if (V.tp) panels.push({ title: "Pioggia", unit: "mm", kind: "bar", color: "#2f7fd8", data: intervals(V.tp), dec: 1,
-      min: 1, note: `totale ${fmt(last(V.tp), 1)} mm`, tip: (d) => `Pioggia +${d.b - d.a}h` });
+    if (V.tp) {
+      const at = new Map(V.tp.steps.map((x, i) => [x, V.tp.values[i]]));
+      const data = intervals(V.tp).map((d) => {
+        if (!rainHours || d.b - d.a >= rainHours || d.cum == null) return d;
+        const a = V.tp.steps.filter((x) => x <= d.b - rainHours).pop() ?? 0; // come intervalPrev nella mappa
+        const prev = a ? at.get(a) : 0;
+        return { ...d, win: prev == null ? null : Math.max(0, d.cum - prev), winH: d.b - a };
+      });
+      panels.push({ title: "Pioggia", unit: "mm", kind: "bar", color: "#2f7fd8", data, dec: 1, min: 1,
+        cum: points(V.tp), note: `totale ${fmt(last(V.tp), 1)} mm · linea: accumulo`, tip: (d) => `Pioggia +${d.b - d.a}h` });
+    }
     if (V.t850) panels.push({ title: "Temperatura 850 hPa", unit: "°C", kind: "line", color: "#d9480f", data: points(V.t850),
       dec: 1, zero: true, tip: () => "T 850 hPa" });
     if (V.hzero) panels.push({ title: "Zero termico", unit: "m", kind: "line", color: "#0b7285", data: points(V.hzero),
@@ -2942,10 +3011,13 @@
         tip: () => "Vento 10 m" });
     }
     // valori di un pannello a un passo: per il tooltip (con <b>) e per i titoli dell'immagine (testo semplice)
-    const valueAt = (p, st) => p.data.find((e) => (p.kind === "bar" ? e.b : e.x) === st);
+    // barre: quella che contiene il passo (con le cumulate lunghe una barra copre più passi)
+    const valueAt = (p, st) => p.data.find((e) => (p.kind === "bar" ? st > e.a && st <= e.b : e.x === st));
     const valueText = (p, d, b = (x) => x, span = true) => { // span: "in 3h" per le barre (il tooltip lo dice già)
       const extra = p.arrows && d.y != null ? (dirName(d.u, d.v) ? ` da ${dirName(d.u, d.v)}` : "")
-        : p.kind === "bar" && d.cum != null ? ` · tot ${b(fmt(d.cum, p.dec))} ${p.unit}` : ""; // cumulata dall'inizio
+        : p.kind === "bar" && d.cum != null
+          ? (d.win != null ? ` · in ${d.winH}h ${b(fmt(d.win, p.dec))} ${p.unit}` : "") + ` · tot ${b(fmt(d.cum, p.dec))} ${p.unit}`
+          : ""; // cumulata della mappa (se scelta) e totale dall'inizio
       return `${b(fmt(d.y, p.dec))} ${p.unit}${span && p.kind === "bar" ? ` in ${d.b - d.a}h` : ""}${extra}`;
     };
     const pin = exportW && chartPin != null && steps.includes(chartPin) ? chartPin : null;
@@ -2979,11 +3051,26 @@
       }
       if (p.zero && lo < 0 && hi > 0) svg.push(`<line class="ch-zero" x1="${L}" x2="${L + pw}" y1="${Y(0)}" y2="${Y(0)}"/>`);
       if (p.kind === "bar") {
+        let accLine = "";
+        if (p.cum) { // accumulo dall'inizio della corsa: area azzurra dietro le barre, linea blu sopra, scala a destra
+          const cvals = p.cum.map((d) => d.y).filter((y) => y != null);
+          const cmax = Math.max(1, ...cvals), cticks = niceTicks(0, cmax);
+          const cstep = cticks[1] - cticks[0] || 1;
+          while (cticks[cticks.length - 1] < cmax) cticks.push(cticks[cticks.length - 1] + cstep); // la linea resta nel pannello
+          const chi = cticks[cticks.length - 1] || 1;
+          const Yc = (y) => bot - (y / chi) * PH;
+          let path = `M${X(x0).toFixed(1)},${bot}`, lastX = X(x0);
+          for (const d of p.cum) if (d.y != null) { lastX = X(d.x); path += `L${lastX.toFixed(1)},${Yc(d.y).toFixed(1)}`; }
+          svg.push(`<path class="ch-acc-area" d="${path}L${lastX.toFixed(1)},${bot}Z" stroke="none"/>`);
+          accLine = `<path class="ch-acc" d="${path}" fill="none" stroke-width="1.25" stroke-linejoin="round" stroke-linecap="round"/>`;
+          for (const t of cticks) svg.push(`<text class="ch-tick ch-acc-tick" x="${L + pw + 5}" y="${Yc(t) + 3.5}">${fmt(t, 0)}</text>`);
+        }
         for (const d of p.data) {
           if (d.y == null || d.y < 0.05) continue;
           const xa = X(d.a) + 1, xb = X(d.b) - 1, y = Y(d.y);
-          svg.push(`<rect x="${xa}" y="${y}" width="${Math.max(1, xb - xa)}" height="${Math.max(0, bot - y)}" rx="1.5" fill="${p.color}"${d.b === pin ? ' class="ch-pin-bar"' : ""}/>`);
+          svg.push(`<rect x="${xa}" y="${y}" width="${Math.max(1, xb - xa)}" height="${Math.max(0, bot - y)}" rx="1.5" fill="${p.color}"${pin != null && pin > d.a && pin <= d.b ? ' class="ch-pin-bar"' : ""}/>`);
         }
+        if (accLine) svg.push(accLine);
       } else {
         let path = "", pen = false;
         for (const d of p.data) {

@@ -718,6 +718,12 @@ body.radar-mode .badge-radar .badge-btn:hover { background: var(--accent-tint); 
 .chart-body .ch-title { font-size: 12.5px; font-weight: 650; fill: var(--fg); }
 .chart-body .ch-note { font-size: 11.5px; fill: var(--muted); }
 .chart-body .ch-tick { fill: var(--muted); }
+/* accumulo della pioggia: area leggera dietro le barre e linea blu sopra, scala a destra dello stesso colore */
+.chart-body { --acc: #12357a; } /* blu scuro: si distingue dalle barre (blu medio) */
+@media (prefers-color-scheme: dark) { .chart-body { --acc: #9cc8ff; } } /* col tema scuro, blu chiaro */
+.chart-body .ch-acc { stroke: var(--acc); }
+.chart-body .ch-acc-area { fill: var(--acc); fill-opacity: 0.1; }
+.chart-body .ch-acc-tick { fill: var(--acc); }
 .chart-body .ch-grid { stroke: var(--line); stroke-width: 1; }
 .chart-body .ch-day { stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 3; }
 .chart-body .ch-cursor { stroke: var(--fg); stroke-width: 1; opacity: 0.6; }
@@ -784,3 +790,6 @@ body.radar-mode .badge-radar .badge-btn:hover { background: var(--accent-tint); 
 @media (max-width: 600px), (orientation: portrait) and (pointer: coarse) and (max-width: 1100px) {
   .wm-mapbox-logo { margin-bottom: var(--logo-bottom, 104px) !important; }
 }
+
+/* Mapbox dentro Leaflet: durante il pinch il riquadro si ingrandisce dall'angolo in alto a sinistra (vedi smoothGl) */
+.leaflet-gl-layer { transform-origin: 0 0; }
