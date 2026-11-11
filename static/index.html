@@ -138,11 +138,20 @@
           </label>
         </div>
       </details>
+      <!-- livelli in più sopra la mappa, indipendenti dal modello: per ora il radar (poi satellite...) -->
+      <details id="extra" class="points-box extra">
+        <summary>Livelli extra</summary>
+        <div class="settings-body">
+          <!-- uno alla volta: radar (mosaico nazionale, ogni 5 minuti) o satellite (nubi, Meteosat, ogni 10 minuti) -->
+          <div class="seg" id="extra-seg"></div>
+          <span id="radar-time" class="radar-time"></span>
+        </div>
+      </details>
       <details id="credits" class="points-box credits">
         <summary>Info &amp; crediti <span class="credits-osm">© OpenStreetMap</span></summary>
         <p class="credits-data">Dati dei modelli: NOAA/NCEP GFS · ECMWF Open Data (CC-BY-4.0) ·
           ItaliaMeteo ICON-2I (CC-BY), WRF (CIMA, LaMMA) · DWD ICON-D2 · Météo-France AROME (Licence Ouverte) ·
-          MeteoSvizzera ICON-CH1/CH2 (CC-BY) · Confini: Natural Earth</p>
+          MeteoSvizzera ICON-CH1/CH2 (CC-BY) · Radar: Protezione Civile / ItaliaMeteo (MeteoHub) · Satellite: EUMETSAT · Confini: Natural Earth</p>
         <div id="attrib" class="attrib"></div>
         <p class="credits-data">Realizzato da <a href="https://www.signalkuppe.com/" target="_blank" rel="noopener">signalkuppe</a></p>
       </details>
@@ -151,11 +160,22 @@
   </aside>
 
   <!-- su mobile la legenda viene spostata dentro il badge (un solo riquadro in basso), vedi placeLegend in app.js -->
+  <!-- caricamento delle immagini del radar: al centro della pagina; i controlli compaiono quando sono tutte pronte -->
+  <div id="radar-loader" class="radar-loader" role="status" hidden>
+    <span class="spinner"></span>
+    <span class="radar-loader-text"><b>Caricamento <span id="radar-loader-name">radar</span></b><span id="radar-loader-count" class="radar-loader-count"></span></span>
+  </div>
   <div id="badge" class="badge">
     <!-- icone Lucide (ISC): chevrons-left, chevron-left, chevron-right, play / pause -->
     <button id="m-first" class="badge-btn" type="button" aria-label="Torna al primo passo" title="Torna al primo passo"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m11 17-5-5 5-5"/><path d="m18 17-5-5 5-5"/></svg></button>
     <button id="m-prev" class="badge-btn" type="button" aria-label="Passo precedente"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
     <div id="badge-text" class="badge-text" aria-live="polite"></div>
+    <!-- con il radar acceso la barra mostra solo l'animazione del radar (ultima ora, ogni 5 minuti) -->
+    <div class="badge-radar">
+      <button id="radar-play" class="badge-btn" type="button" aria-label="Anima il radar" title="Anima l'ultima ora"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg></button>
+      <span class="badge-radar-text"><b id="extra-name">Radar</b> <span id="radar-badge-time" class="badge-radar-time">—</span></span>
+      <input id="radar-slider" type="range" min="0" max="0" value="0" aria-label="Immagine radar">
+    </div>
     <button id="m-next" class="badge-btn" type="button" aria-label="Passo successivo"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
     <button id="m-play" class="badge-btn" type="button" aria-label="Avvia animazione"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg></button>
     <button id="share" class="share-btn" type="button" aria-label="Condividi" title="Condividi la mappa che stai vedendo (WhatsApp…)">

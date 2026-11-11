@@ -18,7 +18,7 @@
   };
 
   // run: sempre l'ultima corsa completa del modello (non si sceglie più a mano)
-  const state = { model: null, var: null, run: null, step: null, mode: null, opacity: 0.75, crisp: false, iso: true, hours: 3, base: "topo", borders: "none", bordersOpacity: 0.75 }; // predefiniti: Rilievo, opacità di colori e confini 0,75, celle sfumate, senza confini
+  const state = { model: null, var: null, run: null, step: null, mode: null, opacity: 0.75, crisp: false, iso: true, hours: 3, base: "topo", borders: "none", bordersOpacity: 0.75, extra: "none" }; // predefiniti: Rilievo, opacità di colori e confini 0,75, celle sfumate, senza confini
   // "static": sito pubblicato su GitHub Pages (file JSON pre-generati, nessun server)
   const STATIC = document.documentElement.dataset.mode === "static";
   let publishedAt = null; // solo statico: quando sono stati pubblicati i dati
@@ -26,6 +26,7 @@
   let runs = null;
   let current = null; // risposta /api/field mostrata
   let currentContour = null; // campo delle linee nelle voci combinate (es. zero termico sopra la pioggia)
+  let currentArrows = null; // componenti del vento nelle voci combinate con le frecce (es. vento 700 hPa sopra la pioggia)
   let overlay = null;
   let playTimer = null;
   const cache = new Map();
@@ -156,7 +157,9 @@
   // "in 3h" / "totale" / "" (grandezze istantanee), dopo il nome della grandezza
   const modePhrase = () => (state.mode === "interval" ? `in ${intervalHours()}h` : state.mode === "total" ? "totale" : "");
   // voci combinate: cosa sono le linee ("· linee zero termico ogni 250 m"), in legenda e nell'immagine condivisa
+  const lcFirst = (t) => t.charAt(0).toLowerCase() + t.slice(1); // "Vento 700 hPa" → "vento 700 hPa"
   const isoNote = () => {
+    if (variable().arrows) return ` · frecce ${lcFirst(variable().arrows.label)}`;
     const c = variable().contour_field && variable().contours;
     if (!c || !state.iso) return "";
     return weightedContour() ? ` · linee ${contourName().toLowerCase()}` : ` · linee ${c.label.toLowerCase()} ogni ${c.step} ${c.units}`;
@@ -202,12 +205,14 @@
       if (typeof d.crisp === "boolean") state.crisp = d.crisp;
       if (typeof d.iso === "boolean") state.iso = d.iso;
       if (BORDER_NAMES[d.borders]) state.borders = d.borders;
+      if (d.extra === "radar" || d.extra === "sat") state.extra = d.extra;
+      else if (d.radar === true) state.extra = "radar"; // impostazione salvata dalla prima versione del radar
       if (Number.isFinite(d.bordersOpacity)) state.bordersOpacity = Math.min(1, Math.max(0.1, d.bordersOpacity));
     } catch { /* storage non disponibile o dato rovinato: valori predefiniti */ }
   }
   function saveSettings() {
     try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ base: state.base, opacity: state.opacity, crisp: state.crisp, iso: state.iso, borders: state.borders, bordersOpacity: state.bordersOpacity }));
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ base: state.base, opacity: state.opacity, crisp: state.crisp, iso: state.iso, borders: state.borders, bordersOpacity: state.bordersOpacity, extra: state.extra }));
     } catch { /* storage non disponibile */ }
   }
 
@@ -443,6 +448,24 @@
   }
 
   function renderLegend() {
+    if (state.extra === "sat") { // satellite: scala di grigi delle nubi (infrarosso), dalle più sottili alle più alte
+      ui.legend.innerHTML =
+        `<h2><span class="lg-label">Nubi da satellite </span>(infrarosso)</h2><ol class="lg-continuous">` +
+        `<li><i style="background:linear-gradient(to right, ${SAT_SHADES[0]}, ${SAT_SHADES[1]})"></i><span class="lg-tick">basse</span></li>` +
+        `<li><i style="background:linear-gradient(to right, ${SAT_SHADES[1]}, ${SAT_SHADES[2]})"></i><span class="lg-tick"></span><span class="lg-tick lg-tick-end">alte</span></li></ol>` +
+        `<a class="lg-credit" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">${baseCredit()}</a>`;
+      return;
+    }
+    if (state.extra === "radar") { // radar acceso: la sua legenda (classi del servizio, mm/h) al posto di quella del modello
+      ui.legend.innerHTML =
+        `<h2><span class="lg-label">Radar, intensità </span>(mm/h)</h2><ol>` +
+        RADAR_CLASSES.map(([t, c], i) => {
+          const next = RADAR_CLASSES[i + 1]?.[0];
+          return `<li><i style="background:${c}"></i><span class="lg-text">${next == null ? `> ${t}` : `${t} … ${next}`}</span><span class="lg-tick">${t}</span></li>`;
+        }).join("") + "</ol>" +
+        `<a class="lg-credit" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">${baseCredit()}</a>`;
+      return;
+    }
     const v = variable();
     const { thresholds, colors } = v.scale;
     const modeLabel = modePhrase();
@@ -545,7 +568,25 @@
       if (s[j] == null || !avail.has(s[j])) continue;
       mainField(s[j]).catch(() => {});
       if (cv) contourFieldAt(s[j]).catch(() => {});
+      if (variable().arrows) arrowsFieldAt(s[j]).catch(() => {});
     }
+  }
+
+  /** Voci combinate con le frecce: le due componenti del vento alla stessa ora (stessi file delle voci "Vento"). */
+  function arrowsFieldAt(step) {
+    const a = variable()?.arrows;
+    if (!a) return Promise.resolve(null);
+    const ctx = ctxNow();
+    const key = `arr|${ctx.model}|${ctx.run}|${a.id}|${step}`;
+    if (!cache.has(key)) {
+      const parts = STATIC
+        ? getField(step, "value", { ...ctx, var: a.id }).then((b) => [{ ...b, values: b.u }, { ...b, values: b.v }])
+        : Promise.all([getField(step, "value", { ...ctx, var: a.u }), getField(step, "value", { ...ctx, var: a.v })]);
+      const pr = parts.then(([fu, fv]) => ({ grid: fu.grid, u: fu.values, v: fv.values }));
+      cache.set(key, pr);
+      pr.catch(() => cache.delete(key));
+    }
+    return cache.get(key);
   }
 
   // ---------- vento: le voci "Vento" chiedono le due componenti (verso est `u`, verso nord `v`, in km/h) e ne ricavano
@@ -590,17 +631,231 @@
     return { deg, name: DIRS[Math.round(deg / 45) % 8] };
   }
 
-  /** Frecce della direzione (verso dove va il vento) su una griglia regolare di pixel, ricalcolate a ogni spostamento:
-   *  sempre la stessa densità a ogni zoom. Lunghezza crescente con la velocità. */
+  // ---------- Livelli extra: radar o satellite (uno alla volta), animati sulle ultime immagini. Servizi WMS pubblici
+  // chiesti dal browser (CORS aperto, anche nel sito statico); ogni tessera si ripulisce in un canvas (clean) così resta
+  // solo il fenomeno sopra la mappa. Con un livello extra acceso spariscono i livelli del modello.
+  const RADAR_CLASSES = [ // radar: dalla legenda del servizio (GetLegendGraphic), limite inferiore in mm/h e colore
+    [0.1, "#A3F5E3"], [1, "#1AE4B7"], [2, "#2DBF00"], [5, "#BAEB09"], [10, "#EBE300"], [15, "#FEBF00"],
+    [20, "#F56200"], [30, "#FF3E3B"], [50, "#FF0000"], [75, "#FC0599"], [100, "#F75DFC"],
+  ];
+  const SAT_SHADES = ["#969ea6", "#cbcfd4", "#ffffff"]; // legenda del satellite: nubi sottili/basse → spesse/alte
+  const wmsUrl = (base, params) => `${base}?${new URLSearchParams({ service: "WMS", version: "1.3.0", styles: "", ...params })}`;
+  const EXTRAS = {
+    // mosaico radar nazionale (Protezione Civile) pubblicato da ItaliaMeteo su MeteoHub: intensità in mm/h ogni 5 minuti
+    radar: {
+      name: "Radar", wms: "https://maps.mistralportal.it/wms", layer: "meteohub:radar-sri", stepMin: 5, frames: 13, opacity: 0.9,
+      credit: "Radar: Protezione Civile, ItaliaMeteo (MeteoHub)", shareTitle: "Radar precipitazioni · Protezione Civile / ItaliaMeteo",
+      shareSub: "Intensità (mm/h)",
+      clean(d) { for (let i = 3; i < d.length; i += 4) if (d[i] < 250) d[i] = 0; }, // "sotto 0,1 mm/h": grigio semitrasparente, via
+      /** Ultima immagine: si prova all'indietro di 5 in 5 minuti con un'immagine di 1 pixel (per un'ora che non c'è
+       *  ancora il servizio risponde con un errore XML invece che con un PNG). */
+      async latest() {
+        const slot = 5 * 60e3, t0 = Math.floor(Date.now() / slot) * slot;
+        for (let k = 0; k < 12; k++) {
+          const t = new Date(t0 - k * slot).toISOString();
+          const r = await fetch(wmsUrl(this.wms, { request: "GetMap", layers: this.layer, crs: "EPSG:4326", bbox: "45,9,45.01,9.01",
+            width: 1, height: 1, format: "image/png", time: t }));
+          if (r.ok && (r.headers.get("content-type") || "").startsWith("image/")) return t;
+        }
+        return null;
+      },
+    },
+    // Meteosat di terza generazione (EUMETSAT): infrarosso 10,5 µm ogni 10 minuti, giorno e notte. Più è chiaro più la
+    // nube è fredda (alta o spessa): la luminosità diventa trasparenza, nubi bianche e suolo sereno invisibile
+    sat: {
+      name: "Satellite", wms: "https://view.eumetsat.int/geoserver/wms", layer: "mtg_fd:ir105_hrfi", stepMin: 10, frames: 13, opacity: 0.95,
+      credit: "Satellite: EUMETSAT (Meteosat)", shareTitle: "Nubi da satellite · EUMETSAT Meteosat",
+      shareSub: "Infrarosso 10,5 µm",
+      clean(d) {
+        // grigio dell'infrarosso: suolo e mare sereni ~50-100, nubi ~110-200 (più chiaro = più freddo = più alto). Sotto i
+        // 100 trasparente; sopra, nube sempre più opaca e più bianca (le basse grigie, le alte bianche: si leggono anche
+        // sulla mappa chiara)
+        for (let i = 0; i < d.length; i += 4) {
+          const v = d[i], a = Math.max(0, Math.min(1, (v - 100) / 70)), w = Math.max(0, Math.min(1, (v - 110) / 80));
+          d[i] = d[i + 1] = Math.round(150 + 105 * w); d[i + 2] = Math.round(158 + 97 * w); // grigio appena azzurrato → bianco
+          d[i + 3] = Math.round(255 * a);
+        }
+      },
+      /** Ultima immagine: dalle capabilities del solo livello (8 kB), attributo default della dimensione time. */
+      async latest() {
+        const r = await fetch("https://view.eumetsat.int/geoserver/mtg_fd/ir105_hrfi/ows?service=WMS&request=GetCapabilities&version=1.3.0");
+        const m = r.ok ? (await r.text()).match(/<Dimension name="time"[^>]*default="([^"]+)"/) : null;
+        return m ? new Date(m[1]).toISOString() : null;
+      },
+    },
+  };
+  map.createPane("radar");
+  map.getPane("radar").style.zIndex = 405; // sopra i colori del modello, sotto confini, frecce e isolinee
+  map.getPane("radar").style.pointerEvents = "none";
+  /** Un'immagine per istante su tutta l'area dei dati (13 richieste invece di centinaia di tessere: il server del
+   *  satellite risponde in ~2 s a richiesta), ripulita in un canvas e mostrata come immagine sopra la mappa: spostando
+   *  o ingrandendo la mappa non si ricarica nulla. 1800 px sull'area ≈ 1 km per pixel, più fine dei dati. */
+  const EXTRA_W = 1800;
+  function extraImage(cfg, time) {
+    const b = meta.bbox, W = cfg.width || EXTRA_W;
+    const sw = L.CRS.EPSG3857.project(L.latLng(b.lat_min, b.lon_min)), ne = L.CRS.EPSG3857.project(L.latLng(b.lat_max, b.lon_max));
+    const h = Math.round((W * (ne.y - sw.y)) / (ne.x - sw.x));
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous"; // per ripulire i pixel e per l'immagine condivisa
+      img.onload = () => {
+        const c = document.createElement("canvas");
+        c.width = W; c.height = h;
+        const ctx = c.getContext("2d");
+        ctx.drawImage(img, 0, 0);
+        const px = ctx.getImageData(0, 0, c.width, c.height);
+        cfg.clean(px.data);
+        ctx.putImageData(px, 0, 0);
+        c.toBlob((blob) => resolve(blob ? URL.createObjectURL(blob) : null), "image/png");
+      };
+      img.onerror = () => resolve(null); // immagine mancante: quell'istante resta vuoto
+      img.src = wmsUrl(cfg.wms, { request: "GetMap", layers: cfg.layer, crs: "EPSG:3857", bbox: [sw.x, sw.y, ne.x, ne.y].join(","),
+        width: W, height: h, format: "image/png", transparent: "true", time });
+    });
+  }
+  // animazione: le ultime `frames` immagini, un livello per immagine caricato subito; si passa da una all'altra cambiando
+  // solo l'opacità, così l'animazione non lampeggia mentre arrivano le tessere
+  const extraCfg = () => EXTRAS[state.extra];
+  const fmtRadarTime = (t) => new Date(t).toLocaleTimeString("it-IT", { timeZone: "Europe/Rome", hour: "2-digit", minute: "2-digit" });
+  let radarFrames = []; // [{ time, layer, ready }] dalla più vecchia alla più recente
+  let radarIdx = -1, radarTimer = null, radarPlay = null;
+  let radarAutoplay = false; // si accende col livello: l'animazione parte da sola appena tutte le immagini sono caricate
+  /** Stato di caricamento: finché manca qualche immagine, riquadro al centro della pagina ("Caricamento radar 5/13") e
+   *  controlli nascosti; quando sono tutte pronte si toglie e, la prima volta, parte subito l'animazione. Dopo uno
+   *  spostamento della mappa le tessere nuove arrivano mentre l'animazione continua: niente riquadro. */
+  let radarReadyOnce = false;
+  function updateRadarLoading() {
+    const ready = radarFrames.filter((f) => f.ready).length, all = !!radarFrames.length && ready === radarFrames.length;
+    if (all) radarReadyOnce = true;
+    const loading = !!extraCfg() && !radarReadyOnce;
+    $("radar-loader").hidden = !loading;
+    document.body.classList.toggle("radar-loading", loading);
+    $("radar-loader-name").textContent = extraCfg()?.name.toLowerCase() || "";
+    $("radar-loader-count").textContent = radarFrames.length ? `${ready} di ${radarFrames.length} immagini` : "in attesa…";
+    if (!all) return;
+    showRadarFrame(radarIdx); // ora dell'immagine al posto del conteggio
+    if (radarAutoplay) { radarAutoplay = false; startRadarPlay(); }
+  }
+  /** Dissolvenza fra l'immagine `i` e la seguente (`t` da 0 a 1, ciclica): la seguente compare sopra nella prima metà
+   *  mentre l'altra resta piena, poi l'altra sfuma. Così nelle zone in comune la pioggia non si affievolisce a metà. */
+  function paintRadar(i, t) {
+    const n = radarFrames.length, op = extraCfg()?.opacity ?? 0, j = (i + 1) % n;
+    radarFrames.forEach((f, k) => {
+      const o = k === i ? op * Math.min(1, 2 * (1 - t)) : k === j && t > 0 ? op * Math.min(1, 2 * t) : 0;
+      if (f.op === o) return;
+      f.op = o;
+      f.layer.setOpacity?.(o);
+      f.layer.setZIndex?.(k === j ? 2 : 1);
+    });
+  }
+  function showRadarFrame(i) {
+    radarIdx = Math.max(0, Math.min(i, radarFrames.length - 1));
+    paintRadar(radarIdx, 0);
+    const f = radarFrames[radarIdx];
+    $("radar-slider").value = radarIdx;
+    $("radar-time").textContent = f ? `ultima immagine ${fmtRadarTime(radarFrames.at(-1).time)}` : "";
+    $("radar-badge-time").textContent = f ? fmtRadarTime(f.time) : "—";
+  }
+  function stopRadarPlay() {
+    cancelAnimationFrame(radarPlay); radarPlay = null;
+    if (radarFrames.length) showRadarFrame(radarIdx); // niente dissolvenza lasciata a metà
+    $("radar-play").innerHTML = M_PLAY; $("radar-play").setAttribute("aria-label", "Anima");
+  }
+  const RADAR_HOLD = 150, RADAR_HOLD_LAST = 1500, RADAR_FADE = 350; // ms: ogni immagine resta ferma poi sfuma nella seguente
+  function startRadarPlay() {
+    if (radarFrames.length < 2) return;
+    $("radar-play").innerHTML = M_PAUSE; $("radar-play").setAttribute("aria-label", "Ferma l'animazione");
+    if (radarIdx >= radarFrames.length - 1) showRadarFrame(0); // dall'ultima si riparte dalla prima
+    let t0 = performance.now();
+    const step = (now) => {
+      const n = radarFrames.length, last = radarIdx >= n - 1;
+      const hold = last ? RADAR_HOLD_LAST : RADAR_HOLD, el = now - t0; // pausa più lunga sull'ultima immagine
+      if (el >= hold + RADAR_FADE) { showRadarFrame(last ? 0 : radarIdx + 1); t0 = now; }
+      else if (el > hold) paintRadar(radarIdx, (el - hold) / RADAR_FADE);
+      radarPlay = requestAnimationFrame(step);
+    };
+    radarPlay = requestAnimationFrame(step);
+  }
+  /** Allinea i livelli all'ultima immagine disponibile: tiene quelli già caricati, aggiunge i nuovi, toglie i vecchi. */
+  async function refreshRadar() {
+    const cfg = extraCfg();
+    if (!cfg) return;
+    let latest = null;
+    try { latest = await cfg.latest(); } catch { /* rete assente: si riprova al prossimo giro */ }
+    if (extraCfg() !== cfg) return; // nel frattempo è cambiato livello
+    if (!latest) { if (!radarFrames.length) $("radar-time").textContent = "non disponibile"; return; }
+    if (radarFrames.at(-1)?.time === latest) return;
+    const times = Array.from({ length: cfg.frames }, (_, k) => new Date(Date.parse(latest) - (cfg.frames - 1 - k) * cfg.stepMin * 60e3).toISOString());
+    const keep = new Map(radarFrames.map((f) => [f.time, f]));
+    for (const f of radarFrames) if (!times.includes(f.time)) { f.layer.remove(); if (f.url) URL.revokeObjectURL(f.url); }
+    const wasLast = radarIdx === -1 || radarIdx >= radarFrames.length - 1;
+    const bounds = L.latLngBounds([meta.bbox.lat_min, meta.bbox.lon_min], [meta.bbox.lat_max, meta.bbox.lon_max]);
+    radarFrames = times.map((time) => keep.get(time) || { time, ready: false, layer: L.layerGroup() }); // segnaposto
+    // richieste dalla più recente (la più utile, e l'animazione si ferma lì): il server ne serve poche alla volta
+    for (const f of [...radarFrames].reverse()) {
+      if (keep.has(f.time)) continue;
+      extraImage(cfg, f.time).then((url) => {
+        if (!radarFrames.includes(f)) { if (url) URL.revokeObjectURL(url); return; } // livello già cambiato
+        f.url = url;
+        if (url) { f.layer = L.imageOverlay(url, bounds, { pane: "radar", opacity: 0, interactive: false }).addTo(map); f.op = 0; }
+        f.ready = true;
+        updateRadarLoading();
+      });
+    }
+    $("radar-slider").max = radarFrames.length - 1;
+    if (wasLast && !radarPlay) showRadarFrame(radarFrames.length - 1); // senza animazione si resta sull'ultima immagine
+    updateRadarLoading();
+  }
+  const EXTRA_NAMES = { none: "Nessuno", radar: "Radar", sat: "Satellite" };
+  function setExtra(name, save = true) {
+    clearInterval(radarTimer);
+    stopRadarPlay();
+    for (const f of radarFrames) { f.layer.remove(); if (f.url) URL.revokeObjectURL(f.url); }
+    radarFrames = []; radarIdx = -1;
+    state.extra = EXTRAS[name] ? name : "none";
+    const cfg = extraCfg();
+    // con un livello extra: spariscono colori, isolinee e frecce del modello (sarebbe illeggibile), legenda e barra in
+    // alto passano al livello; il modello resta scelto e torna togliendolo
+    document.body.classList.toggle("radar-mode", !!cfg);
+    $("extra-name").textContent = cfg?.name || "";
+    $("radar-time").textContent = "";
+    if (cfg) togglePlay(false);
+    if (meta && state.var) { renderLegend(); renderPoints(); } // all'avvio le disegnano setupVars e setupPoints
+    ui.probe.hidden = true;
+    radarAutoplay = !!cfg;
+    radarReadyOnce = false;
+    updateRadarLoading();
+    if (cfg) {
+      refreshRadar();
+      radarTimer = setInterval(refreshRadar, cfg.stepMin * 60e3); // nuova immagine ogni 5 (radar) o 10 minuti (satellite)
+    }
+    $("extra-seg").replaceChildren(
+      ...Object.entries(EXTRA_NAMES).map(([k, text]) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = text;
+        b.setAttribute("aria-pressed", String(k === state.extra));
+        b.addEventListener("click", () => setExtra(k));
+        return b;
+      }),
+    );
+    if (save) saveSettings();
+  }
+  $("radar-play").addEventListener("click", () => (radarPlay ? stopRadarPlay() : startRadarPlay()));
+  $("radar-slider").addEventListener("input", (e) => { stopRadarPlay(); showRadarFrame(+e.target.value); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshRadar(); }); // tornando sulla pagina
+
   map.createPane("arrows");
   map.getPane("arrows").style.zIndex = 425;
   map.getPane("arrows").style.pointerEvents = "none";
   const arrowsRenderer = L.canvas({ pane: "arrows", padding: 0.1 });
   const arrowsLayer = L.layerGroup().addTo(map);
   const ARROW_STEP = 46; // px fra le frecce
+  /** Frecce della direzione (verso dove va il vento) su una griglia regolare di pixel, ricalcolate a ogni spostamento:
+   *  sempre la stessa densità a ogni zoom. Lunghezza crescente con la velocità. */
   function drawArrows() {
     arrowsLayer.clearLayers();
-    const f = current;
+    const f = current?.u ? current : currentArrows; // voce "Vento" o combinata con le frecce
     if (!f?.u) return;
     const su = sampler({ grid: f.grid, values: f.u }, false), sv = sampler({ grid: f.grid, values: f.v }, false);
     const size = map.getSize();
@@ -627,7 +882,7 @@
         lineCap: "round", lineJoin: "round", smoothFactor: 0 }).addTo(arrowsLayer);
     }
   }
-  map.on("moveend", () => { if (current?.u) drawArrows(); });
+  map.on("moveend", () => { if (current?.u || currentArrows) drawArrows(); });
 
   /** Campo delle linee nelle voci combinate al passo `step`. Con le cumulate (es. pioggia in 24h) è lo zero termico
    *  medio del periodo pesato con la precipitazione: per ogni punto, ogni sotto-intervallo fra due passi conta quanto
@@ -791,6 +1046,7 @@
   function clearOverlay() {
     if (overlay) { map.removeLayer(overlay); overlay = null; }
     currentContour = null;
+    currentArrows = null;
     drawContours(null);
     arrowsLayer.clearLayers();
   }
@@ -1094,13 +1350,15 @@
     try {
       // voci combinate: anche il campo delle linee, alla stessa ora (se manca, solo i colori)
       const cv = variable().contour_field;
-      const [f, cf] = await Promise.all([
+      const [f, cf, af] = await Promise.all([
         mainField(state.step),
         cv ? contourFieldAt(state.step).catch(() => null) : null,
+        arrowsFieldAt(state.step).catch(() => null), // frecce delle combinate (se mancano, solo i colori)
       ]);
       if (my !== seq) return;
       current = f;
       currentContour = cf;
+      currentArrows = af;
       draw(f);
       renderPoints();
       setStatus(""); // i modelli della mediana sono già nella riga della corsa ("8 modelli")
@@ -1337,6 +1595,28 @@
 
   function renderPoints() {
     const pts = places;
+    if (pointMarkers.length !== pts.length) return; // all'avvio prima di setupPoints: le disegna lui
+    if (state.extra !== "none") { // radar o satellite: le località servono solo a orientarsi, niente valori del modello
+      pts.forEach((p, i) => {
+        const el = pointMarkers[i].getElement();
+        if (el) {
+          el.querySelector(".pt-val").textContent = p.name; // sulla mappa il nome al posto del valore
+          const n = el.querySelector(".pt-num");
+          n.textContent = ""; n.style.background = "";
+          el.classList.remove("pt-dark");
+        }
+        const pv = pointRows[i].querySelector(".pt-v");
+        if (pv) pv.textContent = "";
+        const n = pointRows[i].querySelector(".pt-num");
+        n.textContent = String(i + 1); n.style.background = ""; n.classList.remove("pt-dark");
+        pointMarkers[i].setZIndexOffset(0);
+      });
+      ui.points.append(...pointRows); // nell'ordine in cui sono state aggiunte, senza classifica
+      pointOrder = pts.map((_, i) => i);
+      closePlacePop();
+      placePointLabels();
+      return;
+    }
     const dec = variable().decimals;
     const color = colorizer(variable().scale);
     const values = [];
@@ -1395,6 +1675,7 @@
   const POP_GAP = 16; // distanza dal centro del cerchio alla punta della freccia
 
   function openPlacePop(idx) {
+    if (state.extra !== "none") return; // con radar o satellite il riquadro dei valori del modello non serve
     popIdx = idx;
     ui.probe.hidden = true; // col riquadro aperto niente tooltip del mouse
     renderPlacePop();
@@ -1615,10 +1896,16 @@
       for (const lvl of levels) for (const img of lvl.querySelectorAll("img.leaflet-tile-loaded")) drawImg(img);
     };
     drawTiles(map.getPane("tilePane"));
-    if (overlay?.getElement()) {
+    if (overlay?.getElement() && state.extra === "none") {
       ctx.imageSmoothingEnabled = !state.crisp;
       drawImg(overlay.getElement(), state.opacity);
       ctx.imageSmoothingEnabled = true;
+    }
+    if (extraCfg()) { // radar o satellite sopra la mappa, come nella pagina
+      ctx.globalAlpha = extraCfg().opacity;
+      const shown = radarFrames[radarIdx]?.layer.getElement?.();
+      if (shown) drawImg(shown, extraCfg().opacity);
+      ctx.globalAlpha = 1;
     }
     // isoterme: il canvas delle linee e le etichette (testo con alone bianco, come sullo schermo)
     const bordersCanvas = map.getPane("borders").querySelector("canvas");
@@ -1629,12 +1916,12 @@
       ctx.globalAlpha = 1;
     }
     const arrowsCanvas = map.getPane("arrows").querySelector("canvas");
-    if (arrowsCanvas && current?.u) {
+    if (arrowsCanvas && (current?.u || currentArrows) && state.extra === "none") {
       const r = arrowsCanvas.getBoundingClientRect();
       ctx.drawImage(arrowsCanvas, r.left - cr.left, r.top - cr.top, r.width, r.height);
     }
     const isoCanvas = map.getPane("contours").querySelector("canvas");
-    if (isoCanvas && isoData.length) {
+    if (isoCanvas && isoData.length && state.extra === "none") {
       const r = isoCanvas.getBoundingClientRect();
       ctx.drawImage(isoCanvas, r.left - cr.left, r.top - cr.top, r.width, r.height);
     }
@@ -1683,6 +1970,20 @@
     const runText = state.model === "mean" ? `dalle ${cycle(state.run)} ${fmtRunDay(state.run)}` : `corsa ${cycle(state.run)} ${fmtRunDay(state.run)}`;
     const baseAttr = map.hasLayer(bases.topo) ? "Mappa © Thunderforest, dati © OpenStreetMap contributors"
       : "Mappa © OpenStreetMap contributors";
+    if (extraCfg()) { // radar o satellite: l'immagine è del livello extra (ora dell'immagine mostrata), con la sua legenda
+      const cfg = extraCfg(), f = radarFrames[radarIdx];
+      const t = f ? new Date(f.time) : new Date();
+      const v = state.extra === "radar"
+        ? { units: "mm/h", scale: { thresholds: RADAR_CLASSES.map(([x]) => x), colors: RADAR_CLASSES.map(([, c]) => c), transparent_below: 0.1 } }
+        : { units: "Nubi", scale: { continuous: true, thresholds: ["basse", "", "alte"], colors: SAT_SHADES } };
+      return {
+        v,
+        title: cfg.shareTitle,
+        sub: `${cfg.shareSub} · ${fmtLocal(t)}`,
+        attr: `${baseAttr} · ${cfg.credit} · ${location.host}${location.pathname}`,
+        name: `weathermaps-${state.extra}-${t.toISOString().slice(0, 16).replace(/[-:T]/g, "")}.jpg`,
+      };
+    }
     return {
       v,
       title: `${modelLabel()} · ${runText}`,
@@ -1755,7 +2056,7 @@
     const k = PT_SCALE;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    for (const p of shareUi.points.checked ? snap.points : []) {
+    for (const p of shareUi.points.checked && state.extra === "none" ? snap.points : []) {
       const px = (p.x - crop.x) * s;
       const py = (p.y - crop.y) * s;
       if (px < -40 || px > OW + 40 || py < -40 || py > OH + 40) continue;
@@ -1799,7 +2100,8 @@
     // intestazione in alto a sinistra: bandiera, modello e corsa, grandezza e istante
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
-    const flag = crop.flag; // immagine già caricata (vedi loadFlag), altrimenti niente bandiera
+    // bandiera del modello (già caricata, vedi loadFlag); con radar o satellite l'immagine non è del modello: niente
+    const flag = state.extra === "none" ? crop.flag : null;
     const fh = 26, fw = flag ? Math.round(fh * (flag.naturalWidth / flag.naturalHeight || 4 / 3)) : 0;
     const fx = flag ? fw + 12 : 0; // spazio occupato dalla bandiera prima del titolo
     ctx.font = `700 30px ${FONT}`;
@@ -2580,7 +2882,7 @@
   // ---------- tooltip puntuale (griglia nativa, nearest neighbour)
   map.on("mousemove", (e) => {
     // sopra una località (o col suo riquadro aperto lì) basta il riquadro nero: un solo tooltip alla volta
-    if (!current || popIdx != null || e.originalEvent?.target?.closest?.(".pt, .pt-pop")) { ui.probe.hidden = true; return; }
+    if (!current || state.extra !== "none" || popIdx != null || e.originalEvent?.target?.closest?.(".pt, .pt-pop")) { ui.probe.hidden = true; return; }
     const { lat0, lon0, dlat, dlon, nx, ny } = current.grid;
     const ix = Math.round((e.latlng.lng - lon0) / dlon);
     const iy = Math.round((e.latlng.lat - lat0) / dlat);
@@ -2596,6 +2898,16 @@
     if (currentContour) {
       const z = valueAt(currentContour, e.latlng.lat, e.latlng.lng);
       if (z != null) text += ` · ${contourName().toLowerCase()} <b>${Math.round(z)}</b> ${currentContour.units}`;
+    }
+    if (currentArrows) { // combinata con le frecce: velocità e provenienza del vento nel punto
+      const { lat0, lon0, dlat, dlon, nx, ny } = currentArrows.grid;
+      const ix = Math.round((e.latlng.lng - lon0) / dlon), iy = Math.round((e.latlng.lat - lat0) / dlat);
+      const u = ix >= 0 && iy >= 0 && ix < nx && iy < ny ? currentArrows.u[iy * nx + ix] : null;
+      const v = u == null ? null : currentArrows.v[iy * nx + ix];
+      if (u != null && v != null) {
+        const d = windDirAt(currentArrows, e.latlng.lat, e.latlng.lng);
+        text += ` · ${lcFirst(variable().arrows.label)} <b>${Math.round(Math.hypot(u, v))}</b> km/h${d ? ` da ${d.name}` : ""}`;
+      }
     }
     // seconda riga: le grandezze in più (sulla mappa della T850 la quota della superficie di 850 hPa)
     const more = extras()
@@ -2813,6 +3125,7 @@
       map.panInsideBounds(box, { animate: false });
     });
     setBorders(state.borders, false);
+    setExtra(state.extra, false);
     setBase(state.base, false); // l'ultimo scelto in "Impostazioni" (salvato nel browser), altrimenti Rilievo
 
     ui.opacity.value = state.opacity;

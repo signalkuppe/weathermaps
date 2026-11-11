@@ -413,6 +413,40 @@ input[type="range"] { accent-color: var(--accent); margin-inline: 0; } /* senza 
 }
 .attrib .leaflet-control-attribution a { color: inherit; text-decoration: underline; }
 .settings-body, .models-body { display: grid; gap: 8px; margin-top: 8px; }
+/* Livelli extra: radar con ora dell'ultima immagine e legenda propria (colori del servizio) */
+.radar-time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+/* modalità radar: via i livelli del modello (colori, isolinee, frecce, valori sulle località); la barra in alto mostra
+   solo l'animazione del radar (più condividi e, su mobile, la legenda) */
+body.radar-mode .wm-overlay, body.radar-mode .leaflet-contours-pane, body.radar-mode .leaflet-contourLabels-pane,
+body.radar-mode .leaflet-arrows-pane { display: none; }
+.badge-radar { display: none; }
+body.radar-mode .badge > :not(.badge-radar):not(.share-btn):not(.legend) { display: none; }
+body.radar-mode .badge-radar { display: flex; align-items: center; gap: 8px; pointer-events: auto; } /* la barra su desktop non riceve clic, i controlli sì */
+.badge-radar-time { font-variant-numeric: tabular-nums; }
+/* caricamento del radar: riquadro al centro della pagina, controlli nascosti finché le immagini non sono pronte */
+.radar-loader { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 1100;
+  display: flex; align-items: flex-start; gap: 10px; padding: 12px 16px; border-radius: 10px;
+  background: var(--panel-solid); color: var(--fg); box-shadow: var(--shadow); font-size: 14px; pointer-events: none; white-space: nowrap; }
+.radar-loader .spinner { position: static; flex: none; width: 18px; height: 18px; margin-top: 1px; } /* in linea col titolo */
+.radar-loader-text { display: grid; } /* conteggio sotto il titolo: cambiando cifre il riquadro non si allarga */
+.radar-loader-count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+body.radar-loading .badge-radar, body.radar-loading .badge .share-btn { visibility: hidden; }
+body.radar-loading .badge:not(:has(.legend)) { visibility: hidden; } /* desktop: niente barra vuota; su mobile resta la legenda */
+body.radar-mode .badge-radar .badge-btn { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px;
+  padding: 0; border: 0; border-radius: 6px; background: none; color: var(--accent); cursor: pointer; }
+body.radar-mode .badge-radar .badge-btn:hover { background: var(--accent-tint); }
+.badge-radar input[type="range"] { width: 180px; }
+@media (max-width: 600px), (orientation: portrait) and (pointer: coarse) and (max-width: 1100px) {
+  body.radar-mode .badge-radar { flex: 1; padding-right: 4px; }
+  .badge-radar input[type="range"] { width: auto; flex: 1; min-width: 0; }
+}
+.radar-anim { display: flex; align-items: center; gap: 8px; }
+.radar-legend { display: grid; gap: 3px; }
+.radar-legend-bar { display: flex; height: 8px; border-radius: 2px; overflow: hidden; }
+.radar-legend-bar i { flex: 1; }
+.radar-legend-ticks { display: flex; font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.radar-legend-ticks span { flex: 1; }
+.radar-legend-note { font-size: 11px; color: var(--muted); }
 /* prima sezione, subito sotto il nome: niente linea sopra (c'è già quella dell'intestazione) */
 .panel-body > details.models { border-top: 0; padding-top: 0; }
 .credits-data { margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
@@ -653,7 +687,7 @@ input[type="range"] { accent-color: var(--accent); margin-inline: 0; } /* senza 
 
 /* "Sfondo": quattro scelte, la riga va a capo (etichetta sopra, pulsanti a tutta larghezza) */
 .row:has(> #base), .row:has(> #borders), .row:has(> #opacity), .row:has(> #borders-opacity) { grid-template-columns: 1fr; gap: 4px; }
-#base button, #borders button { flex: 1 1 0; padding-left: 2px; padding-right: 2px; white-space: nowrap; }
+#base button, #borders button, #extra-seg button { flex: 1 1 0; padding-left: 2px; padding-right: 2px; white-space: nowrap; }
 
 /* legenda sfumata: l'ultima soglia sul bordo destro dell'ultimo tratto, alla stessa altezza delle altre */
 .legend .lg-continuous li i { border-radius: 0; }

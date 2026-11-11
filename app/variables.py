@@ -448,8 +448,9 @@ VECTORS = [
 ]
 
 
-# Voci combinate del menu "Grandezza": i colori di una grandezza e le linee di livello di un'altra, alla stessa ora.
-# Non hanno dati propri (la pagina chiede i campi delle due grandezze), quindi niente download né spazio in più.
+# Voci combinate del menu "Grandezza": i colori di una grandezza e, alla stessa ora, le linee di livello di un'altra
+# (contour_field) o le frecce di un vento (arrows, una voce di VECTORS). Non hanno dati propri (la pagina chiede i campi
+# delle grandezze che combinano), quindi niente download né spazio in più.
 COMBOS = [
     {
         "id": "tp_hzero",
@@ -458,6 +459,13 @@ COMBOS = [
         "field": "tp",  # colori, legenda, località e modalità
         "contour_field": "hzero",  # linee
         "contours": {"label": "Zero termico", "units": "m", "step": 250, "bold": [1000, 2000, 3000, 4000]},
+    },
+    {
+        "id": "tp_wind700",
+        "label": "Precip. e vento 700 hPa",
+        "after": "tp_hzero",  # posizione nel menu: dopo l'altra combinata della pioggia
+        "field": "tp",
+        "arrows": "wind700",  # frecce del vento a 700 hPa (direzione e, con la lunghezza, intensità)
     },
 ]
 
@@ -469,21 +477,40 @@ def menu() -> list[dict]:
         if var.hidden:
             continue
         out.append(var.as_dict())
-        for c in COMBOS:
-            if c["after"] != var.id:
-                continue
-            base, lines = REGISTRY[c["field"]].as_dict(), REGISTRY[c["contour_field"]].as_dict()
-            models = [m for m in base["models"] if m in lines["models"]]
-            if models:
-                out.append({**base, "id": c["id"], "label": c["label"], "base_label": base["label"],
-                            "field": c["field"], "contour_field": c["contour_field"],
-                            "contours": c["contours"], "models": models})
+        after = [var.id]
+        while True:  # combinate dopo questa grandezza, e quelle dopo le combinate appena aggiunte
+            added = [c for c in COMBOS if c["after"] in after and c["id"] not in {o["id"] for o in out}]
+            if not added:
+                break
+            for c in added:
+                item = _combo_item(c)
+                if item:
+                    out.append(item)
+            after = [c["id"] for c in added]
     for vec in VECTORS:
         u, v = REGISTRY[vec["u"]].as_dict(), REGISTRY[vec["v"]].as_dict()
         models = [m for m in u["models"] if m in v["models"]]
         out.append({**u, "id": vec["id"], "label": vec["label"], "kind": "vector", "rank": "desc",
                     "vector": {"u": vec["u"], "v": vec["v"]}, "models": models})
     return out
+
+
+def _combo_item(c: dict) -> dict | None:
+    base = REGISTRY[c["field"]].as_dict()
+    extra: dict = {}
+    if "contour_field" in c:
+        lines = REGISTRY[c["contour_field"]].as_dict()
+        needs = [lines["models"]]
+        extra = {"contour_field": c["contour_field"], "contours": c["contours"]}
+    else:
+        vec = next(v for v in VECTORS if v["id"] == c["arrows"])
+        needs = [REGISTRY[vec["u"]].as_dict()["models"], REGISTRY[vec["v"]].as_dict()["models"]]
+        extra = {"arrows": {"id": vec["id"], "label": vec["label"], "u": vec["u"], "v": vec["v"]}}
+    models = [m for m in base["models"] if all(m in n for n in needs)]
+    if not models:
+        return None
+    return {**base, "id": c["id"], "label": c["label"], "base_label": base["label"], "field": c["field"], **extra,
+            "models": models}
 
 
 def get(var_id: str) -> Variable:
