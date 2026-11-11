@@ -73,6 +73,9 @@
         <input id="step" type="range" min="0" max="0" value="0" aria-label="Istante di previsione">
       </div>
 
+      <!-- sotto lo slider: eventuali errori -->
+      <div id="status" class="status" role="status"></div>
+      <!-- sezioni: una aperta alla volta, con animazione (app.js, "sezioni del pannello") -->
       <details id="points-box" class="points-box" open>
         <summary>Località preferite</summary>
         <div class="places-tools">
@@ -107,7 +110,6 @@
           </label>
         </div>
       </details>
-      <div id="status" class="status" role="status"></div>
       <details id="credits" class="points-box credits">
         <summary>Info &amp; crediti <span class="credits-osm">© OpenStreetMap</span></summary>
         <p class="credits-data">Dati dei modelli: NOAA/NCEP GFS · ECMWF Open Data (CC-BY-4.0) ·
@@ -175,6 +177,13 @@
         <div id="chart-sub" class="chart-sub"></div>
       </div>
       <div class="chart-actions">
+      <button id="chart-download" class="share-x chart-share" type="button" aria-label="Scarica l'immagine del grafico" title="Scarica l'immagine">
+        <!-- Lucide "download" (ISC) -->
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/>
+        </svg>
+      </button>
       <button id="chart-share" class="share-x chart-share" type="button" aria-label="Condividi il grafico" title="Condividi il grafico">
         <!-- Lucide "share-2" (ISC) -->
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"

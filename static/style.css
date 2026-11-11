@@ -44,7 +44,8 @@ body {
   z-index: 1000;
   width: 300px;
   max-width: calc(100vw - 24px);
-  /* mai oltre il bordo dello schermo: con tante località scorre il contenuto del pannello */
+  /* mai oltre il bordo dello schermo: una sezione aperta alla volta e località con altezza massima, quindi il
+     pannello non scorre (solo su schermi molto bassi, vedi .panel-body) */
   max-height: calc(100dvh - 24px);
   display: flex;
   flex-direction: column;
@@ -139,7 +140,8 @@ body {
 /* azione principale: stesso stile delle selezioni (bordo e testo blu, velo chiaro) */
 .share-actions .primary { background: var(--accent-tint); border-color: var(--accent); color: var(--accent); font-weight: 650; }
 .panel.collapsed .panel-head { border-bottom: 0; }
-.panel-body { padding: 10px 12px 12px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; overflow-x: hidden; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.panel-body { padding: 10px 12px 12px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; overflow-x: clip; min-height: 0; }
+@media (max-height: 560px) { .panel-body { overflow-y: auto; overscroll-behavior: contain; } } /* riserva: telefono in orizzontale */
 
 .row { display: grid; grid-template-columns: 80px 1fr; align-items: center; gap: 8px; }
 .row > span { color: var(--muted); font-size: 13px; }
@@ -480,7 +482,16 @@ input[type="range"] { accent-color: var(--accent); }
 .points-box summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .points-box summary span { font-size: 12px; }
 /* niente scorrimento proprio: scorre tutto il pannello (un solo scorrimento) */
-.points { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 2px; }
+/* barre di scorrimento sottili e discrete (località, pannello, grafico nel tempo) al posto di quelle native:
+   scrollbar-* per Chrome/Firefox, ::-webkit-scrollbar per Safari */
+.points, .panel-body, .chart-body { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--muted) 45%, transparent) transparent; }
+.points::-webkit-scrollbar, .panel-body::-webkit-scrollbar, .chart-body::-webkit-scrollbar { width: 6px; }
+.points::-webkit-scrollbar-track, .panel-body::-webkit-scrollbar-track, .chart-body::-webkit-scrollbar-track { background: transparent; }
+.points::-webkit-scrollbar-thumb, .panel-body::-webkit-scrollbar-thumb, .chart-body::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--muted) 45%, transparent); border-radius: 3px; }
+.points::-webkit-scrollbar-thumb:hover, .panel-body::-webkit-scrollbar-thumb:hover, .chart-body::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--muted) 70%, transparent); }
+.points { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 2px; max-height: 182px; overflow-y: auto; overscroll-behavior: contain; } /* circa 7 località, poi scorre */
 /* località: ricerca, modifica, elenco vuoto */
 .places-tools { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
 .places-search { position: relative; flex: 1; min-width: 0; }

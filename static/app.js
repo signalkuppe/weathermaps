@@ -1073,12 +1073,7 @@
       currentContour = cf;
       draw(f);
       renderPoints();
-      let text = "";
-      if (f.members && f.member_runs) {
-        const names = f.members.map((id) => `${shortLabel(id)} ${cycle(f.member_runs[id])}`).join(", ");
-        text = `Mediana di ${f.members.length}: ${names}`;
-      }
-      setStatus(text);
+      setStatus(""); // i modelli della mediana sono già nella riga della corsa ("8 modelli")
       prefetch();
       if (hoverMq.matches && extras().length) loadExtras(); // per il tooltip (sui touch solo aprendo un riquadro)
     } catch (e) {
@@ -2257,28 +2252,33 @@
     const slug = chartUi.title.textContent.toLowerCase().normalize("NFD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
     return new File([blob], `weathermaps-grafico-${slug || "localita"}-${state.model}-${chartData.run}.jpg`, { type: "image/jpeg" });
   }
-  $("chart-share").addEventListener("click", async () => {
+  function downloadFile(file) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(file);
+    a.download = file.name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+  /** Condividi (menu del telefono; dove non c'è, scarica) o Scarica: la stessa immagine. */
+  async function chartImage(btn, share) {
     if (!chartData) return;
-    const btn = $("chart-share");
     btn.disabled = true;
     try {
       const file = await makeChartFile();
       const data = { files: [file] };
-      if (navigator.canShare?.(data)) {
+      if (share && navigator.canShare?.(data)) {
         try { await navigator.share(data); } catch (e) { if (e.name !== "AbortError") throw e; }
       } else {
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(file);
-        a.download = file.name;
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+        downloadFile(file);
       }
     } catch (e) {
-      chartUi.sub.textContent += ` · condivisione non riuscita: ${e.message}`;
+      chartUi.sub.textContent += ` · ${share ? "condivisione non riuscita" : "download non riuscito"}: ${e.message}`;
     } finally {
       btn.disabled = false;
     }
-  });
+  }
+  $("chart-share").addEventListener("click", (e) => chartImage(e.currentTarget, true));
+  $("chart-download").addEventListener("click", (e) => chartImage(e.currentTarget, false));
 
   /** 3–5 valori "tondi" fra lo e hi per l'asse. */
   function niceTicks(lo, hi, n = 3) {
@@ -2548,6 +2548,37 @@
   ui.iso.addEventListener("change", () => { state.iso = ui.iso.checked; drawContours(variable().contour_field ? currentContour : current); renderLegend(); writeHash(); saveSettings(); });
   ui.model.addEventListener("change", () => { state.model = ui.model.value; renderModelInfo(); setupRuns(); setupSteps(); update(); });
   ui.varSel.addEventListener("change", () => { state.var = ui.varSel.value; setupModels(); setupModes(); setupRuns(); setupSteps(); update(); });
+  // ---------- sezioni del pannello (località, impostazioni, crediti): una aperta alla volta, apertura e chiusura
+  // animate. In JS e non con <details name>: così il browser chiuderebbe l'altra di colpo, senza animazione.
+  const SECTIONS = [...document.querySelectorAll(".panel-body > details.points-box")];
+  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
+  const wantsOpen = (d) => d._want ?? d.open; // stato verso cui sta andando (durante l'animazione di chiusura è ancora open)
+  function animateSection(d, open) {
+    d._want = open;
+    d._anim?.cancel();
+    const cs = getComputedStyle(d);
+    const px = (k) => parseFloat(cs[k]) || 0;
+    const closedH = d.querySelector("summary").getBoundingClientRect().height
+      + px("paddingTop") + px("paddingBottom") + px("borderTopWidth") + px("borderBottomWidth");
+    const from = d.getBoundingClientRect().height;
+    if (open) d.open = true;
+    const to = open ? d.getBoundingClientRect().height : closedH;
+    if (reduceMotion.matches || Math.abs(to - from) < 1) { if (!open) d.open = false; return; }
+    d.style.overflow = "hidden";
+    const a = d.animate({ height: [`${from}px`, `${to}px`] }, { duration: 240, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" });
+    d._anim = a;
+    a.onfinish = () => { if (!open) d.open = false; d.style.overflow = ""; d._anim = null; };
+    a.oncancel = () => { d.style.overflow = ""; };
+  }
+  for (const d of SECTIONS) {
+    d.querySelector("summary").addEventListener("click", (e) => {
+      e.preventDefault();
+      const open = !wantsOpen(d);
+      if (open) for (const o of SECTIONS) if (o !== d && wantsOpen(o)) animateSection(o, false);
+      animateSection(d, open);
+    });
+  }
+
   ui.collapse.addEventListener("click", () => {
     const c = ui.panel.classList.toggle("collapsed");
     ui.collapse.textContent = c ? "+" : "−";
