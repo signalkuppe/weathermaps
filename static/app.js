@@ -55,8 +55,8 @@
 
   // run: sempre l'ultima corsa completa del modello (non si sceglie più a mano)
   const state = {
-    model: null,
-    var: null,
+    model: "gfs",
+    var: "t850",
     run: null,
     step: null,
     mode: null,
@@ -810,6 +810,11 @@
       const d = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null");
       if (!d || typeof d !== "object") return;
       const current = d.v >= SETTINGS_VERSION;
+      if (typeof d.model === "string") state.model = d.model;
+      if (typeof d.var === "string") state.var = d.var;
+      if (Number.isFinite(d.step)) state.step = d.step;
+      if (typeof d.mode === "string") state.mode = d.mode;
+      if (INTERVALS.includes(d.hours)) state.hours = d.hours;
       if (typeof d.base === "string") state.base = d.base;
       if (current && Number.isFinite(d.opacity))
         state.opacity = Math.min(1, Math.max(0.1, d.opacity));
@@ -830,6 +835,11 @@
         SETTINGS_KEY,
         JSON.stringify({
           v: SETTINGS_VERSION,
+          model: state.model,
+          var: state.var,
+          step: state.step,
+          mode: state.mode,
+          hours: state.hours,
           base: state.base,
           opacity: state.opacity,
           crisp: state.crisp,
@@ -2731,6 +2741,7 @@
   let seq = 0;
   async function update() {
     writeHash();
+    saveSettings();
     renderLegend();
     renderTime();
     if (!variable().models.includes(state.model)) {
@@ -5541,6 +5552,7 @@
     renderModelInfo();
     setupRuns();
     setupSteps();
+    saveSettings();
     update();
   });
   ui.varSel.addEventListener("change", () => {
@@ -5551,6 +5563,7 @@
     setupModes();
     setupRuns();
     setupSteps();
+    saveSettings();
     update();
   });
   // ---------- sezioni del pannello (località, impostazioni, crediti): una aperta alla volta, apertura e chiusura
@@ -5625,11 +5638,19 @@
     });
   }
 
-  ui.collapse.addEventListener("click", () => {
-    const c = ui.panel.classList.toggle("collapsed");
-    ui.collapse.textContent = c ? "+" : "−";
-    if (!c) togglePlay(false); // riaprendo il menu l'animazione si ferma
-  });
+  function setPanelCollapsed(collapsed) {
+    ui.panel.classList.toggle("collapsed", collapsed);
+    ui.collapse.textContent = collapsed ? "+" : "−";
+    ui.collapse.setAttribute(
+      "aria-label",
+      collapsed ? "Apri pannello" : "Riduci pannello",
+    );
+    ui.collapse.title = collapsed ? "Apri pannello" : "Riduci pannello";
+    if (!collapsed) togglePlay(false); // riaprendo il menu l'animazione si ferma
+  }
+  ui.collapse.addEventListener("click", () =>
+    setPanelCollapsed(!ui.panel.classList.contains("collapsed")),
+  );
   document.addEventListener("keydown", (e) => {
     if (e.target.closest("select, input:not([type=range])")) return;
     if (e.key === "ArrowLeft") {
@@ -5703,6 +5724,7 @@
   async function init() {
     loadSettings();
     readHash();
+    setPanelCollapsed(mobileMq.matches);
     try {
       const [m] = await Promise.all([
         fetch(STATIC ? "data/meta.json" : "api/meta").then((r) => r.json()),
