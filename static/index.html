@@ -68,10 +68,28 @@
     />
     <link rel="stylesheet" href="style.css" />
   </head>
-  <body>
+  <body class="is-starting" aria-busy="true">
+    <div
+      id="startup-loader"
+      class="startup-loader"
+      role="status"
+      aria-label="Caricamento Weathermaps"
+    >
+      <div class="startup-brand">
+        <img
+          class="startup-logo"
+          src="icons/favicon.svg"
+          alt=""
+          width="88"
+          height="88"
+        />
+        <strong class="startup-name">Weathermaps</strong>
+        <p class="startup-payoff">Carico i modelli ...</p>
+      </div>
+    </div>
     <div id="map"></div>
 
-    <aside id="panel" class="panel" hidden>
+    <aside id="panel" class="panel">
       <header class="panel-head">
         <h1>
           <img

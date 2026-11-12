@@ -2165,13 +2165,14 @@
   }
   const IMG_KEEP = 40; // immagini tenute (le più recenti): ~10 MB al massimo con i modelli più fini
   const imgCache = new Map(); // chiave -> Promise<url>
+  const fieldImageIds = new WeakMap();
   let fieldIds = 0;
   /** Immagine dei colori di un campo per la grandezza e le impostazioni attuali; `low` = preparata in anticipo. */
   function fieldImage(f, low = false) {
     const v = variable(),
       { nx, ny, lat0, lon0, dlat, dlon } = f.grid;
-    f._id ??= ++fieldIds;
-    const key = `${f._id}|${state.var}|${state.crisp ? 1 : 0}`;
+    if (!fieldImageIds.has(f)) fieldImageIds.set(f, ++fieldIds);
+    const key = `${fieldImageIds.get(f)}|${state.var}|${state.crisp ? 1 : 0}`;
     const hit = imgCache.get(key);
     if (hit) {
       imgCache.delete(key);
@@ -2243,7 +2244,7 @@
     const bounds = L.latLngBounds([south, west], [north, east]);
     const my = ++drawSeq,
       crisp = state.crisp;
-    fieldImage(f).then((url) => {
+    const painted = fieldImage(f).then((url) => {
       if (my !== drawSeq || !url) return; // nel frattempo si è passati a un altro campo
       if (glBase) {
         glPut("wm-model", {
@@ -2267,6 +2268,7 @@
     });
     drawContours(variable().contour_field ? currentContour : f);
     drawArrows();
+    return painted;
   }
 
   function clearOverlay() {
@@ -2798,7 +2800,8 @@
       current = f;
       currentContour = cf;
       currentArrows = af;
-      draw(f);
+      await draw(f);
+      if (my !== seq) return;
       renderPoints();
       refreshProbe();
       setStatus(""); // i modelli della mediana sono già nella riga della corsa ("8 modelli")
@@ -3049,10 +3052,18 @@
     // prima Open-Meteo (GeoNames: città, paesi, cime e passi; risponde in meno di un secondo), poi Photon se non
     // trova niente o non risponde (OpenStreetMap, più completo ma spesso lentissimo: anche 40-50 secondi)
     const openMeteo = async () => {
-      const params = new URLSearchParams({ name: q, count: "100", language: "it", format: "json" });
-      const r = await fetch(`https://geocoding-api.open-meteo.com/v1/search?${params}`, {
-        signal: AbortSignal.any([ctl.signal, AbortSignal.timeout(3500)]),
+      const params = new URLSearchParams({
+        name: q,
+        count: "100",
+        language: "it",
+        format: "json",
       });
+      const r = await fetch(
+        `https://geocoding-api.open-meteo.com/v1/search?${params}`,
+        {
+          signal: AbortSignal.any([ctl.signal, AbortSignal.timeout(3500)]),
+        },
+      );
       if (!r.ok) throw new Error(r.statusText);
       const data = await r.json();
       return (data.results || []).map((location) => ({
@@ -3074,7 +3085,9 @@
     try {
       let features = [];
       try {
-        features = (await openMeteo()).filter((f) => inBox(f.geometry.coordinates[1], f.geometry.coordinates[0]));
+        features = (await openMeteo()).filter((f) =>
+          inBox(f.geometry.coordinates[1], f.geometry.coordinates[0]),
+        );
       } catch (error) {
         if (ctl.signal.aborted) throw error;
       }
@@ -5705,7 +5718,6 @@
       if (map.hasLayer(bases.topo)) bases.topo.redraw();
     } catch (e) {
       setStatus(`Impossibile contattare il server: ${e.message}`, true);
-      ui.panel.hidden = false;
       return;
     }
     const toBounds = (b) =>
@@ -5746,8 +5758,6 @@
     setupRuns();
     setupSteps();
     await update();
-    ui.panel.hidden = false;
-    restoreChartFromHash();
 
     // nuove corse/passi arrivano mentre la pagina è aperta
     setInterval(async () => {
@@ -5762,5 +5772,32 @@
     }, 2 * 60e3);
   }
 
-  init();
+  async function start() {
+    try {
+      await init();
+      if (glBase && !glBase.loaded()) {
+        await new Promise((resolve) => {
+          const ready = () => {
+            clearTimeout(timer);
+            glBase.off("idle", ready);
+            glBase.off("error", ready);
+            resolve();
+          };
+          const timer = setTimeout(ready, 12000);
+          glBase.on("idle", ready);
+          glBase.on("error", ready);
+        });
+      }
+      await new Promise(requestAnimationFrame);
+    } catch (e) {
+      setStatus(`Errore di avvio: ${e.message}`, true);
+    } finally {
+      document.body.classList.remove("is-starting");
+      document.body.removeAttribute("aria-busy");
+      $("startup-loader")?.remove();
+    }
+    restoreChartFromHash();
+  }
+
+  start();
 })();
