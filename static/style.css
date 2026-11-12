@@ -63,7 +63,7 @@ body {
   padding: 8px 12px;
   border-bottom: 1px solid var(--line);
 }
-.panel-head h1 { font-size: 15px; margin: 0; font-weight: 650; display: flex; align-items: center; gap: 4px; }
+.panel-head h1 { font-size: 15px; margin: 0; font-weight: 650; display: flex; align-items: center; gap: 2px; }
 .panel-head h1 .logo { flex: none; display: block; }
 .app-version { margin-left: 4px; font-size: 11px; font-weight: 400; color: var(--muted); } /* stessa linea di base del nome: le cifre stanno all'altezza delle minuscole */
 .updated-at { display: block; text-align: right; font-size: 10px; color: var(--muted); } /* in fondo alla sezione dei modelli */
@@ -382,7 +382,7 @@ input[type="range"] { accent-color: var(--accent); margin-inline: 0; } /* senza 
 }
 .badge-valid { color: var(--muted); }
 .badge-text { display: contents; } /* su desktop i figli sono elementi flex del badge */
-.badge-m { display: none; }
+.badge-m, .m-step { display: none; }
 .badge-btn { display: none; }
 @media (max-width: 1100px) { .badge { left: auto; right: 64px; transform: none; } }
 
@@ -396,7 +396,32 @@ input[type="range"] { accent-color: var(--accent); margin-inline: 0; } /* senza 
 .valid { font-size: 16px; font-weight: 650; padding-right: 20px; }
 .range { color: var(--muted); font-size: 13px; }
 
-.stepper { display: grid; grid-template-columns: auto auto auto 1fr; gap: 6px; align-items: center; }
+.stepper { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; }
+/* play dell'animazione: tondo, del colore dello slider */
+.play-btn { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0;
+  border: 0; border-radius: 50%; background: var(--accent); color: #fff; cursor: pointer; flex: none; }
+.play-btn:hover { filter: brightness(1.1); }
+.play-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.play-btn svg { display: block; }
+/* slider dei passi (nel pannello e nella barra su mobile): barra sottile con la parte percorsa blu, pallino grande
+   bianco col bordo blu; --pct è la parte percorsa, aggiornata da renderTime */
+.wm-range { --pct: 0%; -webkit-appearance: none; appearance: none; background: none; margin: 0; padding: 0; height: 32px;
+  cursor: pointer; touch-action: none; -webkit-tap-highlight-color: transparent; }
+.wm-range::-webkit-slider-runnable-track { height: 6px; border-radius: 3px;
+  background: linear-gradient(to right, var(--accent) var(--pct), var(--line) var(--pct)); }
+.wm-range::-moz-range-track { height: 6px; border-radius: 3px; background: var(--line); }
+.wm-range::-moz-range-progress { height: 6px; border-radius: 3px; background: var(--accent); }
+.wm-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 22px; height: 22px; margin-top: -8px;
+  border-radius: 50%; background: #fff; border: 3px solid var(--accent); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  transition: transform 0.12s; }
+.wm-range::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: #fff;
+  border: 3px solid var(--accent); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); }
+.wm-range:active::-webkit-slider-thumb { transform: scale(1.12); }
+.wm-range:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+@media (pointer: coarse) { /* col dito: area da toccare alta 44 px e pallino più grande */
+  .wm-range { height: 44px; }
+  .wm-range::-webkit-slider-thumb { width: 26px; height: 26px; margin-top: -10px; }
+}
 .icon-btn {
   font: inherit;
   min-width: 30px;
@@ -439,8 +464,20 @@ body.radar-mode .badge-radar { display: flex; align-items: center; gap: 8px; poi
 .radar-loader .spinner { position: static; flex: none; width: 18px; height: 18px; margin-top: 1px; } /* in linea col titolo */
 .radar-loader-text { display: grid; } /* conteggio sotto il titolo: cambiando cifre il riquadro non si allarga */
 .radar-loader-count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-body.radar-loading .badge-radar, body.radar-loading .badge .share-btn { visibility: hidden; }
-body.radar-loading .badge:not(:has(.legend)) { visibility: hidden; } /* desktop: niente barra vuota; su mobile resta la legenda */
+/* durante il caricamento di radar e satellite niente barra (c'è il riquadro al centro); quando le immagini sono pronte
+   entra con una breve animazione: dall'alto su desktop, dal basso su mobile (dove la barra sta in fondo) */
+body.radar-loading .badge, body.radar-loading .legend { visibility: hidden; } /* anche la legenda (desktop: è a parte) */
+.badge.badge-enter { animation: badge-in 0.42s cubic-bezier(0.2, 0.9, 0.25, 1.15) both; }
+/* legenda su desktop (in basso a destra): entra insieme alla barra, dal basso */
+.legend.legend-enter { animation: legend-in 0.42s cubic-bezier(0.2, 0.9, 0.25, 1.15) both; }
+@keyframes legend-in { from { opacity: 0; translate: 0 14px; scale: 0.96; } to { opacity: 1; translate: 0 0; scale: 1; } }
+.badge.badge-enter > * { animation: badge-in-item 0.42s ease-out both; animation-delay: 0.08s; }
+@keyframes badge-in { from { opacity: 0; translate: 0 -14px; scale: 0.94; } to { opacity: 1; translate: 0 0; scale: 1; } }
+@keyframes badge-in-item { from { opacity: 0; } to { opacity: 1; } }
+@media (max-width: 600px), (orientation: portrait) and (pointer: coarse) and (max-width: 1100px) {
+  @keyframes badge-in { from { opacity: 0; translate: 0 18px; scale: 0.96; } to { opacity: 1; translate: 0 0; scale: 1; } }
+}
+@media (prefers-reduced-motion: reduce) { .badge.badge-enter, .badge.badge-enter > *, .legend.legend-enter { animation: none; } }
 body.radar-mode .badge-radar .badge-btn { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px;
   padding: 0; border: 0; border-radius: 6px; background: none; color: var(--accent); cursor: pointer; }
 body.radar-mode .badge-radar .badge-btn:hover { background: var(--accent-tint); }
@@ -623,7 +660,7 @@ body.radar-mode .badge-radar .badge-btn:hover { background: var(--accent-tint); 
   /* riga: ‹ istante › ▶ … modello corsa; sotto, a tutta larghezza, la legenda */
   .badge { top: auto; bottom: 8px; left: 8px; right: 8px; transform: none;
     display: flex; flex-wrap: wrap; align-items: center; gap: 0;
-    padding: 0 10px 2px 2px; border-radius: 8px; font-size: 13px; }
+    padding: 0 10px 8px 2px; border-radius: 8px; font-size: 13px; }
   .badge-text { display: contents; }
   .badge-d { display: none; }
   .badge-m { display: inline; order: 2; }
@@ -637,13 +674,23 @@ body.radar-mode .badge-radar .badge-btn:hover { background: var(--accent-tint); 
   .badge-btn { display: flex; align-items: center; justify-content: center; width: 34px; height: 40px;
     padding: 0; border: 0; background: none; color: var(--accent); cursor: pointer; pointer-events: auto; }
   .badge-btn svg { display: block; }
-  /* « ‹ istante › ▶ … modello corsa [condividi] */
-  #m-first { order: 0; width: 28px; }
-  /* ‹ e › stretti e appoggiati all'ora */
-  #m-prev { order: 1; width: 26px; justify-content: flex-end; }
-  #m-next { order: 3; width: 26px; justify-content: flex-start; }
-  #m-play { order: 4; width: 30px; }
-  .share-btn { order: 6; width: 34px; height: 40px; margin: 0 -8px 0 4px; }
+  /* ▶ istante … modello corsa [condividi]; sotto, lo slider dei passi a tutta larghezza (al posto delle frecce) */
+  #m-first, #m-prev, #m-next { display: none; }
+  /* niente play nella barra compatta: l'animazione si avvia dal pannello */
+  #m-play { display: none; }
+  .badge-m-time { text-align: left; padding-left: 8px; height: 40px; line-height: 40px; }
+  /* bordo sinistro della barra allineato alla data e al titolo della legenda, il destro a quello della barra.
+     Area da toccare alta 44 px (la barra visibile resta sottile, il resto è trasparente) e pallino grande; nessun
+     gesto del browser sullo slider (touch-action: none), così il primo tocco non sposta la pagina o la mappa */
+  .badge .m-step { display: block; order: 6; flex: 0 0 calc(100% - 8px); width: calc(100% - 8px);
+    margin: -10px 0 -6px 8px; height: 44px; pointer-events: auto;
+    transition: height 0.28s cubic-bezier(0.2, 0.8, 0.2, 1), margin 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
+      opacity 0.2s ease, transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1); }
+  /* col pannello aperto c'è già il suo slider: in basso solo a pannello chiuso. Compare e scompare scorrendo, con la
+     barra che si allunga e si accorcia insieme */
+  body:has(#panel:not(.collapsed)) .m-step { height: 0; margin: 0 0 0 8px; opacity: 0; transform: translateY(6px);
+    pointer-events: none; }
+  .share-btn { order: 5; width: 34px; height: 40px; margin: 0 -8px 0 4px; }
   body.radar-mode .badge .extra-close { margin-left: 4px; }
   .badge .legend { order: 7; flex-basis: 100%; padding-left: 8px; flex-wrap: wrap; }
   /* legenda compatta sopra l'etichetta della corsa: unità a sinistra, barra colori con le soglie sotto */
@@ -712,6 +759,7 @@ body.radar-mode .badge-radar .badge-btn:hover { background: var(--accent-tint); 
 .chart-sub .fi { flex: none; width: 18px; height: 13.5px; border-radius: 2px; box-shadow: 0 0 0 1px rgba(29, 35, 48, 0.2); }
 .chart-sub svg { flex: none; width: 15px; height: 15px; }
 .chart-sub { font-size: 12px; color: var(--muted); }
+.chart-dialog:focus { outline: none; } /* il focus iniziale è sulla finestra stessa */
 .chart-body { flex: 1; min-height: 0; overflow-y: auto; position: relative; touch-action: pan-y; padding-top: 30px; }
 .chart-body > svg { display: block; width: 100%; font: 11px system-ui, sans-serif; font-variant-numeric: tabular-nums;
   user-select: none; -webkit-user-select: none; }
@@ -788,8 +836,13 @@ body.radar-mode .badge-radar .badge-btn:hover { background: var(--accent-tint); 
 .wm-mapbox-logo { margin: 0 0 8px 8px !important; pointer-events: auto; line-height: 0; }
 .wm-mapbox-logo .mapboxgl-ctrl-logo { display: block; }
 @media (max-width: 600px), (orientation: portrait) and (pointer: coarse) and (max-width: 1100px) {
-  .wm-mapbox-logo { margin-bottom: var(--logo-bottom, 104px) !important; }
+  .wm-mapbox-logo { margin-bottom: var(--logo-bottom, 140px) !important; transition: margin 0.28s cubic-bezier(0.2, 0.8, 0.2, 1); }
+  body:has(#panel:not(.collapsed)) .wm-mapbox-logo { margin-bottom: 104px !important; } /* barra senza slider */
+  body.radar-mode .wm-mapbox-logo { margin-bottom: 104px !important; } /* radar e satellite: la barra non cambia */
 }
 
 /* Mapbox dentro Leaflet: durante il pinch il riquadro si ingrandisce dall'angolo in alto a sinistra (vedi smoothGl) */
 .leaflet-gl-layer { transform-origin: 0 0; }
+/* copia dell'ultimo disegno di Mapbox durante lo zoom (vedi holdFrame) */
+.wm-gl-held { position: absolute; left: 0; top: 0; pointer-events: none; transition: opacity 0.18s; }
+@media (prefers-reduced-motion: reduce) { .m-step, .wm-mapbox-logo { transition: none !important; } }

@@ -207,9 +207,50 @@
    *    l'ultimo disegno con una trasformazione CSS, come Leaflet fa con le sue tessere; si ridisegna una volta alla fine;
    *  - ridimensionamento della finestra: cambiare la dimensione del canvas WebGL lo svuota e Mapbox ridisegna al
    *    fotogramma dopo (la mappa lampeggia): si ridisegna subito. */
+  /* Ingrandendo, Mapbox scarica i pezzi del nuovo zoom e per qualche decimo di secondo confini e scritte mancano a
+   * tratti (piccoli lampeggi). Si tiene una copia dell'ultimo disegno, ingrandita come la mappa durante il gesto, sopra
+   * il disegno nuovo finché Mapbox non ha finito di caricare, poi sparisce in dissolvenza. */
+  function holdFrame(layer) {
+    const m = layer.getMapboxMap();
+    // copie rimaste da uno zoom precedente ancora in caricamento: via (sarebbero nel posto sbagliato)
+    layer.getContainer().parentNode?.querySelectorAll(":scope > .wm-gl-held").forEach((x) => x.remove());
+    if (!glStyleReady || layer._held) return;
+    const held = { canvas: null };
+    layer._held = held;
+    m.once("render", () => { // il canvas WebGL si legge solo subito dopo un disegno
+      if (layer._held !== held) return;
+      const src = m.getCanvas(), c = document.createElement("canvas");
+      c.width = src.width; c.height = src.height;
+      c.getContext("2d").drawImage(src, 0, 0);
+      c.className = "wm-gl-held";
+      c.style.width = src.style.width; c.style.height = src.style.height;
+      layer.getContainer().appendChild(c); // dentro il riquadro: segue la stessa trasformazione del pinch
+      held.canvas = c;
+    });
+    m.triggerRepaint();
+  }
+  function releaseFrame(layer, held, r) {
+    const c = held.canvas;
+    if (!c || !r) { c?.remove(); return; }
+    // la copia resta dov'era sullo schermo, ora fuori dal riquadro (che è tornato senza scala)
+    const pane = layer.getContainer().parentNode, pr = pane.getBoundingClientRect();
+    Object.assign(c.style, { left: `${r.left - pr.left}px`, top: `${r.top - pr.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+    pane.appendChild(c);
+    const m = layer.getMapboxMap();
+    let done = false;
+    const fade = () => {
+      if (done) return;
+      done = true;
+      c.style.opacity = "0";
+      setTimeout(() => c.remove(), 200);
+    };
+    m.once("idle", fade);
+    setTimeout(fade, 1500); // al massimo un secondo e mezzo
+  }
   function smoothGl(layer) {
     layer._zoomStart = function () {
       this._zooming = true;
+      holdFrame(this);
       const pad = this._map.getSize().multiplyBy(this.options.padding);
       this._pinchFrom = { zoom: this._map.getZoom(), nw: this._map.containerPointToLatLng(pad.multiplyBy(-1)) };
     };
@@ -219,11 +260,27 @@
       const scale = this._map.getZoomScale(this._map.getZoom(), f.zoom);
       L.DomUtil.setTransform(this._container, this._map.latLngToLayerPoint(f.nw), scale);
     };
+    // fine del pinch (scatto al quarto di livello) e zoom con i pulsanti o il doppio tocco: Leaflet anima verso lo zoom
+    // finale; il riquadro di Mapbox segue con la stessa trasformazione (e la stessa transizione CSS degli altri livelli),
+    // invece di scalare il canvas sopra la scala del pinch (doppia scala per un attimo: il lampeggio)
+    layer._animateZoom = function (e) {
+      const f = this._pinchFrom;
+      if (!f || !this._container) return;
+      const scale = this._map.getZoomScale(e.zoom, f.zoom);
+      L.DomUtil.setTransform(this._container, this._map._latLngToNewLayerPoint(f.nw, e.zoom, e.center), scale);
+    };
     const zoomEnd = layer._zoomEnd;
     layer._zoomEnd = function () {
       this._pinchFrom = null;
-      zoomEnd.call(this); // rimette la posizione del riquadro e ridisegna alla vista nuova
+      const held = this._held;
+      this._held = null;
+      const r = held?.canvas?.isConnected && held.canvas.getBoundingClientRect(); // dove si vede ora (scalata)
+      zoomEnd.call(this); // rimette la posizione del riquadro e chiede il disegno alla vista nuova...
+      // ...che Mapbox farebbe al fotogramma dopo, mostrando per un attimo il disegno vecchio senza scala: subito
+      try { if (glStyleReady) this._glMap._render(); } catch { /* lo fa Mapbox al prossimo fotogramma */ }
+      if (held) releaseFrame(this, held, r);
     };
+    layer.once("add", () => L.DomUtil.addClass(layer.getContainer(), "leaflet-zoom-animated"));
     layer.once("add", () => {
       const m = layer.getMapboxMap();
       const resize = m.resize.bind(m);
@@ -980,7 +1037,19 @@
     if (all) radarReadyOnce = true;
     const loading = !!extraCfg() && !radarReadyOnce;
     $("radar-loader").hidden = !loading;
+    const was = document.body.classList.contains("radar-loading");
     document.body.classList.toggle("radar-loading", loading);
+    if (was && !loading) { // immagini pronte: barra e legenda entrano con l'animazione (vedi .badge-enter in style.css)
+      const enter = (el, cls) => {
+        el.classList.remove(cls);
+        void el.offsetWidth; // riparte anche se era appena stata usata
+        el.classList.add(cls);
+        const end = (e) => { if (e.target !== el) return; el.classList.remove(cls); el.removeEventListener("animationend", end); };
+        el.addEventListener("animationend", end);
+      };
+      enter(ui.badge, "badge-enter");
+      if (!ui.badge.contains(ui.legend)) enter(ui.legend, "legend-enter"); // su mobile la legenda è dentro la barra
+    }
     $("radar-loader-name").textContent = extraCfg()?.name.toLowerCase() || "";
     $("radar-loader-count").textContent = radarFrames.length ? `${ready} di ${radarFrames.length} immagini` : "in attesa…";
     if (!all) return;
@@ -1093,7 +1162,11 @@
         b.type = "button";
         b.textContent = text;
         b.setAttribute("aria-pressed", String(k === state.extra));
-        b.addEventListener("click", () => setExtra(k));
+        b.addEventListener("click", () => {
+          setExtra(k);
+          // su mobile il pannello copre la mappa: accendendo radar o satellite si chiude, così si vede il caricamento
+          if (k !== "none" && mobileMq.matches && !ui.panel.classList.contains("collapsed")) ui.collapse.click();
+        });
         return b;
       }),
     );
@@ -1575,6 +1648,10 @@
       `<span class="badge-valid badge-d">+${s}h · ${fmtLocal(valid)}</span>` +
       `<span class="badge-m badge-m-time"><b>${fmtLocal(valid)}</b></span>` +
       `<span class="badge-m badge-m-model">${shortLabel(state.model)} ${cycle(state.run)}</span>`;
+    const mStep = $("m-step"); // slider della barra su mobile, allineato a quello del pannello
+    mStep.max = steps().length - 1;
+    mStep.value = steps().indexOf(s);
+    for (const r of [mStep, ui.step]) r.style.setProperty("--pct", `${(100 * +r.value) / (+r.max || 1)}%`); // parte percorsa
     const prev = intervalPrev(s);
     const utc = `${fmtUTC(valid)} UTC`;
     if (state.mode === "interval") ui.range.textContent = `${utc} · accumulo da +${prev}h a +${s}h`;
@@ -2277,6 +2354,15 @@
 
   /** Ridimensiona il riquadro di `factor` tenendo fermo il punto (mx, my) della mappa. */
   function scaleCropAt(factor, mx = crop.x + crop.w / 2, my = crop.y + cropH() / 2) {
+    // già al massimo e si allontana ancora: si allarga la mappa sotto il riquadro (zoom indietro e nuova foto)
+    if (factor > 1 && crop.w >= maxCropW() - 0.5) { widenShare(factor); return; }
+    // si allontana oltre il massimo: il riquadro arriva al massimo e il resto diventa zoom indietro della mappa
+    if (factor > 1 && crop.w * factor > maxCropW() * 1.05) {
+      const rest = (crop.w * factor) / maxCropW();
+      scaleCropAt(maxCropW() / crop.w, mx, my);
+      widenShare(rest);
+      return;
+    }
     const rx = (mx - crop.x) / crop.w;
     const ry = (my - crop.y) / cropH();
     crop.w = clampW(crop.w * factor);
@@ -2323,7 +2409,8 @@
     const k = PT_SCALE;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    for (const p of shareUi.points.checked && state.extra === "none" ? snap.points : []) {
+    // con radar e satellite le località hanno il nome al posto del valore (come sulla mappa)
+    for (const p of shareUi.points.checked ? snap.points : []) {
       const px = (p.x - crop.x) * s;
       const py = (p.y - crop.y) * s;
       if (px < -40 || px > OW + 40 || py < -40 || py > OH + 40) continue;
@@ -2514,8 +2601,6 @@
     return makeShareFile();
   }
 
-  // vista della mappa prima della condivisione: la mappa si centra per un attimo sulla posizione e poi ci torna
-  let shareRestore = null;
 
   // bandiera del modello per l'intestazione dell'immagine: lo stesso SVG di flag-icons usato nella pagina (letto dal
   // CSS), per la mediana l'icona "layers"; caricata una volta per modello
@@ -2548,84 +2633,91 @@
     return flagCache.get(key);
   }
 
+  // vista della mappa all'apertura della condivisione: se dalla finestra si allontana oltre la mappa che stavi
+  // guardando, la mappa si allarga sotto (zoom indietro) e alla chiusura torna dov'era
+  let shareRestore = null, widening = false, widenMore = 1; // widenMore: zoom indietro chiesti durante una foto
+  /** Aspetta che Mapbox (o le tessere) abbia disegnato la vista nuova, al massimo 2 s, più un paio di fotogrammi per
+   *  le linee e le località di Leaflet. */
+  function mapReady() {
+    return new Promise((resolve) => {
+      const done = () => { clearTimeout(t); requestAnimationFrame(() => requestAnimationFrame(resolve)); };
+      const t = setTimeout(done, 2000);
+      if (glBase) {
+        const m = glBase.getMapboxMap();
+        if (m.loaded() && m.areTilesLoaded()) done(); else m.once("idle", done);
+        return;
+      }
+      const layer = bases[state.base];
+      if (!layer.isLoading?.()) done(); else layer.once("load", done);
+    });
+  }
+  async function takeSnap() {
+    glShot = glBase ? await glCapture() : null;
+    crop.snap = snapshotMap();
+    glShot = null;
+  }
+  /** Zoom indietro sotto il riquadro: la mappa si allontana di un livello attorno al centro del riquadro, si rifà la
+   *  foto e il riquadro copre la stessa zona di prima (poi `factor` più largo). */
+  async function widenShare(factor) {
+    if (widening) { widenMore *= factor; return; } // si applica appena finita la foto in corso
+    if (map.getZoom() <= map.getMinZoom() + 0.01) return;
+    widening = true;
+    try {
+      const center = map.containerPointToLatLng([crop.x + crop.w / 2, crop.y + cropH() / 2]);
+      const zoom = Math.max(map.getMinZoom(), map.getZoom() - 1);
+      const shrink = map.getZoomScale(zoom, map.getZoom()); // < 1: quanto si rimpicciolisce la stessa zona
+      shareRestore ??= { center: map.getCenter(), zoom: map.getZoom() };
+      map.setView(center, zoom, { animate: false });
+      await mapReady();
+      await takeSnap();
+      const p = map.latLngToContainerPoint(center);
+      crop.w = clampW(crop.w * shrink * factor);
+      crop.x = p.x - crop.w / 2;
+      crop.y = p.y - cropH() / 2;
+      clampCrop();
+      shareUi.pointsRow.hidden = !crop.snap.points.length;
+      layoutView();
+      scheduleRender();
+    } finally {
+      widening = false;
+    }
+    if (widenMore > 1) { const f = widenMore; widenMore = 1; scaleCropAt(f); }
+  }
+
   async function openShare() {
     crop.flag = null;
     const model = state.model;
     loadFlag(model).then((img) => { if (state.model === model) { crop.flag = img; scheduleRender(); } });
-    // la mappa si centra sulla posizione del dispositivo (stesso zoom), così il riquadro più grande parte da lì
-    const pos = await knownPosition();
+    // si parte dalla mappa così come la stai guardando (stessa zona e stesso zoom): niente posizione del dispositivo
     shareRestore = null;
-    if (pos && inBox(pos.lat, pos.lon)) {
-      shareRestore = { center: map.getCenter(), zoom: map.getZoom() };
-      map.setView([pos.lat, pos.lon], map.getZoom(), { animate: false });
-      await tilesReady();
-    }
-    glShot = glBase ? await glCapture() : null;
-    crop.snap = snapshotMap();
-    glShot = null;
+    widenMore = 1;
+    await takeSnap();
     crop.texts = shareTexts();
-    // all'apertura il riquadro più grande che sta nella mappa (zoom minimo), centrato sulla posizione se c'è,
-    // altrimenti sulla mappa (la proporzione resta l'ultima scelta)
+    // all'apertura il riquadro più grande che sta nella mappa, al centro (la proporzione resta l'ultima scelta)
     [outCanvas.width, outCanvas.height] = RATIOS[crop.ratio];
     crop.w = maxCropW();
-    const c = shareRestore ? map.latLngToContainerPoint([pos.lat, pos.lon]) : { x: crop.snap.W / 2, y: crop.snap.H / 2 };
+    const c = { x: crop.snap.W / 2, y: crop.snap.H / 2 };
     crop.x = c.x - crop.w / 2;
     crop.y = c.y - cropH() / 2;
     clampCrop();
     crop.touched = false;
     shareUi.pointsRow.hidden = !crop.snap.points.length;
+    // località: con le mappe dei modelli accese (valori), con radar e satellite spente (si accendono dall'interruttore)
+    shareUi.points.checked = state.extra === "none";
     shareUi.dialog.showModal();
     layoutView();
     setRatio(crop.ratio);
   }
-  // alla chiusura (X, Esc, dopo la condivisione) la mappa torna dov'era
+
+  // alla chiusura (X, Esc, dopo la condivisione) la mappa torna dov'era, se nella finestra ci si è allontanati
   shareUi.dialog.addEventListener("close", () => {
     if (shareRestore) map.setView(shareRestore.center, shareRestore.zoom, { animate: false });
     shareRestore = null;
   });
 
-  /** Aspetta le tessere dello sfondo dopo lo spostamento (al massimo 2 s) e un paio di frame per le linee. */
-  function tilesReady() {
-    return new Promise((resolve) => {
-      if (glBase) { // Mapbox: "idle" quando stile e tessere della vista sono pronti e disegnati
-        const m = glBase.getMapboxMap();
-        const done = () => { clearTimeout(t); requestAnimationFrame(() => requestAnimationFrame(resolve)); };
-        const t = setTimeout(done, 2000);
-        if (m.loaded() && m.areTilesLoaded()) done(); else m.once("idle", done);
-        return;
-      }
-      const layer = bases[state.base];
-      const done = () => { layer.off("load", done); clearTimeout(t); requestAnimationFrame(() => requestAnimationFrame(resolve)); };
-      const t = setTimeout(done, 2000);
-      if (!layer.isLoading?.()) done(); else layer.once("load", done);
-    });
-  }
-
-  // ---------- posizione del dispositivo: salvata nel browser (localStorage, arrotondata a ~100 m) e mai inviata a
-  // nessuno. Si usa subito quella salvata e intanto la si aggiorna per la volta dopo; la prima volta si aspetta il
-  // browser (che chiede il permesso), al massimo 8 secondi.
-  const POS_KEY = "weathermaps.pos.v1";
-  function savedPosition() {
-    try {
-      const d = JSON.parse(localStorage.getItem(POS_KEY) || "null");
-      return d && Number.isFinite(d.lat) && Number.isFinite(d.lon) ? d : null;
-    } catch { return null; }
-  }
-  function refreshPosition() {
-    return new Promise((resolve) => {
-      if (!navigator.geolocation) { resolve(null); return; }
-      navigator.geolocation.getCurrentPosition((p) => {
-        const pos = { lat: +p.coords.latitude.toFixed(3), lon: +p.coords.longitude.toFixed(3) };
-        try { localStorage.setItem(POS_KEY, JSON.stringify(pos)); } catch { /* storage non disponibile */ }
-        resolve(pos);
-      }, () => resolve(null), { enableHighAccuracy: false, maximumAge: 10 * 60e3, timeout: 8000 });
-    });
-  }
-  async function knownPosition() {
-    const saved = savedPosition();
-    const fresh = refreshPosition();
-    return saved || (await fresh);
-  }
+  // posizione del dispositivo: non si usa più (prima centrava l'immagine condivisa); via quella salvata dalle versioni
+  // precedenti
+  try { localStorage.removeItem("weathermaps.pos.v1"); } catch { /* storage non disponibile */ }
   new ResizeObserver(() => {
     if (shareUi.dialog.open && crop.snap) { layoutView(); scheduleRender(); }
   }).observe(shareUi.canvas);
@@ -2799,6 +2891,7 @@
     chartPin = null;
     $("chart-readout").hidden = true;
     chartUi.dialog.showModal();
+    chartUi.dialog.focus(); // il focus sulla finestra, non sul primo pulsante (Scarica, evidenziato senza motivo)
     const want = `${state.model}|${state.run}`;
     try {
       const series = await getSeries(state.model, state.run, p.lat, p.lon);
@@ -2831,21 +2924,27 @@
     `.ch-acc{stroke:${c.acc}}.ch-acc-area{fill:${c.acc};fill-opacity:.1}.ch-acc-tick{fill:${c.acc}}`,
   ].join("");
   async function makeChartFile() {
-    const M = 48, EW = 1032, K = 2; // margine uguale su tutti i lati, larghezza dell'SVG, scala (nitidezza)
-    const g = drawChart(EW);
-    if (!g) throw new Error("niente da condividere");
+    // immagine verticale 4:5 (2160 × 2700 px): formato pieno su Instagram, intera nelle chat; i pannelli si allungano.
+    // Si disegna su 600 × 750 punti ingranditi 3,6 volte: testi e linee in proporzione come nella pagina sul telefono
+    // (su 1080 punti, rimpicciolita nello schermo, sembrava tutto minuscolo)
+    const OW = 600, OH = 750, M = 28, K = 3.6, FOOT = 48; // dimensioni, margine, scala, spazio dei crediti in fondo
+    const EW = OW - 2 * M + CHART_R; // larghezza dell'SVG (a destra il suo margine interno sostituisce M)
+    const TOP = M + 78; // titolo, sottotitolo e spazio prima dei grafici
+    const PB = { stem: 14, pad: 10, line: 19, font: 13 }; // riquadro dell'ora fissata
+    const probe = drawChart(EW);
+    if (!probe) throw new Error("niente da condividere");
+    const pbH = probe.pinBox ? PB.stem + PB.pad * 2 + PB.line * (1 + probe.pinBox.rows.length) + 12 : 0;
+    const g = drawChart(EW, OH - TOP - pbH - FOOT - M);
     const c = chartColors();
-    const svgText = `<svg xmlns="http://www.w3.org/2000/svg" width="${g.W}" height="${g.H}" viewBox="0 0 ${g.W} ${g.H}"><style>${chartCss(c)}</style>${g.markup}</svg>`;
+    // larghezza e altezza già alla risoluzione finale: il browser rasterizza l'SVG a quella misura (nitido)
+    const svgText = `<svg xmlns="http://www.w3.org/2000/svg" width="${g.W * K}" height="${g.H * K}" viewBox="0 0 ${g.W} ${g.H}"><style>${chartCss(c)}</style>${g.markup}</svg>`;
     const [img, flag] = await Promise.all([new Promise((resolve, reject) => {
       const im = new Image();
       im.onload = () => resolve(im);
       im.onerror = () => reject(new Error("grafico non convertibile in immagine"));
       im.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgText)}`;
     }), loadFlag(state.model, c.fg)]);
-    const TOP = M + 78; // titolo, sottotitolo e spazio prima dei grafici
-    const PB = { stem: 14, pad: 10, line: 19, font: 13 }; // riquadro dell'ora fissata
-    const pbH = g.pinBox ? PB.stem + PB.pad * 2 + PB.line * (1 + g.pinBox.rows.length) + 12 : 0;
-    const cw = M + g.W - CHART_R + M, chh = TOP + g.H + pbH + 28 + M;
+    const cw = OW, chh = Math.max(OH, TOP + g.H + pbH + FOOT + M); // più alta solo se i pannelli non ci stanno
     const cv = document.createElement("canvas");
     cv.width = cw * K; cv.height = chh * K;
     const ctx = cv.getContext("2d");
@@ -2854,8 +2953,8 @@
     ctx.fillRect(0, 0, cw, chh);
     ctx.textBaseline = "alphabetic";
     ctx.fillStyle = c.fg;
-    ctx.font = `700 28px ${FONT}`;
-    ctx.fillText(chartUi.title.textContent, M, M + 22); // allineati ai titoli dei grafici
+    ctx.font = `700 26px ${FONT}`;
+    ctx.fillText(chartUi.title.textContent, M, M + 22, cw - 2 * M); // allineati ai titoli dei grafici
     let sx = M;
     if (flag) { // bandiera del modello (icona a livelli per la mediana) prima del sottotitolo
       const fh = 15, fw = Math.round(fh * (flag.naturalWidth / flag.naturalHeight || 4 / 3));
@@ -2865,7 +2964,7 @@
     }
     ctx.fillStyle = c.muted;
     ctx.font = `500 15px ${FONT}`;
-    ctx.fillText(chartUi.sub.textContent, sx, M + 50);
+    ctx.fillText(chartUi.sub.textContent, sx, M + 50, cw - M - sx);
     ctx.drawImage(img, M, TOP, g.W, g.H);
     if (g.pinBox) { // come nella pagina: la linea scende fino al riquadro con ora e valori, verso il lato con più spazio
       const pb = g.pinBox, lx = M + pb.x;
@@ -2889,10 +2988,12 @@
         for (const [t, b] of parts) { ctx.font = `${b ? 650 : 400} ${PB.font}px ${FONT}`; ctx.fillText(t, tx, ty); tx += ctx.measureText(t).width; }
       }
     }
-    ctx.font = `400 12px ${FONT}`;
+    // crediti dei dati su una riga, sotto "Realizzato da" a destra
+    ctx.font = `400 10px ${FONT}`;
     const attr = shareTexts().attr;
-    ctx.fillText(attr.slice(Math.max(0, attr.indexOf("Dati:"))), M, chh - M, cw - M * 2 - 230); // niente crediti della mappa
+    ctx.fillText(attr.slice(Math.max(0, attr.indexOf("Dati:"))), M, chh - M, cw - M * 2); // niente crediti della mappa
     ctx.textAlign = "right";
+    ctx.translate(0, -18); // "Realizzato da" una riga sopra
     ctx.font = `700 14px ${FONT}`;
     ctx.fillStyle = c.fg;
     const site = "signalkuppe.com";
@@ -2901,6 +3002,7 @@
     ctx.font = `400 14px ${FONT}`;
     ctx.fillStyle = c.muted;
     ctx.fillText("Realizzato da ", cw - M - sw, chh - M);
+    ctx.translate(0, 18);
     const blob = await new Promise((resolve) => cv.toBlob(resolve, "image/jpeg", 0.92));
     const slug = chartUi.title.textContent.toLowerCase().normalize("NFD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
     return new File([blob], `weathermaps-grafico-${slug || "localita"}-${state.model}-${chartData.run}.jpg`, { type: "image/jpeg" });
@@ -2954,7 +3056,7 @@
   };
 
   /** Disegna il meteogramma nella finestra; con `exportW` restituisce invece l'SVG largo exportW (per l'immagine). */
-  function drawChart(exportW) {
+  function drawChart(exportW, exportH) {
     const { series, run, until } = chartData;
     // il grafico arriva all'ora scelta con lo slider della mappa (+0h … +24h): anche il totale è quello della mappa
     const V = Object.fromEntries(Object.entries(series.vars).map(([k, v]) => {
@@ -2964,7 +3066,7 @@
     const t0 = runDate(run).getTime();
     const W = exportW || Math.max(280, chartUi.body.clientWidth);
     const L = CHART_AXIS, R = CHART_R, pw = W - L - R;
-    const PH = 78, HEAD = 30, GAP = 16, AXIS = 34; // altezza grafico, titolo, spazio fra pannelli, asse dei tempi
+    let PH = 78; const HEAD = 30, GAP = 16, AXIS = 34; // altezza grafico, titolo, spazio fra pannelli, asse dei tempi
     const steps = [...new Set(Object.values(V).flatMap((v) => v.steps))].sort((a, b) => a - b);
     if (!steps.length) {
       if (exportW) return null;
@@ -3021,6 +3123,8 @@
       return `${b(fmt(d.y, p.dec))} ${p.unit}${span && p.kind === "bar" ? ` in ${d.b - d.a}h` : ""}${extra}`;
     };
     const pin = exportW && chartPin != null && steps.includes(chartPin) ? chartPin : null;
+    // immagine verticale: i pannelli si allungano fino a riempire l'altezza disponibile
+    if (exportH && panels.length) PH = Math.max(48, Math.floor((exportH - AXIS) / panels.length - HEAD - GAP));
     const H = panels.length * (HEAD + PH + GAP) + AXIS;
     const svg = [];
     // giorni (mezzanotte locale) e ore ogni 6 ore, ora di Roma come nel resto della pagina
@@ -3265,10 +3369,14 @@
   const M_PAUSE = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" stroke="currentColor" stroke-width="2.25" ' +
     'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="14" y="4" width="4" height="16" rx="1"/>' +
     '<rect x="6" y="4" width="4" height="16" rx="1"/></svg>';
+  // play / pausa del pannello (più piccoli, bianchi sul tondo blu)
+  const P_PLAY = ui.play.innerHTML;
+  const P_PAUSE = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">' +
+    '<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
   function togglePlay(force) {
     const on = force ?? !playTimer;
     if (on && !playTimer) {
-      ui.play.textContent = "❚❚";
+      ui.play.innerHTML = P_PAUSE; ui.play.setAttribute("aria-label", "Ferma animazione");
       ui.mPlay.innerHTML = M_PAUSE;
       ui.mPlay.setAttribute("aria-label", "Ferma animazione");
       playTimer = setInterval(() => {
@@ -3287,19 +3395,26 @@
     } else if (!on && playTimer) {
       clearInterval(playTimer);
       playTimer = null;
-      ui.play.textContent = "▶";
+      ui.play.innerHTML = P_PLAY; ui.play.setAttribute("aria-label", "Avvia animazione");
       ui.mPlay.innerHTML = M_PLAY;
       ui.mPlay.setAttribute("aria-label", "Avvia animazione");
     }
   }
 
   ui.step.addEventListener("input", () => { state.step = steps()[+ui.step.value]; update(); });
-  ui.prev.addEventListener("click", () => goStep(-1));
-  ui.next.addEventListener("click", () => goStep(1));
+  ui.prev?.addEventListener("click", () => goStep(-1));
+  ui.next?.addEventListener("click", () => goStep(1));
   // frecce del riquadro in basso su mobile: come quelle del pannello, ma fermano il play
   $("m-prev").addEventListener("click", () => { togglePlay(false); goStep(-1); });
   $("m-next").addEventListener("click", () => { togglePlay(false); goStep(1); });
   ui.mPlay.addEventListener("click", () => togglePlay());
+  // slider della barra su mobile: come quello del pannello, ma ferma il play
+  $("m-step").addEventListener("input", (e) => {
+    togglePlay(false);
+    ui.step.value = e.target.value;
+    state.step = steps()[+e.target.value];
+    update();
+  });
   // «: torna al primo passo disponibile della corsa
   $("m-first").addEventListener("click", () => {
     togglePlay(false);

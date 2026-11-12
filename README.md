@@ -76,8 +76,8 @@ La **mediana dei modelli** è costruita per istante di validità da un orario co
 - **Valore sotto il cursore** (desktop), con lo zero termico nella voce combinata e, sulla mappa della T850, la quota
   della superficie di 850 hPa in seconda riga; resta sempre dentro la finestra.
 - **Condivisione:** riquadro di ritaglio a proporzioni fisse (4:3, 1:1, 16:9) su cui si sposta e ingrandisce la mappa,
-  all'apertura allo zoom minimo e centrato sulla posizione del dispositivo (la mappa si sposta lì per la foto e poi
-  torna dov'era; la posizione è salvata nel browser, arrotondata a ~100 m, e non viene inviata a nessuno); intestazione con modello, corsa e ora, legenda, crediti e
+  all'apertura il più grande possibile al centro della mappa così come la stai guardando (stessa zona, stesso zoom;
+  nessuna richiesta della posizione); intestazione con modello, corsa e ora, legenda, crediti e
   "Realizzato da signalkuppe.com"; interruttore per includere o no le località. Si condivide l'immagine, senza testo.
 - **Stato nell'URL:** modello, grandezza, istante, modalità e opacità, quindi la vista si può condividere come link.
 - **Versione** accanto al nome dell'app, dai tag git.
