@@ -231,13 +231,6 @@ cd public && python -m http.server 8090   # http://localhost:8090
 Nota: GitHub disattiva il workflow di un repository pubblico dopo 60 giorni senza commit, e da quel momento
 fallisce anche l'avvio esterno (risposta di errore su cron-job.org); basta riattivarlo dalla scheda Actions.
 
-## Deploy su Railway
-
-1. Crea un servizio dal repo: Railway usa `Dockerfile` e `railway.json` (health check su `/api/health`).
-2. Aggiungi un **volume** montato su `/data` (il Dockerfile imposta già `DATA_DIR=/data`). Senza volume funziona lo stesso, ma dopo ogni deploy i dati si riscaricano.
-3. Usa **una sola replica**: lo scheduler gira dentro il processo.
-4. Genera un dominio pubblico. Railway imposta `PORT` in automatico.
-
 ## API
 
 - `GET /api/meta`: versione, area, passi, modelli, grandezze (anche le combinate) con scale colori e linee di livello

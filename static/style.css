@@ -37,6 +37,9 @@ summary,
 label {
   touch-action: manipulation;
 }
+html {
+  background: var(--bg);
+}
 body {
   background: var(--bg);
   color: var(--fg);
