@@ -1,7 +1,7 @@
 """Genera il sito statico (per GitHub Pages) dai dati in DATA_DIR.
 
 Produce in OUT_DIR:
-  index.html, app.js, style.css      la pagina, in modalità statica
+  index.html, app.js, render.js, style.css   la pagina, in modalità statica
   borders.json                       contorni geografici (da scripts/make_borders.py)
   data/meta.json                     come /api/meta
   data/runs.json                     come /api/runs + istante di generazione
@@ -57,14 +57,14 @@ def main(out_dir: Path) -> int:
     out_dir.mkdir(parents=True)
 
     # pagina: stessi file del server, marcati come statici
-    for name in ("app.js", "style.css", "borders.json", "manifest.webmanifest"):
+    for name in ("app.js", "render.js", "style.css", "borders.json", "manifest.webmanifest"):
         shutil.copy(ROOT / "static" / name, out_dir / name)
     shutil.copytree(ROOT / "static" / "icons", out_dir / "icons")  # logo: favicon e icone della home del telefono
     html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
     html = html.replace('<html lang="it">', '<html lang="it" data-mode="static">', 1)
     # impronta del contenuto negli indirizzi di script e stile: dopo un aggiornamento il browser scarica subito i file
     # nuovi invece di usare per 10 minuti quelli in cache (pagina nuova con script vecchio = voci che non funzionano)
-    for name, attr in (("app.js", "src"), ("style.css", "href")):
+    for name, attr in (("app.js", "src"), ("render.js", "src"), ("style.css", "href")):
         digest = hashlib.sha1((ROOT / "static" / name).read_bytes()).hexdigest()[:10]
         old = f'{attr}="{name}"'
         assert old in html, f"{old} non trovato in index.html"

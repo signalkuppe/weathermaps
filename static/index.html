@@ -1,275 +1,708 @@
 <!doctype html>
 <html lang="it">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Weathermaps</title>
-  <!-- logo "Cella" (static/icons): favicon, icona della home del telefono e manifest per aggiungerla come app -->
-  <link rel="icon" href="icons/favicon.svg" type="image/svg+xml">
-  <link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-  <link rel="manifest" href="manifest.webmanifest">
-  <meta name="apple-mobile-web-app-title" content="Weathermaps">
-  <!-- anteprima del link (WhatsApp, Telegram, social): l'immagine vuole l'indirizzo completo del sito pubblicato -->
-  <meta name="description" content="Pioggia, neve, temperatura e vento dei modelli meteo a confronto sul Nord Italia, aggiornati ogni ora.">
-  <meta property="og:type" content="website">
-  <meta property="og:site_name" content="Weathermaps">
-  <meta property="og:title" content="Weathermaps · Modelli meteo a confronto sul Nord Italia">
-  <meta property="og:description" content="Pioggia, neve, temperatura e vento di GFS, ECMWF, ICON, AROME e altri modelli, con la mediana, aggiornati ogni ora.">
-  <meta property="og:url" content="https://signalkuppe.github.io/weathermaps/">
-  <meta property="og:image" content="https://signalkuppe.github.io/weathermaps/icons/og-image.png">
-  <meta property="og:image:width" content="1200">
-  <meta property="og:image:height" content="630">
-  <meta property="og:image:alt" content="Logo di Weathermaps: modelli meteo a confronto, Nord Italia">
-  <meta property="og:locale" content="it_IT">
-  <meta name="twitter:card" content="summary_large_image">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/mapbox-gl/3.9.4/mapbox-gl.css">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/flag-icons/7.6.0/css/flag-icons.min.css">
-  <link rel="stylesheet" href="style.css">
-</head>
-<body>
-  <div id="map"></div>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Weathermaps</title>
+    <!-- logo "Cella" (static/icons): favicon, icona della home del telefono e manifest per aggiungerla come app -->
+    <link rel="icon" href="icons/favicon.svg" type="image/svg+xml" />
+    <link
+      rel="icon"
+      href="icons/favicon-32.png"
+      sizes="32x32"
+      type="image/png"
+    />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <meta name="apple-mobile-web-app-title" content="Weathermaps" />
+    <!-- anteprima del link (WhatsApp, Telegram, social): l'immagine vuole l'indirizzo completo del sito pubblicato -->
+    <meta
+      name="description"
+      content="Pioggia, neve, temperatura e vento dei modelli meteo a confronto sul Nord Italia, aggiornati ogni ora."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Weathermaps" />
+    <meta
+      property="og:title"
+      content="Weathermaps · Modelli meteo a confronto sul Nord Italia"
+    />
+    <meta
+      property="og:description"
+      content="Pioggia, neve, temperatura e vento di GFS, ECMWF, ICON, AROME e altri modelli, con la mediana, aggiornati ogni ora."
+    />
+    <meta
+      property="og:url"
+      content="https://signalkuppe.github.io/weathermaps/"
+    />
+    <meta
+      property="og:image"
+      content="https://signalkuppe.github.io/weathermaps/icons/og-image.png"
+    />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Logo di Weathermaps: modelli meteo a confronto, Nord Italia"
+    />
+    <meta property="og:locale" content="it_IT" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/mapbox-gl/3.9.4/mapbox-gl.css"
+    />
+    <!-- Mapbox GL: scaricata subito, eseguita da app.js; connessioni ai suoi server aperte in anticipo -->
+    <link
+      rel="preload"
+      as="script"
+      href="https://cdnjs.cloudflare.com/ajax/libs/mapbox-gl/3.9.4/mapbox-gl.js"
+    />
+    <link rel="preconnect" href="https://api.mapbox.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/flag-icons/7.6.0/css/flag-icons.min.css"
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="map"></div>
 
-  <aside id="panel" class="panel">
-    <header class="panel-head">
-      <h1><img class="logo" src="icons/favicon.svg" alt="" width="20" height="20"><span>Weathermaps <span id="app-version" class="app-version" hidden></span></span></h1>
-      <div class="head-actions">
-        <button id="collapse" class="icon-btn" type="button" aria-label="Riduci pannello" title="Riduci pannello">−</button>
-      </div>
-    </header>
-    <div class="panel-body">
-      <!-- sezioni (modelli e parametri, località, impostazioni, crediti): una aperta alla volta, con animazione
+    <aside id="panel" class="panel" hidden>
+      <header class="panel-head">
+        <h1>
+          <img
+            class="logo"
+            src="icons/favicon.svg"
+            alt=""
+            width="20"
+            height="20"
+          /><span
+            >Weathermaps
+            <span id="app-version" class="app-version" hidden></span
+          ></span>
+        </h1>
+        <div class="head-actions">
+          <button
+            id="collapse"
+            class="icon-btn"
+            type="button"
+            aria-label="Riduci pannello"
+            title="Riduci pannello"
+          >
+            −
+          </button>
+        </div>
+      </header>
+      <div class="panel-body">
+        <!-- sezioni (modelli e parametri, località, impostazioni, crediti): una aperta alla volta, con animazione
            (app.js, "sezioni del pannello") -->
-      <details id="models-box" class="points-box models" open>
-        <summary>Modelli e parametri</summary>
-        <div class="models-body">
-          <div class="row">
-            <span class="label-info">Modello
-              <button id="model-info-btn" class="info-btn" type="button" aria-label="Informazioni sul modello"
-                      aria-expanded="false" aria-controls="model-info">
-                <!-- Lucide "info" (ISC) -->
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"
-                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>
+        <details id="models-box" class="points-box models" open>
+          <summary>Modelli e parametri</summary>
+          <div class="models-body">
+            <div class="row">
+              <span class="label-info"
+                >Modello
+                <button
+                  id="model-info-btn"
+                  class="info-btn"
+                  type="button"
+                  aria-label="Informazioni sul modello"
+                  aria-expanded="false"
+                  aria-controls="model-info"
+                >
+                  <!-- Lucide "info" (ISC) -->
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="16"
+                    height="16"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M12 16v-4" />
+                    <path d="M12 8h.01" />
+                  </svg>
+                </button>
+              </span>
+              <select id="model" class="rich-select" aria-label="Modello">
+                <button><selectedcontent></selectedcontent></button>
+              </select>
+              <div id="model-info" class="model-info" role="note" hidden></div>
+            </div>
+            <label class="row" id="var-row" hidden>
+              <span>Grandezza</span>
+              <select id="var"></select>
+            </label>
+            <div class="run-block">
+              <!-- si mostra solo l'ultima corsa completa; quella in arrivo compare nell'avviso sotto -->
+              <div class="run-head">
+                <span>Corsa</span><span id="run" class="run-line"></span
+                ><span id="run-age" class="run-age"></span>
+              </div>
+              <div id="run-live" class="run-live" hidden>
+                <span id="run-live-text"></span>
+                <button
+                  id="refresh"
+                  class="refresh-btn"
+                  type="button"
+                  title="Controlla subito se sono usciti nuovi passi"
+                >
+                  ↻ Aggiorna
+                </button>
+              </div>
+              <div id="run-live-note" class="run-live-note" role="status"></div>
+            </div>
+            <div class="row" id="mode-row">
+              <span>Modalità</span>
+              <div class="seg" id="mode"></div>
+            </div>
+            <!-- istante mostrato e slider dei passi -->
+            <div class="time">
+              <span
+                id="loading"
+                class="spinner"
+                role="status"
+                aria-label="Caricamento"
+                hidden
+              ></span>
+              <div id="valid" class="valid">—</div>
+              <div id="range" class="range">—</div>
+            </div>
+            <!-- play dell'animazione e slider (con la tastiera: ← → cambiano passo, spazio avvia l'animazione) -->
+            <div class="stepper">
+              <button
+                id="play"
+                class="play-btn"
+                type="button"
+                aria-label="Avvia animazione"
+                title="Anima i passi (spazio)"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="14"
+                  height="14"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <polygon points="7 4 20 12 7 20 7 4" />
                 </svg>
               </button>
-            </span>
-            <select id="model" class="rich-select" aria-label="Modello">
+              <input
+                id="step"
+                class="wm-range"
+                type="range"
+                min="0"
+                max="0"
+                value="0"
+                aria-label="Istante di previsione"
+              />
+            </div>
+            <time id="updated-at" class="updated-at" hidden></time>
+          </div>
+        </details>
+        <!-- combinazione modello/grandezza/ora senza dati (la mappa intanto è in grigio) -->
+        <div id="nodata" class="nodata" role="status" hidden>
+          <b id="nodata-title"></b><span id="nodata-text"></span>
+        </div>
+
+        <!-- sotto la sezione dei modelli: eventuali errori -->
+        <div id="status" class="status" role="status"></div>
+        <details id="points-box" class="points-box">
+          <summary>Località preferite</summary>
+          <div class="places-tools">
+            <div class="places-search">
+              <input
+                id="place-q"
+                type="search"
+                placeholder="Cerca una località"
+                autocomplete="off"
+                aria-label="Cerca una località da aggiungere"
+                aria-controls="place-results"
+              />
+              <ul
+                id="place-results"
+                class="place-results"
+                role="listbox"
+                hidden
+              ></ul>
+            </div>
+            <button id="places-edit" class="places-edit" type="button" hidden>
+              Modifica
+            </button>
+          </div>
+          <p id="places-empty" class="places-empty">
+            Nessuna località: cercane una per vedere qui il valore previsto e la
+            classifica.
+          </p>
+          <ol id="points" class="points"></ol>
+        </details>
+        <details id="settings" class="points-box settings">
+          <summary>Impostazioni</summary>
+          <div class="settings-body">
+            <div class="row">
+              <span>Sfondo</span>
+              <div class="seg" id="base"></div>
+            </div>
+            <!-- linee sopra i colori, a livelli: stati (con le coste), regioni, province (Natural Earth, scripts/make_borders.py) -->
+            <div class="row">
+              <span>Confini</span>
+              <div class="seg" id="borders"></div>
+            </div>
+            <label class="row">
+              <span>Opacità colori</span>
+              <input
+                id="opacity"
+                type="range"
+                min="0.1"
+                max="1"
+                step="0.05"
+                value="0.7"
+              />
+            </label>
+            <label class="row">
+              <span>Opacità confini</span>
+              <input
+                id="borders-opacity"
+                type="range"
+                min="0.1"
+                max="1"
+                step="0.05"
+                value="1"
+              />
+            </label>
+            <label class="row check">
+              <input id="crisp" type="checkbox" />
+              <span
+                >Celle nette
+                <small>i dati del modello senza sfumature</small></span
+              >
+            </label>
+            <label class="row check" id="iso-row" hidden>
+              <input id="iso" type="checkbox" checked />
+              <span id="iso-text">Isoterme</span>
+            </label>
+          </div>
+        </details>
+        <!-- livelli in più sopra la mappa, indipendenti dal modello: per ora il radar (poi satellite...) -->
+        <details id="extra" class="points-box extra">
+          <summary>Livelli extra</summary>
+          <div class="settings-body">
+            <!-- uno alla volta: radar (mosaico nazionale, ogni 5 minuti) o satellite (nubi, Meteosat, ogni 10 minuti) -->
+            <div class="seg" id="extra-seg"></div>
+          </div>
+        </details>
+        <details id="credits" class="points-box credits">
+          <summary>Info &amp; crediti</summary>
+          <p class="credits-data">
+            Dati dei modelli: NOAA/NCEP GFS · ECMWF Open Data (CC-BY-4.0) ·
+            ItaliaMeteo ICON-2I (CC-BY), WRF (CIMA, LaMMA) · DWD ICON-D2 ·
+            Météo-France AROME (Licence Ouverte) · MeteoSvizzera ICON-CH1/CH2
+            (CC-BY) · Radar: Protezione Civile / ItaliaMeteo (MeteoHub) ·
+            Satellite: EUMETSAT · Confini: Natural Earth
+          </p>
+          <div id="attrib" class="attrib"></div>
+          <p class="credits-data">
+            Realizzato da
+            <a
+              href="https://www.signalkuppe.com/"
+              target="_blank"
+              rel="noopener"
+              >signalkuppe</a
+            >
+          </p>
+        </details>
+      </div>
+    </aside>
+
+    <!-- su mobile la legenda viene spostata dentro il badge (un solo riquadro in basso), vedi placeLegend in app.js -->
+    <!-- caricamento delle immagini del radar: al centro della pagina; i controlli compaiono quando sono tutte pronte -->
+    <div id="radar-loader" class="radar-loader" role="status" hidden>
+      <span class="spinner"></span>
+      <span class="radar-loader-text"
+        ><b>Caricamento <span id="radar-loader-name">radar</span></b
+        ><span id="radar-loader-count" class="radar-loader-count"></span
+      ></span>
+    </div>
+    <div id="badge" class="badge">
+      <!-- icone Lucide (ISC): chevrons-left, chevron-left, chevron-right, play / pause -->
+      <button
+        id="m-first"
+        class="badge-btn"
+        type="button"
+        aria-label="Torna al primo passo"
+        title="Torna al primo passo"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          width="22"
+          height="22"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.25"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="m11 17-5-5 5-5" />
+          <path d="m18 17-5-5 5-5" />
+        </svg>
+      </button>
+      <button
+        id="m-prev"
+        class="badge-btn"
+        type="button"
+        aria-label="Passo precedente"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          width="22"
+          height="22"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.25"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="m15 18-6-6 6-6" />
+        </svg>
+      </button>
+      <div id="badge-text" class="badge-text" aria-live="polite"></div>
+      <!-- con il radar acceso la barra mostra solo l'animazione del radar (ultima ora, ogni 5 minuti) -->
+      <div class="badge-radar">
+        <button
+          id="radar-play"
+          class="badge-btn"
+          type="button"
+          aria-label="Anima il radar"
+          title="Anima l'ultima ora"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="18"
+            height="18"
+            fill="currentColor"
+            stroke="currentColor"
+            stroke-width="2.25"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <polygon points="6 3 20 12 6 21 6 3" />
+          </svg>
+        </button>
+        <span class="badge-radar-text"
+          ><b id="extra-name">Radar</b>
+          <span id="radar-badge-time" class="badge-radar-time">—</span></span
+        >
+        <input
+          id="radar-slider"
+          class="wm-range"
+          type="range"
+          min="0"
+          max="0"
+          value="0"
+          aria-label="Immagine radar"
+        />
+      </div>
+      <button
+        id="m-next"
+        class="badge-btn"
+        type="button"
+        aria-label="Passo successivo"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          width="22"
+          height="22"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.25"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="m9 18 6-6-6-6" />
+        </svg>
+      </button>
+      <!-- solo su mobile: slider dei passi a tutta larghezza, al posto delle frecce -->
+      <input
+        id="m-step"
+        class="m-step wm-range"
+        type="range"
+        min="0"
+        max="0"
+        value="0"
+        aria-label="Istante di previsione"
+      />
+      <button
+        id="m-play"
+        class="badge-btn"
+        type="button"
+        aria-label="Avvia animazione"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          width="18"
+          height="18"
+          fill="currentColor"
+          stroke="currentColor"
+          stroke-width="2.25"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <polygon points="6 3 20 12 6 21 6 3" />
+        </svg>
+      </button>
+      <button
+        id="share"
+        class="share-btn"
+        type="button"
+        aria-label="Condividi"
+        title="Condividi la mappa che stai vedendo (WhatsApp…)"
+      >
+        <!-- Lucide "share-2" (ISC) -->
+        <svg
+          viewBox="0 0 24 24"
+          width="18"
+          height="18"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="18" cy="5" r="3" />
+          <circle cx="6" cy="12" r="3" />
+          <circle cx="18" cy="19" r="3" />
+          <line x1="8.59" x2="15.42" y1="13.51" y2="17.49" />
+          <line x1="15.41" x2="8.59" y1="6.51" y2="10.49" />
+        </svg>
+      </button>
+      <!-- con radar o satellite: chiude il livello e torna alle mappe dei modelli. Lucide "x" (ISC) -->
+      <button
+        id="extra-close"
+        class="share-btn extra-close"
+        type="button"
+        aria-label="Chiudi e torna alle mappe"
+        title="Chiudi e torna alle mappe"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          width="18"
+          height="18"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.25"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M18 6 6 18" />
+          <path d="m6 6 12 12" />
+        </svg>
+      </button>
+    </div>
+    <div id="share-toast" class="share-toast" role="status" hidden></div>
+    <dialog
+      id="share-dialog"
+      class="share-dialog"
+      aria-labelledby="share-title"
+    >
+      <header class="share-head">
+        <h2 id="share-title">Condividi</h2>
+        <button
+          id="share-close"
+          class="share-x"
+          type="button"
+          aria-label="Chiudi"
+          title="Chiudi (Esc)"
+        >
+          <!-- Lucide "x" (ISC) -->
+          <svg
+            viewBox="0 0 24 24"
+            width="22"
+            height="22"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M18 6 6 18" />
+            <path d="m6 6 12 12" />
+          </svg>
+        </button>
+      </header>
+      <div class="share-stage">
+        <canvas
+          id="share-canvas"
+          aria-label="Anteprima dell'immagine da condividere: trascina e ingrandisci la mappa sotto il riquadro"
+        ></canvas>
+      </div>
+      <div class="share-tools">
+        <div
+          class="seg share-ratio"
+          id="share-ratio"
+          role="group"
+          aria-label="Proporzioni dell'immagine"
+        ></div>
+        <label class="share-switch" id="share-points-row">
+          <input id="share-points" type="checkbox" role="switch" checked />
+          <span>Località</span>
+        </label>
+        <span class="share-hint"
+          >Trascina la mappa · pizzica o usa la rotella per ingrandire</span
+        >
+        <div class="share-zoom">
+          <button
+            id="share-zoom-out"
+            type="button"
+            aria-label="Rimpicciolisci la mappa"
+            title="Rimpicciolisci"
+          >
+            −
+          </button>
+          <button
+            id="share-zoom-in"
+            type="button"
+            aria-label="Ingrandisci la mappa"
+            title="Ingrandisci"
+          >
+            +
+          </button>
+        </div>
+      </div>
+      <div class="share-actions">
+        <button id="share-download" type="button">Scarica immagine</button>
+        <button id="share-send" class="primary" type="button">Condividi</button>
+      </div>
+    </dialog>
+    <!-- meteogramma di una località: andamento nel tempo delle grandezze del modello scelto (vedi app/series.py) -->
+    <dialog
+      id="chart-dialog"
+      class="share-dialog chart-dialog"
+      aria-labelledby="chart-title"
+      tabindex="-1"
+    >
+      <header class="share-head">
+        <div class="chart-head">
+          <h2 id="chart-title">Grafico</h2>
+          <div id="chart-sub" class="chart-sub">
+            <select
+              id="chart-model"
+              class="rich-select"
+              aria-label="Modello del grafico"
+            >
               <button><selectedcontent></selectedcontent></button>
             </select>
-            <div id="model-info" class="model-info" role="note" hidden></div>
+            <span id="chart-details"></span>
           </div>
-          <label class="row" id="var-row" hidden>
-            <span>Grandezza</span>
-            <select id="var"></select>
-          </label>
-          <div class="run-block">
-            <!-- si mostra solo l'ultima corsa completa; quella in arrivo compare nell'avviso sotto -->
-            <div class="run-head"><span>Corsa</span><span id="run" class="run-line"></span><span id="run-age" class="run-age"></span></div>
-            <div id="run-live" class="run-live" hidden>
-              <span id="run-live-text"></span>
-              <button id="refresh" class="refresh-btn" type="button" title="Controlla subito se sono usciti nuovi passi">↻ Aggiorna</button>
-            </div>
-            <div id="run-live-note" class="run-live-note" role="status"></div>
-          </div>
-          <div class="row" id="mode-row">
-            <span>Modalità</span>
-            <div class="seg" id="mode"></div>
-          </div>
-          <!-- istante mostrato e slider dei passi -->
-          <div class="time">
-            <span id="loading" class="spinner" role="status" aria-label="Caricamento" hidden></span>
-            <div id="valid" class="valid">—</div>
-            <div id="range" class="range">—</div>
-          </div>
-          <!-- play dell'animazione e slider (con la tastiera: ← → cambiano passo, spazio avvia l'animazione) -->
-          <div class="stepper">
-            <button id="play" class="play-btn" type="button" aria-label="Avvia animazione" title="Anima i passi (spazio)"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><polygon points="7 4 20 12 7 20 7 4"/></svg></button>
-            <input id="step" class="wm-range" type="range" min="0" max="0" value="0" aria-label="Istante di previsione">
-          </div>
-          <time id="updated-at" class="updated-at" hidden></time>
         </div>
-      </details>
-      <!-- combinazione modello/grandezza/ora senza dati (la mappa intanto è in grigio) -->
-      <div id="nodata" class="nodata" role="status" hidden><b id="nodata-title"></b><span id="nodata-text"></span></div>
+        <div class="chart-actions">
+          <button
+            id="chart-download"
+            class="share-x chart-share"
+            type="button"
+            aria-label="Scarica l'immagine del grafico"
+            title="Scarica l'immagine"
+          >
+            <!-- Lucide "download" (ISC) -->
+            <svg
+              viewBox="0 0 24 24"
+              width="20"
+              height="20"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M12 15V3" />
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <path d="m7 10 5 5 5-5" />
+            </svg>
+          </button>
+          <button
+            id="chart-share"
+            class="share-x chart-share"
+            type="button"
+            aria-label="Condividi il grafico"
+            title="Condividi il grafico"
+          >
+            <!-- Lucide "share-2" (ISC) -->
+            <svg
+              viewBox="0 0 24 24"
+              width="20"
+              height="20"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="18" cy="5" r="3" />
+              <circle cx="6" cy="12" r="3" />
+              <circle cx="18" cy="19" r="3" />
+              <line x1="8.59" x2="15.42" y1="13.51" y2="17.49" />
+              <line x1="15.41" x2="8.59" y1="6.51" y2="10.49" />
+            </svg>
+          </button>
+          <button
+            id="chart-close"
+            class="share-x"
+            type="button"
+            aria-label="Chiudi"
+            title="Chiudi (Esc)"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="22"
+              height="22"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M18 6 6 18" />
+              <path d="m6 6 12 12" />
+            </svg>
+          </button>
+        </div>
+      </header>
+      <div id="chart-body" class="chart-body"></div>
+      <!-- ora fissata (clic, tocco o trascinando il dito sul grafico): valori e azioni, sempre visibili in fondo -->
+      <div id="chart-readout" class="chart-readout" hidden>
+        <div class="chart-readout-values"></div>
+        <div class="chart-readout-links">
+          <button type="button" data-act="download">Scarica</button>
+          <button type="button" data-act="share">Condividi</button>
+          <button type="button" data-act="remove">Rimuovi</button>
+        </div>
+      </div>
+    </dialog>
+    <div id="legend" class="legend"></div>
+    <div id="probe" class="probe" hidden></div>
 
-      <!-- sotto la sezione dei modelli: eventuali errori -->
-      <div id="status" class="status" role="status"></div>
-      <details id="points-box" class="points-box">
-        <summary>Località preferite</summary>
-        <div class="places-tools">
-          <div class="places-search">
-            <input id="place-q" type="search" placeholder="Cerca una località" autocomplete="off"
-                   aria-label="Cerca una località da aggiungere" aria-controls="place-results">
-            <ul id="place-results" class="place-results" role="listbox" hidden></ul>
-          </div>
-          <button id="places-edit" class="places-edit" type="button" hidden>Modifica</button>
-        </div>
-        <p id="places-empty" class="places-empty">Nessuna località: cercane una per vedere qui il valore previsto e la classifica.</p>
-        <ol id="points" class="points"></ol>
-      </details>
-      <details id="settings" class="points-box settings">
-        <summary>Impostazioni</summary>
-        <div class="settings-body">
-          <div class="row">
-            <span>Sfondo</span>
-            <div class="seg" id="base"></div>
-          </div>
-          <!-- linee sopra i colori, a livelli: stati (con le coste), regioni, province (Natural Earth, scripts/make_borders.py) -->
-          <div class="row">
-            <span>Confini</span>
-            <div class="seg" id="borders"></div>
-          </div>
-          <label class="row">
-            <span>Opacità colori</span>
-            <input id="opacity" type="range" min="0.1" max="1" step="0.05" value="0.7">
-          </label>
-          <label class="row">
-            <span>Opacità confini</span>
-            <input id="borders-opacity" type="range" min="0.1" max="1" step="0.05" value="1">
-          </label>
-          <label class="row check">
-            <input id="crisp" type="checkbox">
-            <span>Celle nette <small>i dati del modello senza sfumature</small></span>
-          </label>
-          <label class="row check" id="iso-row" hidden>
-            <input id="iso" type="checkbox" checked>
-            <span id="iso-text">Isoterme</span>
-          </label>
-        </div>
-      </details>
-      <!-- livelli in più sopra la mappa, indipendenti dal modello: per ora il radar (poi satellite...) -->
-      <details id="extra" class="points-box extra">
-        <summary>Livelli extra</summary>
-        <div class="settings-body">
-          <!-- uno alla volta: radar (mosaico nazionale, ogni 5 minuti) o satellite (nubi, Meteosat, ogni 10 minuti) -->
-          <div class="seg" id="extra-seg"></div>
-        </div>
-      </details>
-      <details id="credits" class="points-box credits">
-        <summary>Info &amp; crediti</summary>
-        <p class="credits-data">Dati dei modelli: NOAA/NCEP GFS · ECMWF Open Data (CC-BY-4.0) ·
-          ItaliaMeteo ICON-2I (CC-BY), WRF (CIMA, LaMMA) · DWD ICON-D2 · Météo-France AROME (Licence Ouverte) ·
-          MeteoSvizzera ICON-CH1/CH2 (CC-BY) · Radar: Protezione Civile / ItaliaMeteo (MeteoHub) · Satellite: EUMETSAT · Confini: Natural Earth</p>
-        <div id="attrib" class="attrib"></div>
-        <p class="credits-data">Realizzato da <a href="https://www.signalkuppe.com/" target="_blank" rel="noopener">signalkuppe</a></p>
-      </details>
-    </div>
-  </aside>
-
-  <!-- su mobile la legenda viene spostata dentro il badge (un solo riquadro in basso), vedi placeLegend in app.js -->
-  <!-- caricamento delle immagini del radar: al centro della pagina; i controlli compaiono quando sono tutte pronte -->
-  <div id="radar-loader" class="radar-loader" role="status" hidden>
-    <span class="spinner"></span>
-    <span class="radar-loader-text"><b>Caricamento <span id="radar-loader-name">radar</span></b><span id="radar-loader-count" class="radar-loader-count"></span></span>
-  </div>
-  <div id="badge" class="badge">
-    <!-- icone Lucide (ISC): chevrons-left, chevron-left, chevron-right, play / pause -->
-    <button id="m-first" class="badge-btn" type="button" aria-label="Torna al primo passo" title="Torna al primo passo"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m11 17-5-5 5-5"/><path d="m18 17-5-5 5-5"/></svg></button>
-    <button id="m-prev" class="badge-btn" type="button" aria-label="Passo precedente"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
-    <div id="badge-text" class="badge-text" aria-live="polite"></div>
-    <!-- con il radar acceso la barra mostra solo l'animazione del radar (ultima ora, ogni 5 minuti) -->
-    <div class="badge-radar">
-      <button id="radar-play" class="badge-btn" type="button" aria-label="Anima il radar" title="Anima l'ultima ora"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg></button>
-      <span class="badge-radar-text"><b id="extra-name">Radar</b> <span id="radar-badge-time" class="badge-radar-time">—</span></span>
-      <input id="radar-slider" type="range" min="0" max="0" value="0" aria-label="Immagine radar">
-    </div>
-    <button id="m-next" class="badge-btn" type="button" aria-label="Passo successivo"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
-    <!-- solo su mobile: slider dei passi a tutta larghezza, al posto delle frecce -->
-    <input id="m-step" class="m-step wm-range" type="range" min="0" max="0" value="0" aria-label="Istante di previsione">
-    <button id="m-play" class="badge-btn" type="button" aria-label="Avvia animazione"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg></button>
-    <button id="share" class="share-btn" type="button" aria-label="Condividi" title="Condividi la mappa che stai vedendo (WhatsApp…)">
-      <!-- Lucide "share-2" (ISC) -->
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
-           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
-        <line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/>
-      </svg>
-    </button>
-    <!-- con radar o satellite: chiude il livello e torna alle mappe dei modelli. Lucide "x" (ISC) -->
-    <button id="extra-close" class="share-btn extra-close" type="button" aria-label="Chiudi e torna alle mappe" title="Chiudi e torna alle mappe">
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.25"
-           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-    </button>
-  </div>
-  <div id="share-toast" class="share-toast" role="status" hidden></div>
-  <dialog id="share-dialog" class="share-dialog" aria-labelledby="share-title">
-    <header class="share-head">
-      <h2 id="share-title">Condividi</h2>
-      <button id="share-close" class="share-x" type="button" aria-label="Chiudi" title="Chiudi (Esc)">
-        <!-- Lucide "x" (ISC) -->
-        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"
-             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-      </button>
-    </header>
-    <div class="share-stage">
-      <canvas id="share-canvas" aria-label="Anteprima dell'immagine da condividere: trascina e ingrandisci la mappa sotto il riquadro"></canvas>
-    </div>
-    <div class="share-tools">
-      <div class="seg share-ratio" id="share-ratio" role="group" aria-label="Proporzioni dell'immagine"></div>
-      <label class="share-switch" id="share-points-row">
-        <input id="share-points" type="checkbox" role="switch" checked>
-        <span>Località</span>
-      </label>
-      <span class="share-hint">Trascina la mappa · pizzica o usa la rotella per ingrandire</span>
-      <div class="share-zoom">
-        <button id="share-zoom-out" type="button" aria-label="Rimpicciolisci la mappa" title="Rimpicciolisci">−</button>
-        <button id="share-zoom-in" type="button" aria-label="Ingrandisci la mappa" title="Ingrandisci">+</button>
-      </div>
-    </div>
-    <div class="share-actions">
-      <button id="share-download" type="button">Scarica immagine</button>
-      <button id="share-send" class="primary" type="button">Condividi</button>
-    </div>
-  </dialog>
-  <!-- meteogramma di una località: andamento nel tempo delle grandezze del modello scelto (vedi app/series.py) -->
-  <dialog id="chart-dialog" class="share-dialog chart-dialog" aria-labelledby="chart-title" tabindex="-1">
-    <header class="share-head">
-      <div class="chart-head">
-        <h2 id="chart-title">Grafico</h2>
-        <div id="chart-sub" class="chart-sub"></div>
-      </div>
-      <div class="chart-actions">
-      <button id="chart-download" class="share-x chart-share" type="button" aria-label="Scarica l'immagine del grafico" title="Scarica l'immagine">
-        <!-- Lucide "download" (ISC) -->
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"
-             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/>
-        </svg>
-      </button>
-      <button id="chart-share" class="share-x chart-share" type="button" aria-label="Condividi il grafico" title="Condividi il grafico">
-        <!-- Lucide "share-2" (ISC) -->
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"
-             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
-          <line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/>
-        </svg>
-      </button>
-      <button id="chart-close" class="share-x" type="button" aria-label="Chiudi" title="Chiudi (Esc)">
-        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"
-             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-      </button>
-      </div>
-    </header>
-    <div id="chart-body" class="chart-body"></div>
-    <!-- ora fissata (clic, tocco o trascinando il dito sul grafico): valori e azioni, sempre visibili in fondo -->
-    <div id="chart-readout" class="chart-readout" hidden>
-      <div class="chart-readout-values"></div>
-      <div class="chart-readout-links">
-        <button type="button" data-act="download">Scarica</button>
-        <button type="button" data-act="share">Condividi</button>
-        <button type="button" data-act="remove">Rimuovi</button>
-      </div>
-    </div>
-  </dialog>
-  <div id="legend" class="legend"></div>
-  <div id="probe" class="probe" hidden></div>
-
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-  <!-- sfondo Mapbox (vettoriale) dentro Leaflet -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/mapbox-gl/3.9.4/mapbox-gl.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mapbox-gl-leaflet@0.0.16/leaflet-mapbox-gl.js"></script>
-  <script src="app.js"></script>
-</body>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <!-- sfondo Mapbox (vettoriale) dentro Leaflet: lo carica app.js in parallelo ai dati (vedi mapboxLib) -->
+    <!-- disegno dei colori: nella pagina come riserva, e come Web Worker (stesso file) -->
+    <script src="render.js"></script>
+    <script src="app.js"></script>
+  </body>
 </html>

@@ -35,3 +35,17 @@ def test_molto_piu_piccolo_del_json():
     values = [round(i * 0.37 % 30 - 5, 1) for i in range(2000)]
     f = _field(values)
     assert len(packed.pack(f)) < len(json.dumps(f, separators=(",", ":"))) / 2
+
+
+def test_liste_grandi_e_lisce_a_differenze():
+    import math
+
+    nx, ny = 120, 90  # campo liscio con qualche mancante e un salto: conviene la forma a differenze
+    values = [round(10 * math.sin(i % nx / 15) + 5 * math.cos(i // nx / 9), 1) for i in range(nx * ny)]
+    values[17] = None
+    values[5000] = -300.0
+    f = _field(values, u=[float(i % 7) for i in range(20)])
+    data = packed.pack(f)
+    assert b'"$z"' in data[:400] and b'"$q"' in data[:400]  # la lista grande a differenze, la piccola no
+    out = packed.unpack(data)
+    assert out["values"] == values and out["u"] == f["u"]

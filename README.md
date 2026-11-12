@@ -9,35 +9,50 @@ mappa, sotto confini e nomi delle località, che restano leggibili a qualunque o
 tessere Thunderforest / OpenStreetMap. Sfondo, confini, opacità, celle nette e
 isolinee restano salvati nel browser:
 
-| Modello | Fonte | Risoluzione | Orizzonte | Corse |
-|---|---|---|---|---|
-| GFS | NOAA/NCEP | 0.25° | +192h | 00/06/12/18 |
-| ECMWF IFS | ECMWF Open Data | 0.25° | +192h | 00/12 |
-| ICON-2I | ItaliaMeteo (MeteoHub) | 2.2 km | +72h | 00/12 |
-| WRF | ItaliaMeteo, CIMA, LaMMA (MeteoHub) | 1.5 km | +72h | 00/12 |
-| ICON-D2 | DWD Open Data | 2.2 km | +48h | ogni 3 ore |
-| AROME | Météo-France Open Data | 0.025° (~2.5 km) | +51h | ogni 3 ore |
-| ICON-CH2-EPS (controllo) | MeteoSvizzera | ~2 km | +120h | ogni 6 ore |
-| ICON-CH1-EPS (controllo) | MeteoSvizzera | ~1 km | +33h | ogni 3 ore |
-| **Mediana modelli** | calcolata | ~2 km | fino a +192h | — |
+| Modello                  | Fonte                               | Risoluzione      | Orizzonte    | Corse       |
+| ------------------------ | ----------------------------------- | ---------------- | ------------ | ----------- |
+| GFS                      | NOAA/NCEP                           | 0.25°            | +192h        | 00/06/12/18 |
+| ECMWF IFS                | ECMWF Open Data                     | 0.25°            | +192h        | 00/12       |
+| ICON-2I                  | ItaliaMeteo (MeteoHub)              | 2.2 km           | +72h         | 00/12       |
+| WRF                      | ItaliaMeteo, CIMA, LaMMA (MeteoHub) | 1.5 km           | +72h         | 00/12       |
+| ICON-D2                  | DWD Open Data                       | 2.2 km           | +48h         | ogni 3 ore  |
+| AROME                    | Météo-France Open Data              | 0.025° (~2.5 km) | +51h         | ogni 3 ore  |
+| ICON-CH2-EPS (controllo) | MeteoSvizzera                       | ~2 km            | +120h        | ogni 6 ore  |
+| ICON-CH1-EPS (controllo) | MeteoSvizzera                       | ~1 km            | +33h         | ogni 3 ore  |
+| **Mediana modelli**      | calcolata                           | ~2 km            | fino a +192h | —           |
 
 Grandezze disponibili per modello:
 
-| Modello | Pioggia | T 850 hPa | T e bulbo umido 2 m | Neve | Zero termico |
-|---|---|---|---|---|---|
-| GFS | ✓ | ✓ | ✓ | — (non pubblica la neve caduta) | ✓ |
-| ECMWF | ✓ | ✓ | ✓ | ✓ | — (non tra i dati aperti) |
-| ICON-2I | ✓ | ✓ | ✓ | ✓ | ✓ |
-| WRF | ✓ | ✓ | ✓ | — | — |
-| ICON-D2 | ✓ | ✓ | ✓ | ✓ | ✓ |
-| AROME | ✓ | — | — | ✓ | — |
-| ICON-CH2 / CH1 | ✓ | — | ✓ | ✓ | ✓ |
+| Modello        | Pioggia | T 850 hPa | T e bulbo umido 2 m | Neve                            | Zero termico              |
+| -------------- | ------- | --------- | ------------------- | ------------------------------- | ------------------------- |
+| GFS            | ✓       | ✓         | ✓                   | — (non pubblica la neve caduta) | ✓                         |
+| ECMWF          | ✓       | ✓         | ✓                   | ✓                               | — (non tra i dati aperti) |
+| ICON-2I        | ✓       | ✓         | ✓                   | ✓                               | ✓                         |
+| WRF            | ✓       | ✓         | solo T              | —                               | —                         |
+| ICON-D2        | ✓       | ✓         | ✓                   | ✓                               | ✓                         |
+| AROME          | ✓       | —         | —                   | ✓                               | —                         |
+| ICON-CH2 / CH1 | ✓       | —         | ✓                   | ✓                               | ✓                         |
 
 La **neve** è in cm di neve fresca: i modelli danno l'acqua equivalente (mm), convertita col rapporto standard
 10:1 (1 mm d'acqua = 1 cm di neve). È una stima: la neve umida si accumula meno, quella farinosa di più. Nei modelli ICON
 è la somma della neve di griglia e di quella convettiva. Lo **zero termico** è la quota (m sul livello del mare) dell'isoterma 0 °C.
-Il **bulbo umido a 2 m** si calcola da temperatura e punto di rugiada a 2 m con l'equazione psicrometrica (pressione
-fissa a 1013 hPa: in montagna il valore vero è appena più basso); sotto 0 °C la neve arriva facilmente al suolo.
+Il **bulbo umido a 2 m** si calcola da temperatura e punto di rugiada a 2 m con l'equazione psicrometrica,
+coefficiente costante A = 6,46 × 10⁻⁴ °C⁻¹ e pressione locale al suolo del modello (non ridotta al livello del mare).
+Le pressioni sono convertite in hPa, come la tensione di vapore; sotto 0 °C la neve arriva facilmente al suolo.
+WRF resta disponibile per la temperatura a 2 m, ma non per il bulbo umido: il catalogo MeteoHub non espone
+la pressione al suolo necessaria e non viene usata una pressione standard o ridotta al livello del mare.
+I campi `tw2m` già in cache non vengono ricalcolati: la correzione si applica ai nuovi download. Per rigenerare
+anche le corse esistenti, rimuovere dalla cache soltanto i campi `tw2m` (inclusa la mediana) e rilanciare il download.
+
+La **quota zero bulbo umido**, per ora solo GFS, è una grandezza separata (`hwzero`), in metri sul livello del mare.
+Usa la stessa equazione del bulbo umido a 2 m: sui 13 livelli da 1000 a 500 hPa la pressione è quella del livello
+e il punto di rugiada deriva da temperatura e umidità relativa, usando Magnus sull'acqua. Al profilo si aggiunge
+il punto a 2 m, con pressione e quota del terreno del modello. I dati arrivano in un'unica richiesta NOMADS
+ritagliata sul box; si salva soltanto la quota finale. Si interpola linearmente il primo attraversamento da
+positivo a negativo salendo, escludendo i livelli sotto il punto a 2 m. Non si interpola attraverso dati mancanti
+né si estrapola fuori dal profilo: se non c'è un attraversamento, anche con tutta la colonna sotto zero, il dato
+resta mancante. Il limite superiore di 500 hPa è circa 5.5 km, variabile nel tempo; le quote in quota sono
+geopotenziali GFS. Non è una quota neve e non entra nella mediana dei modelli.
 
 Di ogni modello si tiene e si mostra **solo l'ultima corsa completa**. Mentre la corsa successiva esce, la pagina
 ne mostra l'avanzamento ("12Z in arrivo · 20/56 passi"); quando è completa prende il posto della precedente, che viene cancellata.
@@ -46,6 +61,10 @@ La **mediana dei modelli** è costruita per istante di validità da un orario co
 
 ## Cosa fa la pagina
 
+- **Navigazione:** con Mapbox, pinch, trascinamento e pulsanti di zoom usano la camera nativa, senza copie del canvas
+  o bordi sfumati. I colori meteo restano georeferenziati durante il movimento; isolinee e tooltip si nascondono
+  durante il gesto e tornano al termine. Le annotazioni Leaflet si riallineano una volta a fine movimento.
+  Senza token Mapbox o WebGL resta la navigazione Leaflet con gli sfondi di riserva.
 - **Grandezze:** Precipitazione e Neve (classifica delle località dalla più alta), Temperatura a 850 hPa e Zero termico
   (dal più basso), più la voce combinata **Precip. e zero termico**: la precipitazione a colori con sopra le isoipse
   dello zero termico, per i modelli che hanno entrambe le grandezze (GFS, ICON-2I, ICON-D2, ICON-CH1/CH2 e la mediana).
@@ -80,6 +99,9 @@ La **mediana dei modelli** è costruita per istante di validità da un orario co
   nessuna richiesta della posizione); intestazione con modello, corsa e ora, legenda, crediti e
   "Realizzato da signalkuppe.com"; interruttore per includere o no le località. Si condivide l'immagine, senza testo.
 - **Stato nell'URL:** modello, grandezza, istante, modalità e opacità, quindi la vista si può condividere come link.
+  Aprendo un grafico si aggiungono località, modello del grafico, corsa e orizzonte: il link lo riapre direttamente,
+  anche senza la località nei preferiti. Indietro torna alla mappa e Avanti riapre il grafico; il cambio modello
+  aggiorna la stessa voce della cronologia. Se la corsa condivisa non è più disponibile, si usa l'ultima completa.
 - **Versione** accanto al nome dell'app, dai tag git.
 
 ## Avvio in locale
@@ -100,16 +122,16 @@ Test: `pytest`.
 
 ## Configurazione (variabili d'ambiente)
 
-| Variabile | Default | Significato |
-|---|---|---|
-| `BBOX` | `42,49,4,17` | Area: `lat_min,lat_max,lon_min,lon_max` (lon -180..180) |
-| `INITIAL_VIEW` | `44.68,46.64,8.50,11.43` | Vista all'apertura (Lombardia), stesso formato, dentro `BBOX` |
-| `DATA_DIR` | `./data` | Cartella dati |
-| `SCHEDULER_ENABLED` | `1` | Aggiornamento automatico |
-| `SCHEDULER_INTERVAL_MIN` | `10` | Frequenza aggiornamento |
-| `MAPBOX_TOKEN` | — | Token pubblico [Mapbox](https://account.mapbox.com) (`pk.…`) per gli sfondi Outdoors e Base: finisce nella pagina, va limitato ai domini del sito nel pannello Mapbox (nel sito statico: secret del repository) |
-| `THUNDERFOREST_KEY` | — | Chiave [Thunderforest](https://manage.thunderforest.com) per lo sfondo di riserva senza Mapbox (nel sito statico: secret del repository) |
-| `APP_VERSION` | dai tag git | Versione mostrata accanto al nome: di norma `git describe` (`v1.2.0` sul tag, `v1.2.0+3` tre commit dopo); da impostare dove non c'è `.git`, per esempio nell'immagine Docker. Senza tag non si mostra |
+| Variabile                | Default                  | Significato                                                                                                                                                                                                     |
+| ------------------------ | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BBOX`                   | `42,49,4,17`             | Area: `lat_min,lat_max,lon_min,lon_max` (lon -180..180)                                                                                                                                                         |
+| `INITIAL_VIEW`           | `44.68,46.64,8.50,11.43` | Vista all'apertura (Lombardia), stesso formato, dentro `BBOX`                                                                                                                                                   |
+| `DATA_DIR`               | `./data`                 | Cartella dati                                                                                                                                                                                                   |
+| `SCHEDULER_ENABLED`      | `1`                      | Aggiornamento automatico                                                                                                                                                                                        |
+| `SCHEDULER_INTERVAL_MIN` | `10`                     | Frequenza aggiornamento                                                                                                                                                                                         |
+| `MAPBOX_TOKEN`           | —                        | Token pubblico [Mapbox](https://account.mapbox.com) (`pk.…`) per gli sfondi Outdoors e Base: finisce nella pagina, va limitato ai domini del sito nel pannello Mapbox (nel sito statico: secret del repository) |
+| `THUNDERFOREST_KEY`      | —                        | Chiave [Thunderforest](https://manage.thunderforest.com) per lo sfondo di riserva senza Mapbox (nel sito statico: secret del repository)                                                                        |
+| `APP_VERSION`            | dai tag git              | Versione mostrata accanto al nome: di norma `git describe` (`v1.2.0` sul tag, `v1.2.0+3` tre commit dopo); da impostare dove non c'è `.git`, per esempio nell'immagine Docker. Senza tag non si mostra          |
 
 ## Località preferite
 
@@ -129,9 +151,11 @@ funziona anche sul sito statico.
   siti non aperti da 7 giorni di utilizzo (non per le pagine aggiunte alla schermata Home). Quelle salvate in locale
   (`localhost`) non compaiono sul sito pubblicato e viceversa. In navigazione privata o con i dati del sito bloccati
   le modifiche durano finché resti sulla pagina.
-- **Ricerca:** [Photon](https://photon.komoot.io) (geocoder su dati OpenStreetMap), limitata all'area della mappa
-  e a località abitate, cime e passi (`osm_tag=place`, `natural:peak`, `mountain_pass`).
-  Il testo cercato viene inviato a quel servizio.
+- **Ricerca:** prima [Open-Meteo Geocoding](https://open-meteo.com/en/docs/geocoding-api) (dati GeoNames: città,
+  paesi, cime e passi; risponde in meno di un secondo), limitata all'area della mappa. Se non trova niente o non
+  risponde entro 3,5 secondi si usa [Photon](https://photon.komoot.io) (OpenStreetMap, località abitate, cime e passi:
+  `osm_tag=place`, `natural:peak`, `mountain_pass`), più completo ma spesso molto lento. Il testo cercato viene
+  inviato al servizio utilizzato. La ricerca termina entro 10 secondi anche se entrambi non rispondono.
 
 ## Cambiare area
 
@@ -140,6 +164,7 @@ Imposta `BBOX` e riavvia. I dati della vecchia area vengono eliminati e la nuova
 ## Aggiungere una grandezza
 
 Aggiungi una `Variable` in `app/variables.py` con:
+
 - i selettori GRIB per modello: per GFS il nome NOMADS `var`/`level` (es. `TMP`, `2_m_above_ground`), per ECMWF `param`/`levtype` delle righe `.index` (es. `2t`, `sfc`), più `short_name` del messaggio decodificato;
 - la conversione di unità e la scala colori;
 - il tipo: `accum` (totale/intervallo) o `instant` (solo valore).
@@ -176,7 +201,7 @@ ricarica i dati pubblicati (il download vero avviene una volta all'ora).
 
 Configurazione dell'avvio esterno:
 
-1. Su GitHub crea un token *fine-grained* (Settings → Developer settings → Personal access tokens →
+1. Su GitHub crea un token _fine-grained_ (Settings → Developer settings → Personal access tokens →
    Fine-grained tokens) con accesso al solo repository `weathermaps` e il solo permesso
    **Actions: Read and write**. Annota la scadenza: alla scadenza l'avvio esterno si ferma.
 2. Su cron-job.org crea un job:
@@ -233,4 +258,5 @@ fallisce anche l'avvio esterno (risposta di errore su cron-job.org); basta riatt
 - Mappe: © [Mapbox](https://www.mapbox.com/about/maps/), © OpenStreetMap contributors (di riserva: Thunderforest)
 - Coste: [OpenStreetMap Data](https://osmdata.openstreetmap.de/) (ODbL)
 - Contorni geografici: [Natural Earth](https://www.naturalearthdata.com/) 1:10m (pubblico dominio)
-- Ricerca delle località: [Photon](https://photon.komoot.io) su dati OpenStreetMap
+- Ricerca delle località: [Open-Meteo Geocoding](https://open-meteo.com/en/docs/geocoding-api) su dati
+  [GeoNames](https://www.geonames.org/); di riserva [Photon](https://photon.komoot.io) su dati OpenStreetMap

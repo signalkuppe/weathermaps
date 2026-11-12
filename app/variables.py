@@ -44,6 +44,7 @@ class GribSelector:
     # secondo ingrediente da scaricare insieme a questo campo (es. il punto di rugiada per il bulbo umido): i due
     # campi grezzi passano a Variable.combine, che ne ricava quello da salvare
     dew: "GribSelector | None" = None
+    pressure: "GribSelector | None" = None
 
 
 @dataclass(frozen=True)
@@ -289,24 +290,77 @@ TD2M_SEL = {
 }
 
 
-def wet_bulb_k(t_k, td_k, p_hpa: float = 1013.25):
-    """Temperatura di bulbo umido (K) da temperatura e punto di rugiada (K): equazione psicrometrica risolta per
-    bisezione, e(Td) = es(Tw) - A·p·(T - Tw), con A = 6,6·10⁻⁴ (1 + 0,00115·Tw) /K e tensione di vapore di Magnus.
+SURFACE_PRESSURE_SEL = {
+    "gfs": GribSelector(var="PRES", level="surface", short_name="sp"),
+    "ecmwf": GribSelector(param="sp", levtype="sfc", short_name="sp"),
+    "icon-d2": GribSelector(param="ps", levtype="single-level"),
+    "icon-2i": GribSelector(param="PS", levtype="surface", levelist="0"),
+    "icon-ch2": GribSelector(param="PS"),
+    "icon-ch1": GribSelector(param="PS"),
+}
 
-    Pressione fissa a 1013 hPa (i modelli non danno qui la pressione al suolo): in montagna il bulbo umido vero è
-    appena più basso, un paio di decimi di grado a 1500-2000 m.
+
+def wet_bulb_k(t_k, td_k, p_hpa):
+    """Temperatura di bulbo umido (K) da temperatura e punto di rugiada (K): equazione psicrometrica risolta per
+    bisezione, e(Td) = es(Tw) - A·p·(T - Tw), con A = 6,46·10⁻⁴ /K e tensione di vapore di Magnus.
+
+    p_hpa contiene la pressione locale al suolo in hPa, scalare o sulla stessa griglia delle temperature.
     """
     t = np.asarray(t_k, dtype=np.float64) - 273.15
     td = np.minimum(np.asarray(td_k, dtype=np.float64) - 273.15, t)
+    pressure = np.asarray(p_hpa, dtype=np.float64)
+    pressure = np.where(np.isfinite(pressure) & (pressure > 0), pressure, np.nan)
     es = lambda x: 6.112 * np.exp(17.62 * x / (243.12 + x))  # noqa: E731 (hPa, sull'acqua)
     e = es(td)
     lo, hi = td.copy(), t.copy()  # il bulbo umido sta fra rugiada e temperatura
     for _ in range(30):  # 30 dimezzamenti: precisione ben sotto il centesimo di grado
         mid = (lo + hi) / 2
-        f = es(mid) - 6.6e-4 * (1 + 0.00115 * mid) * p_hpa * (t - mid) - e
+        f = es(mid) - 6.46e-4 * pressure * (t - mid) - e
         hi = np.where(f > 0, mid, hi)
         lo = np.where(f > 0, lo, mid)
-    return (lo + hi) / 2 + 273.15
+    return np.where(np.isfinite(pressure), (lo + hi) / 2 + 273.15, np.nan)
+
+
+def dewpoint_from_rh_k(t_k, rh_percent):
+    temperature = np.asarray(t_k, dtype=np.float64) - 273.15
+    humidity = np.asarray(rh_percent, dtype=np.float64)
+    humidity = np.where(np.isfinite(humidity) & (humidity > 0), np.minimum(humidity, 100), np.nan)
+    gamma = np.log(humidity / 100) + 17.62 * temperature / (243.12 + temperature)
+    return 243.12 * gamma / (17.62 - gamma) + 273.15
+
+
+def wet_bulb_zero_m(t_k, td_k, p_hpa, heights_m, surface_p_hpa, terrain_m):
+    """Primo attraversamento positivo→negativo salendo, interpolato in metri s.l.m.
+
+    L'asse iniziale contiene livelli dal basso verso l'alto, incluso il punto a 2 m.
+    Livelli sotterranei esclusi; dati mancanti interrompono il profilo senza estrapolazioni.
+    """
+    temperature, dewpoint, pressure, heights = np.broadcast_arrays(
+        np.asarray(t_k, dtype=np.float64), np.asarray(td_k, dtype=np.float64),
+        np.asarray(p_hpa, dtype=np.float64), np.asarray(heights_m, dtype=np.float64),
+    )
+    wet_bulb = wet_bulb_k(temperature, dewpoint, pressure) - 273.15
+    result = np.full(temperature.shape[1:], np.nan)
+    previous_tw = np.full_like(result, np.nan)
+    previous_height = np.full_like(result, np.nan)
+    for level in range(temperature.shape[0]):
+        height = heights[level]
+        current_tw = wet_bulb[level]
+        underground = (pressure[level] > surface_p_hpa) | (height < terrain_m + 2)
+        valid = (np.isfinite(current_tw) & np.isfinite(height)
+                 & np.isfinite(surface_p_hpa) & np.isfinite(terrain_m) & ~underground)
+        ascending = height > previous_height
+        crossing = (valid & ascending & (previous_tw > 0) & (current_tw < 0))
+        fraction = np.zeros_like(result)
+        np.divide(previous_tw, previous_tw - current_tw, out=fraction, where=crossing)
+        candidate = previous_height + fraction * (height - previous_height)
+        result = np.where(np.isnan(result) & crossing, candidate, result)
+        exact = valid & (current_tw == 0) & (~np.isfinite(previous_height) | ascending)
+        result = np.where(np.isnan(result) & exact, height, result)
+        valid &= ~np.isfinite(previous_height) | ascending
+        previous_tw = np.where(underground, previous_tw, np.where(valid, current_tw, np.nan))
+        previous_height = np.where(underground, previous_height, np.where(valid, height, np.nan))
+    return np.asarray(result, dtype=np.float32)
 
 
 register(
@@ -326,12 +380,13 @@ register(
 register(
     Variable(
         id="tw2m",
-        label="Bulbo umido 2 m",
+        label="WB 2m",
         units="°C",
         kind="instant",
         # si scarica la temperatura con accanto il punto di rugiada; il bulbo umido si calcola subito
-        selectors={m: dataclasses.replace(sel, dew=TD2M_SEL[m]) for m, sel in T2M_SEL.items()},
-        convert={m: _k_to_c for m in T2M_SEL},
+        selectors={m: dataclasses.replace(sel, dew=TD2M_SEL[m], pressure=SURFACE_PRESSURE_SEL[m])
+             for m, sel in T2M_SEL.items() if m in SURFACE_PRESSURE_SEL},
+         convert={m: _k_to_c for m in SURFACE_PRESSURE_SEL},
         combine=wet_bulb_k,
         scale=T2M_SCALE,
         decimals=1,
@@ -441,6 +496,22 @@ register(
         decimals=0,
         rank="asc",  # classifica: prima lo zero termico più basso
         contours={"label": "Isolinee", "step": 250, "bold": [1000, 2000, 3000, 4000]},  # ogni 250 m, marcate le migliaia
+    )
+)
+
+
+register(
+    Variable(
+        id="hwzero",
+        label="Quota WB = 0°",
+        units="m",
+        kind="instant",
+        selectors={"gfs": GribSelector(var="TMP", level="500_mb")},
+        convert={"gfs": _identity},
+        scale=HZERO_SCALE,
+        decimals=0,
+        rank="asc",
+        contours={"label": "Isolinee", "step": 250, "bold": [1000, 2000, 3000, 4000]},
     )
 )
 

@@ -27,6 +27,8 @@ class Field:
     short_name: str = ""
     step_range: str = ""
     units: str = ""
+    level_type: str = ""
+    level: float = 0
 
     @property
     def ny(self) -> int:
@@ -115,6 +117,8 @@ def _field_from_handle(gid) -> Field:
         short_name=eccodes.codes_get(gid, "shortName"),
         step_range=str(eccodes.codes_get(gid, "stepRange")),
         units=eccodes.codes_get(gid, "units"),
+        level_type=eccodes.codes_get(gid, "typeOfLevel"),
+        level=float(eccodes.codes_get(gid, "level")),
     )
 
 

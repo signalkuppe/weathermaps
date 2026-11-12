@@ -102,7 +102,19 @@ def _fetch_field(source, client, run: datetime, step: int, var, bbox) -> Field:
         other = _fetch_with_retry(source, client, run, step, alt, bbox)
         if other.values.shape != field.values.shape:
             raise ValueError(f"{source.MODEL.id}: griglie diverse fra {sel.param or sel.var} e {sel.dew.param or sel.dew.var}")
-        field.values = np.asarray(var.combine(field.values, other.values), dtype=np.float32)
+        if sel.pressure is None:
+            raise ValueError(f"{source.MODEL.id}: pressione al suolo mancante per {var.id}")
+        alt = dataclasses.replace(var, selectors={**var.selectors, source.MODEL.id: sel.pressure})
+        pressure = _fetch_with_retry(source, client, run, step, alt, bbox)
+        if (pressure.values.shape != field.values.shape
+                or (pressure.lat0, pressure.lon0, pressure.dlat, pressure.dlon)
+                != (field.lat0, field.lon0, field.dlat, field.dlon)):
+            raise ValueError(f"{source.MODEL.id}: griglie diverse fra temperatura e pressione")
+        pressure_factors = {"Pa": 0.01, "hPa": 1.0, "kPa": 10.0}
+        if pressure.units not in pressure_factors:
+            raise ValueError(f"{source.MODEL.id}: unità della pressione inattesa: {pressure.units}")
+        pressure_hpa = pressure.values * pressure_factors[pressure.units]
+        field.values = np.asarray(var.combine(field.values, other.values, pressure_hpa), dtype=np.float32)
     if sel.pair is not None and sel.lambert:
         # vento riferito alla griglia Lambert (WRF): serve anche l'altra componente per ruotarlo verso nord
         alt = dataclasses.replace(var, selectors={**var.selectors, source.MODEL.id: sel.pair})
