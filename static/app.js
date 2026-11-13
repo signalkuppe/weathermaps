@@ -523,7 +523,7 @@
     m.keyboard.disableRotation();
     m.on("movestart", () => {
       if (syncing) return;
-      closeMapMenu();
+      closeMapMenuOnMove();
       view = {
         center: map.getCenter(),
         zoom: map.getZoom(),
@@ -3098,7 +3098,6 @@
   // ---------- località preferite: scelte dall'utente con la ricerca, salvate nel browser (localStorage).
   // Ognuna ha marcatore numerato + valore sulla mappa e una riga nell'elenco del pannello.
   const PLACES_KEY = "weathermaps.places.v1";
-  const MAX_PLACES = 20;
   const pointMarkers = [];
   const pointRows = [];
   let places = loadPlaces();
@@ -3124,8 +3123,7 @@
               typeof p.name === "string" &&
               Number.isFinite(p.lat) &&
               Number.isFinite(p.lon),
-          )
-          .slice(0, MAX_PLACES);
+          );
       }
     } catch {
       /* storage non disponibile o dato rovinato: si parte vuoti */
@@ -3221,11 +3219,6 @@
     ui.placesEdit.hidden = !places.length;
     ui.placesEdit.textContent = editing ? "Fine" : "Modifica";
     ui.placesEdit.setAttribute("aria-pressed", String(editing));
-    ui.placeQ.disabled = places.length >= MAX_PLACES;
-    ui.placeQ.placeholder =
-      places.length >= MAX_PLACES
-        ? `Massimo ${MAX_PLACES} località`
-        : "Cerca una località";
     if (meta && variable()) renderPoints();
   }
 
@@ -5972,7 +5965,6 @@
     menuLL = ll;
     menuOpenedAt = Date.now();
     const value = pointValueText(ll);
-    const full = places.length >= MAX_PLACES;
     // titolo: le coordinate (con la X per chiudere); sotto, piccoli, i valori della mappa nel punto
     mapMenu.innerHTML =
       `<div class="map-menu-head">` +
@@ -5981,7 +5973,7 @@
       (value ? `<span class="map-menu-value">${escHtml(value)}</span>` : "") +
       `</div>` +
       `<button type="button" role="menuitem" data-act="share">Condividi questo punto</button>` +
-      `<button type="button" role="menuitem" data-act="place"${full ? ` disabled title="Massimo ${MAX_PLACES} località"` : ""}>Aggiungi alle località</button>` +
+      `<button type="button" role="menuitem" data-act="place">Aggiungi alle località</button>` +
       `<button type="button" role="menuitem" data-act="chart">Grafico nel tempo</button>`;
     mapMenu.hidden = false;
     mapMenuPin.classList.remove("loading");
@@ -6131,7 +6123,18 @@
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && menuLL) closeMapMenu();
   });
-  map.on("movestart zoomstart", closeMapMenu); // con Mapbox anche da connectMapbox, all'inizio del gesto
+  // la mappa si sposta: il menu si chiude, ma non quando a muoverla è il ridimensionamento della pagina. Su iPhone
+  // (Chrome) il campo del nome apre la tastiera e cambia l'altezza della finestra: chiudere lì faceva sparire il campo
+  let resizedAt = 0;
+  const markResize = () => (resizedAt = Date.now());
+  window.addEventListener("resize", markResize, true); // in cattura: prima di Leaflet e Mapbox
+  window.visualViewport?.addEventListener("resize", markResize);
+  function closeMapMenuOnMove() {
+    if (Date.now() - resizedAt < 1000) placeMapMenu();
+    else closeMapMenu();
+  }
+  map.on("movestart zoomstart", closeMapMenuOnMove); // con Mapbox anche da connectMapbox, all'inizio del gesto
+  map.on("resize moveend", placeMapMenu);
   // niente menu del browser sulla mappa (pressione prolungata su Android, clic destro senza Mapbox)
   document.addEventListener("contextmenu", (e) => {
     if (onMapSurface(e.target)) e.preventDefault();
