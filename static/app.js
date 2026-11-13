@@ -95,6 +95,7 @@
   let overlay = null;
   let probeLL = null; // punto toccato su mobile: il tooltip del valore resta lì (vedi "tooltip puntuale")
   let playTimer = null;
+  let playbackSelection = null;
   const cache = new Map();
 
   const intervalSliders = ["interval-step", "m-interval-step"].map((id) => {
@@ -107,6 +108,7 @@
       rangeSlideDisabled: false,
       onInput: (value, userInteraction) => {
         if (!userInteraction || !meta) return;
+        playbackSelection = null;
         const values = intervalSteps();
         let [from, to] = value.map(Math.round);
         if (from >= to) {
@@ -130,6 +132,13 @@
     const thumbs = element.querySelectorAll('[role="slider"]');
     thumbs[0].setAttribute("aria-label", "Inizio dell'intervallo");
     thumbs[1].setAttribute("aria-label", "Fine dell'intervallo");
+    const progress = document.createElement("div");
+    progress.className = "interval-progress";
+    progress.setAttribute("role", "progressbar");
+    progress.setAttribute("aria-label", "Avanzamento animazione");
+    progress.hidden = true;
+    element.append(progress);
+    slider.progress = progress;
     slider.element = element;
     return slider;
   });
@@ -811,15 +820,73 @@
   // durata effettiva della cumulata al passo mostrato: sempre scritta, mai "intervallo" e basta
   const intervalHours = (s = state.step) => s - intervalPrev(s);
 
+  function stopProgressAnimation() {
+    for (const slider of intervalSliders) {
+      const animation = slider.progressAnimation;
+      if (!animation) continue;
+      if (playbackSelection) {
+        const duration = animation.effect.getTiming().duration;
+        playbackSelection.progress = Math.min(1, animation.currentTime / duration);
+      }
+      if (slider.element.clientWidth > 0 && !slider.progress.hidden) animation.commitStyles();
+      animation.cancel();
+      slider.progressAnimation = null;
+    }
+  }
+
   function syncIntervalSliders() {
     if (!meta || state.step == null) return;
+    if (
+      playbackSelection &&
+      (!rangeMode() ||
+        playbackSelection.step !== state.step ||
+        playbackSelection.from !== intervalPrev() ||
+        playbackSelection.model !== state.model ||
+        playbackSelection.variable !== state.var ||
+        playbackSelection.run !== state.run)
+    ) {
+      stopProgressAnimation();
+      playbackSelection = null;
+    }
     const values = intervalSteps();
-    const from = Math.max(0, values.indexOf(intervalPrev()));
-    const to = Math.max(from + 1, values.indexOf(state.step));
+    const from = Math.max(0, values.indexOf(playbackSelection?.from ?? intervalPrev()));
+    const to = Math.max(from + 1, values.indexOf(playbackSelection?.to ?? state.step));
+    const position = (step) => {
+      const fraction = values.indexOf(step) / (values.length - 1);
+      return `calc(${fraction * 100}% + var(--interval-thumb-size) * ${0.5 - fraction})`;
+    };
     for (const slider of intervalSliders) {
       slider.max(values.length - 1);
       slider.value([from, to]);
       const thumbs = slider.element.querySelectorAll('[role="slider"]');
+      slider.element.classList.toggle(
+        "playback-complete",
+        !!playbackSelection && state.step === playbackSelection.to,
+      );
+      slider.progress.hidden = !playbackSelection;
+      if (playbackSelection) {
+        const thumbSize = thumbs[0].offsetWidth;
+        const span = (to - from) / (values.length - 1) * (slider.element.clientWidth - thumbSize);
+        const crowded = span < thumbSize + 8;
+        const start = crowded
+          ? position(values[from])
+          : `calc(${position(values[from])} + var(--interval-thumb-size) / 2 + 3px)`;
+        const end = crowded
+          ? position(values[to])
+          : `calc(${position(values[to])} - var(--interval-thumb-size) / 2 - 3px)`;
+        slider.progressBounds = [start, end];
+        if (!slider.progressAnimation) {
+          const progress = playbackSelection.progress ?? 0;
+          slider.progress.style.left = `calc(${start} * ${1 - progress} + ${end} * ${progress})`;
+        }
+        slider.progress.style.top = crowded
+          ? "calc(50% - var(--interval-thumb-size) / 2 - 12px)"
+          : "50%";
+        slider.progress.setAttribute("aria-valuemin", playbackSelection.from);
+        slider.progress.setAttribute("aria-valuemax", playbackSelection.to);
+        slider.progress.setAttribute("aria-valuenow", state.step);
+        slider.progress.setAttribute("aria-valuetext", `+${state.step}h`);
+      }
       for (const [thumb, step] of [
         [thumbs[0], values[from]],
         [thumbs[1], values[to]],
@@ -862,6 +929,11 @@
       meta.models.find((m) => m.id === state.model)?.max_step ?? Infinity;
     return meta.steps.filter((s) => s <= max);
   };
+  function rangePlaybackSteps(allSteps, available, from, to) {
+    return allSteps.filter(
+      (step) => step > from && step <= to && available.has(step),
+    );
+  }
   const runInfo = () =>
     (runs[state.model] || []).find((r) => r.run === state.run);
   const availableSteps = () =>
@@ -2855,22 +2927,35 @@
         `<span class="badge-m badge-m-model">${shortLabel(state.model)}</span>`;
       return;
     }
-    const runText =
-      state.model === "mean"
-        ? `<strong>${cycle(state.run)}</strong> ${fmtRunDay(state.run)}`
-        : `corsa <strong>${cycle(state.run)}</strong> ${fmtRunDay(state.run)}`;
+    const runText = `<strong>${state.run.slice(8, 10)}z</strong> ${state.run.slice(6, 8)}/${state.run.slice(4, 6)}`;
+    syncIntervalSliders();
+    const rangeStart = playbackSelection?.from ?? intervalPrev(s);
+    const rangeEnd = playbackSelection?.to ?? s;
+    const rangeLabel = rangeStart === 0
+      ? `+${rangeEnd} ore`
+      : `Da +${rangeStart}h a +${rangeEnd}h · ${rangeEnd - rangeStart}h`;
+    const rangeText = rangeMode()
+      ? `<span class="badge-range badge-d">${rangeLabel}</span>`
+      : "";
+    const mobileTime = fmtLocal(valid);
+    const mobileRangeLabel = rangeStart === 0
+      ? rangeLabel
+      : `+${rangeStart}&ndash;${rangeEnd}h · ${rangeEnd - rangeStart}h`;
+    const mobileRange = rangeMode()
+      ? `<span class="badge-m-range">${mobileRangeLabel}</span>`
+      : "";
+    const stepText = rangeMode() && rangeStart === 0 ? "" : `+${s}h · `;
     // desktop: modello, corsa e istante; mobile (badge-m): prima l'istante, poi modello breve e corsa
     ui.badgeText.innerHTML =
       `<b class="badge-d">${modelLabel()}</b><span class="badge-run badge-d">${runText}</span>` +
-      `<span class="badge-valid badge-d">+${s}h · ${fmtLocal(valid)}</span>` +
-      `<span class="badge-m badge-m-time"><b>${rangeMode() ? `${intervalHours(s)}h · ` : ""}${fmtLocal(valid)}</b></span>` +
+      `<span class="badge-valid badge-d">${stepText}${fmtLocal(valid)}${rangeText}</span>` +
+      `<span class="badge-m badge-m-time"><b>${mobileTime}</b>${mobileRange}</span>` +
       `<span class="badge-m badge-m-model">${shortLabel(state.model)} ${cycle(state.run)}</span>`;
     const mStep = $("m-step"); // slider della barra su mobile, allineato a quello del pannello
     mStep.max = steps().length - 1;
     mStep.value = steps().indexOf(s);
     for (const r of [mStep, ui.step])
       r.style.setProperty("--pct", `${(100 * +r.value) / (+r.max || 1)}%`); // parte percorsa
-    syncIntervalSliders();
     const prev = intervalPrev(s);
     const utc = `${fmtUTC(valid)} UTC`;
     if (state.mode === "interval")
@@ -5642,26 +5727,73 @@
   function togglePlay(force) {
     const on = force ?? !playTimer;
     if (on && !playTimer) {
+      stopProgressAnimation();
+      const rangeStart = state.mode === "interval" ? intervalPrev() : 0;
+      const rangeEnd = playbackSelection?.to ?? state.step;
+      const playbackRange = rangeMode()
+        ? rangePlaybackSteps(steps(), availableSteps(), rangeStart, rangeEnd)
+        : null;
+      if (playbackRange && playbackRange.length < 2) return;
+      if (playbackRange) {
+        playbackSelection = {
+          from: rangeStart,
+          to: rangeEnd,
+          step: playbackRange[0],
+          progress: 0,
+          model: state.model,
+          variable: state.var,
+          run: state.run,
+        };
+        state.startStep = rangeStart;
+        state.step = playbackRange[0];
+        state.hours = state.step - rangeStart;
+        ui.step.value = steps().indexOf(state.step);
+        update();
+        for (const slider of intervalSliders) {
+          if (!slider.element.clientWidth) continue;
+          slider.progressAnimation = slider.progress.animate(
+            slider.progressBounds.map((left) => ({ left })),
+            { duration: (playbackRange.length - 1) * 650, easing: "linear", fill: "forwards" },
+          );
+        }
+      }
       ui.play.innerHTML = P_PAUSE;
       ui.play.setAttribute("aria-label", "Ferma animazione");
       ui.mPlay.innerHTML = M_PAUSE;
       ui.mPlay.setAttribute("aria-label", "Ferma animazione");
       playTimer = setInterval(() => {
         const s = steps();
-        const avail = availableSteps();
         let i = s.indexOf(state.step);
-        // salta i passi non disponibili, ricomincia dal primo
-        for (let k = 0; k < s.length; k++) {
-          i = (i + 1) % s.length;
-          if (avail.has(s[i])) break;
+        if (playbackRange) {
+          const rangeIndex = playbackRange.indexOf(state.step);
+          if (!playbackSelection || rangeIndex < 0 || rangeIndex === playbackRange.length - 1) {
+            togglePlay(false);
+            return;
+          }
+          state.step = playbackRange[rangeIndex + 1];
+          playbackSelection.step = state.step;
+          playbackSelection.progress = (rangeIndex + 1) / (playbackRange.length - 1);
+          state.startStep = rangeStart;
+          state.hours = state.step - rangeStart;
+          state.mode = rangeStart === 0 ? "total" : "interval";
+          i = s.indexOf(state.step);
+        } else {
+          const avail = availableSteps();
+          // salta i passi non disponibili, ricomincia dal primo
+          for (let k = 0; k < s.length; k++) {
+            i = (i + 1) % s.length;
+            if (avail.has(s[i])) break;
+          }
+          setStepKeepingInterval(s[i]);
         }
-        setStepKeepingInterval(s[i]);
         ui.step.value = i;
         update();
+        if (playbackRange && state.step === playbackRange.at(-1)) togglePlay(false);
       }, 650);
     } else if (!on && playTimer) {
       clearInterval(playTimer);
       playTimer = null;
+      stopProgressAnimation();
       ui.play.innerHTML = P_PLAY;
       ui.play.setAttribute("aria-label", "Avvia animazione");
       ui.mPlay.innerHTML = M_PLAY;

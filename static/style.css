@@ -865,6 +865,9 @@ input[type="range"] {
 .badge-valid {
   color: var(--muted);
 }
+.badge-range {
+  margin-left: 10px;
+}
 .badge-text {
   display: flex;
   align-items: center;
@@ -1039,6 +1042,7 @@ input[type="range"] {
 
 /* Intervallo temporale: il componente usa due input accessibili e due maniglie visibili. */
 .interval-step {
+  --interval-thumb-size: 22px;
   display: none;
   position: relative;
   width: 100%;
@@ -1074,12 +1078,43 @@ body.range-mode .stepper .interval-step {
   border-radius: 3px;
   background: var(--accent);
 }
+.interval-progress {
+  position: absolute;
+  z-index: 4;
+  top: 50%;
+  width: 2px;
+  height: 18px;
+  translate: -50% -50%;
+  border-radius: 1px;
+  background: var(--fg);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+}
+.interval-step.playback-complete .interval-progress {
+  opacity: 0;
+}
+.interval-step.playback-complete .range-slider__thumb[data-upper] {
+  animation: playback-arrival 0.45s ease-out 2;
+}
+@keyframes playback-arrival {
+  0% {
+    box-shadow: 0 0 0 0 var(--accent);
+  }
+  100% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .interval-step.playback-complete .range-slider__thumb[data-upper] {
+    animation: none;
+  }
+}
 .interval-step .range-slider__thumb {
   position: absolute;
   z-index: 3;
   top: 50%;
-  width: 22px;
-  height: 22px;
+  width: var(--interval-thumb-size);
+  height: var(--interval-thumb-size);
   transform: translate(-50%, -50%);
   box-sizing: border-box;
   border: 3px solid var(--accent);
@@ -1131,8 +1166,11 @@ body.range-mode .stepper .interval-step {
     margin-top: -10px;
   }
   .interval-step .range-slider__thumb {
-    width: 26px;
-    height: 26px;
+    width: var(--interval-thumb-size);
+    height: var(--interval-thumb-size);
+  }
+  .interval-step {
+    --interval-thumb-size: 26px;
   }
 }
 .icon-btn {
@@ -1938,6 +1976,11 @@ body.radar-mode .badge-radar .badge-btn:hover {
     display: inline;
     order: 2;
   }
+  .badge-m-range {
+    font-size: 10px;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
   /* larghezza fissa per l'ora: giorni e mesi hanno larghezze diverse ("gio 11 giu" ~112 px, "dom 03 mag"
      ~136 px a 13px), così cambiando passo frecce e play restano fermi */
   .badge-m-time {
@@ -1948,6 +1991,8 @@ body.radar-mode .badge-radar .badge-btn:hover {
   .badge-m-model {
     order: 5;
     flex: 1 1 0;
+    max-width: 30%;
+    margin-left: 8px;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1978,15 +2023,34 @@ body.radar-mode .badge-radar .badge-btn:hover {
   #m-next {
     display: none;
   }
-  /* niente play nella barra compatta: l'animazione si avvia dal pannello */
   #m-play {
-    display: none;
+    order: 1;
+    flex: 0 0 34px;
   }
   .badge-m-time {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
     text-align: left;
     padding-left: 8px;
     height: 40px;
-    line-height: 40px;
+    line-height: 1.2;
+    white-space: normal;
+  }
+  .badge-m-time:has(.badge-m-range) b {
+    font-size: 11px;
+  }
+  .badge-m-time:has(.badge-m-range) {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px;
+    min-width: max-content;
+    white-space: nowrap;
   }
   /* bordo sinistro della barra allineato alla data e al titolo della legenda, il destro a quello della barra.
      Area da toccare alta 44 px (la barra visibile resta sottile, il resto è trasparente) e pallino grande; nessun
