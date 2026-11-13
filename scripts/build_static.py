@@ -23,6 +23,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,6 +36,29 @@ from fastapi.testclient import TestClient  # noqa: E402
 from app import packed, series, variables  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.store import Store  # noqa: E402
+
+
+ESBUILD_VERSION = "0.27.3"
+
+
+def build_javascript(out_path: Path) -> None:
+    subprocess.run(
+        [
+            "npx",
+            "--yes",
+            f"esbuild@{ESBUILD_VERSION}",
+            str(ROOT / "scripts" / "static_entry.js"),
+            "--bundle",
+            "--minify",
+            "--platform=browser",
+            "--format=iife",
+            "--legal-comments=none",
+            "--banner:js=/*! range-slider-input v2.4.7 | MIT | Copyright (c) Utkarsh Verma */",
+            f"--outfile={out_path}",
+        ],
+        cwd=ROOT,
+        check=True,
+    )
 
 
 def write_bin(path: Path, obj) -> int:
@@ -57,15 +81,19 @@ def main(out_dir: Path) -> int:
     out_dir.mkdir(parents=True)
 
     # pagina: stessi file del server, marcati come statici
-    for name in ("app.js", "render.js", "style.css", "borders.json", "manifest.webmanifest"):
+    for name in ("render.js", "style.css", "borders.json", "manifest.webmanifest"):
         shutil.copy(ROOT / "static" / name, out_dir / name)
+    build_javascript(out_dir / "app.js")
     shutil.copytree(ROOT / "static" / "icons", out_dir / "icons")  # logo: favicon e icone della home del telefono
     html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
     html = html.replace('<html lang="it">', '<html lang="it" data-mode="static">', 1)
+    vendor_script = '    <script src="vendor/range-slider-input-2.4.7.min.js"></script>\n'
+    assert vendor_script in html, "script range-slider-input non trovato in index.html"
+    html = html.replace(vendor_script, "", 1)
     # impronta del contenuto negli indirizzi di script e stile: dopo un aggiornamento il browser scarica subito i file
     # nuovi invece di usare per 10 minuti quelli in cache (pagina nuova con script vecchio = voci che non funzionano)
     for name, attr in (("app.js", "src"), ("render.js", "src"), ("style.css", "href")):
-        digest = hashlib.sha1((ROOT / "static" / name).read_bytes()).hexdigest()[:10]
+        digest = hashlib.sha1((out_dir / name).read_bytes()).hexdigest()[:10]
         old = f'{attr}="{name}"'
         assert old in html, f"{old} non trovato in index.html"
         html = html.replace(old, f'{attr}="{name}?v={digest}"', 1)
