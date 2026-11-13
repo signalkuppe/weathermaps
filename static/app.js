@@ -4200,18 +4200,19 @@
             .getPropertyValue("--accent")
             .trim() || "#2f7fd8";
         if (crop.pinText) {
-          ctx.font = `650 ${10.5 * k}px ${FONT}`;
-          const bw = ctx.measureText(crop.pinText).width + 14 * k,
-            bh = 21 * k,
-            t = 5 * k;
+          // grande quanto il sottotitolo dell'intestazione (22px): l'immagine è larga 1600px e si guarda rimpicciolita
+          ctx.font = `650 ${15 * k}px ${FONT}`;
+          const bw = ctx.measureText(crop.pinText).width + 22 * k,
+            bh = 30 * k,
+            t = 7 * k;
           const bx = Math.min(Math.max(px - bw / 2, 6), OW - bw - 6);
-          const below = py - 12 * k - t - bh < 6; // troppo in alto: l'etichetta va sotto
-          const by = below ? py + 12 * k + t : py - 12 * k - t - bh;
+          const below = py - 14 * k - t - bh < 6; // troppo in alto: l'etichetta va sotto
+          const by = below ? py + 14 * k + t : py - 14 * k - t - bh;
           ctx.fillStyle = "rgba(0,0,0,0.25)";
-          roundRect(ctx, bx, by + 2, bw, bh, 5 * k);
+          roundRect(ctx, bx, by + 3, bw, bh, 7 * k);
           ctx.fill();
           ctx.fillStyle = "#1d2330";
-          roundRect(ctx, bx, by, bw, bh, 5 * k);
+          roundRect(ctx, bx, by, bw, bh, 7 * k);
           ctx.fill();
           ctx.beginPath();
           const ty = below ? by : by + bh;
@@ -4226,10 +4227,10 @@
           ctx.fillText(crop.pinText, bx + bw / 2, by + bh / 2 + 1);
         }
         ctx.beginPath();
-        ctx.arc(px, py, 7 * k, 0, Math.PI * 2);
+        ctx.arc(px, py, 9 * k, 0, Math.PI * 2);
         ctx.fillStyle = accent;
         ctx.fill();
-        ctx.lineWidth = 3 * k;
+        ctx.lineWidth = 3.5 * k;
         ctx.strokeStyle = "#fff";
         ctx.stroke();
       }
