@@ -4195,10 +4195,6 @@
         px = (snap.pin.x - crop.x) * s,
         py = (snap.pin.y - crop.y) * s;
       if (px >= 0 && px <= OW && py >= 0 && py <= OH) {
-        const accent =
-          getComputedStyle(document.documentElement)
-            .getPropertyValue("--accent")
-            .trim() || "#2f7fd8";
         if (crop.pinText) {
           // grande quanto il sottotitolo dell'intestazione (22px): l'immagine è larga 1600px e si guarda rimpicciolita
           ctx.font = `650 ${15 * k}px ${FONT}`;
@@ -4226,13 +4222,19 @@
           ctx.textBaseline = "middle";
           ctx.fillText(crop.pinText, bx + bw / 2, by + bh / 2 + 1);
         }
+        // come sulla mappa: centro bianco, anello scuro e alone bianco (si vede su qualunque colore)
+        ctx.beginPath();
+        ctx.arc(px, py, 11 * k, 0, Math.PI * 2);
+        ctx.fillStyle = "#fff";
+        ctx.fill();
         ctx.beginPath();
         ctx.arc(px, py, 9 * k, 0, Math.PI * 2);
-        ctx.fillStyle = accent;
+        ctx.fillStyle = "#1d2330";
         ctx.fill();
-        ctx.lineWidth = 3.5 * k;
-        ctx.strokeStyle = "#fff";
-        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(px, py, 4.5 * k, 0, Math.PI * 2);
+        ctx.fillStyle = "#fff";
+        ctx.fill();
       }
     }
 

@@ -2905,38 +2905,46 @@ body.radar-mode .badge-radar .badge-btn:hover {
   font-weight: 600;
 }
 /* segnaposto del punto finché il menu è aperto */
+/* bianco con anello scuro e alone bianco: si vede su qualunque colore della mappa (anche sui blu dell'accento) */
 .map-menu-pin {
   position: fixed;
   z-index: 1099;
-  width: 14px;
-  height: 14px;
-  margin: -7px 0 0 -7px;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  box-sizing: border-box;
   border-radius: 50%;
-  background: var(--accent);
-  border: 3px solid #fff;
-  box-shadow: 0 1px 4px rgb(0 0 0 / 0.4);
+  background: #fff;
+  border: 5px solid #1d2330;
+  box-shadow:
+    0 0 0 2.5px #fff,
+    0 2px 6px 2px rgb(0 0 0 / 0.45);
   pointer-events: none;
 }
 .map-menu-pin[hidden] {
   display: none;
 }
 /* punto selezionato (menu aperto): un'onda che si allarga e sfuma, di continuo */
+/* onda: anello bianco bordato di scuro che si allarga e sfuma (visibile sia sui colori chiari sia sugli scuri) */
 .map-menu-pin::before {
   content: "";
   position: absolute;
-  inset: -3px;
+  inset: -7.5px;
   z-index: -1; /* dietro al pallino (il pallino ha già il suo contesto: position fixed e z-index) */
   border-radius: 50%;
-  background: var(--accent);
+  border: 3px solid #fff;
+  box-shadow:
+    0 0 0 1.5px rgb(29 35 48 / 0.7),
+    inset 0 0 0 1.5px rgb(29 35 48 / 0.7);
   animation: pin-pulse 1.6s ease-out infinite;
 }
 @keyframes pin-pulse {
   from {
-    transform: scale(1);
-    opacity: 0.6;
+    transform: scale(0.8);
+    opacity: 1;
   }
   to {
-    transform: scale(3.2);
+    transform: scale(2.6);
     opacity: 0;
   }
 }
@@ -2952,8 +2960,9 @@ body.radar-mode .badge-radar .badge-btn:hover {
   inset: -7px;
   z-index: 0;
   background: none;
-  border: 2px solid rgb(255 255 255 / 0.5);
-  border-top-color: var(--accent);
+  border: 3px solid rgb(255 255 255 / 0.6);
+  border-top-color: #1d2330;
+  box-shadow: none;
   opacity: 1;
   animation: spin 0.7s linear infinite;
 }
