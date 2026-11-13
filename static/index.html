@@ -215,13 +215,14 @@
               </button>
               <input
                 id="step"
-                class="wm-range"
+                class="single-step wm-range"
                 type="range"
                 min="0"
                 max="0"
                 value="0"
                 aria-label="Istante di previsione"
               />
+              <div id="interval-step" class="interval-step"></div>
             </div>
             <time id="updated-at" class="updated-at" hidden></time>
           </div>
@@ -336,6 +337,9 @@
               >signalkuppe</a
             >
           </p>
+          <button id="privacy-open" class="privacy-open" type="button">
+            Informativa privacy
+          </button>
         </details>
       </div>
     </aside>
@@ -454,13 +458,14 @@
       <!-- solo su mobile: slider dei passi a tutta larghezza, al posto delle frecce -->
       <input
         id="m-step"
-        class="m-step wm-range"
+        class="m-step single-step wm-range"
         type="range"
         min="0"
         max="0"
         value="0"
         aria-label="Istante di previsione"
       />
+      <div id="m-interval-step" class="m-step interval-step"></div>
       <button
         id="m-play"
         class="badge-btn"
@@ -607,6 +612,168 @@
         <button id="share-send" class="primary" type="button">Condividi</button>
       </div>
     </dialog>
+    <dialog
+      id="privacy-dialog"
+      class="share-dialog privacy-dialog"
+      aria-labelledby="privacy-title"
+      tabindex="-1"
+    >
+      <header class="share-head privacy-head">
+        <h2 id="privacy-title">Informativa privacy</h2>
+        <button
+          id="privacy-close"
+          class="share-x"
+          type="button"
+          aria-label="Chiudi"
+          title="Chiudi (Esc)"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="22"
+            height="22"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M18 6 6 18" />
+            <path d="m6 6 12 12" />
+          </svg>
+        </button>
+      </header>
+      <article class="privacy-body">
+        <p class="privacy-updated">Ultimo aggiornamento: 13 novembre 2026</p>
+
+        <section>
+          <h3>Titolare del trattamento</h3>
+          <p>
+            Il titolare del trattamento è il gestore di Weathermaps,
+            signalkuppe. Per richieste relative alla privacy è possibile usare i
+            recapiti disponibili su
+            <a
+              href="https://www.signalkuppe.com/"
+              target="_blank"
+              rel="noopener"
+              >signalkuppe.com</a
+            >.
+          </p>
+        </section>
+
+        <section>
+          <h3>Dati trattati e finalità</h3>
+          <p>
+            Weathermaps non richiede registrazione, non raccoglie nomi o
+            indirizzi email e non utilizza strumenti pubblicitari o di
+            profilazione. Durante l'uso del sito, il browser comunica ai
+            fornitori tecnici l'indirizzo IP, il tipo di browser e dispositivo,
+            data e ora delle richieste e le risorse richieste. Questi dati sono
+            necessari per mostrare il sito e le mappe, garantirne sicurezza e
+            funzionamento e prevenire abusi.
+          </p>
+          <p>
+            Cloudflare Web Analytics raccoglie statistiche aggregate sulle
+            visite e sulle prestazioni del sito, come pagina visitata, sito di
+            provenienza, Paese, tipo di dispositivo, browser, sistema operativo
+            e tempi di caricamento. Questi dati servono a capire come viene
+            usato Weathermaps e a migliorarne affidabilità e prestazioni. Il
+            servizio non registra i parametri presenti nell'indirizzo della
+            pagina e non traccia i visitatori tra siti diversi.
+          </p>
+          <p>
+            Quando si usa la ricerca di località, il testo cercato viene inviato
+            a Open-Meteo o Photon/Komoot. Quando si attivano radar o satellite,
+            il browser richiede le relative immagini ai fornitori indicati nei
+            crediti. Le coordinate e l'area della mappa visualizzata possono
+            quindi far parte delle richieste tecniche inviate a tali servizi.
+          </p>
+        </section>
+
+        <section>
+          <h3>Memoria locale e cookie</h3>
+          <p>
+            Weathermaps usa la memoria locale del browser per conservare le
+            impostazioni, l'ultima mappa visualizzata e le località preferite.
+            Queste informazioni restano sul dispositivo finché vengono
+            sostituite dall'utente o eliminate dalle impostazioni del browser e
+            non sono inviate al gestore del sito.
+          </p>
+          <p>
+            Mapbox può salvare nella memoria locale identificatori tecnici e
+            dati di evento necessari a erogazione, sicurezza, conteggio e
+            fatturazione del servizio. Cloudflare Web Analytics non usa cookie,
+            memoria locale o tecniche di fingerprinting. Non risultano cookie o
+            strumenti usati da Weathermaps per pubblicità o profilazione; per
+            questo non viene richiesto un consenso tramite banner.
+          </p>
+        </section>
+
+        <section>
+          <h3>Fornitori e destinatari</h3>
+          <ul>
+            <li>GitHub Pages, per la pubblicazione e la consegna del sito;</li>
+            <li>Mapbox, per lo sfondo cartografico;</li>
+            <li>cdnjs/Cloudflare, per le librerie e gli stili dell'app;</li>
+            <li>
+              Cloudflare Web Analytics, per statistiche aggregate sulle visite e
+              sulle prestazioni;
+            </li>
+            <li>Open-Meteo e Photon/Komoot, per la ricerca delle località;</li>
+            <li>
+              OpenStreetMap e Thunderforest, come fornitori cartografici di
+              riserva;
+            </li>
+            <li>
+              MeteoHub/Mistral ed EUMETSAT, quando vengono attivati radar e
+              satellite.
+            </li>
+          </ul>
+          <p>
+            Ciascun fornitore tratta i dati tecnici secondo la propria
+            informativa. Alcuni fornitori hanno sede o infrastrutture negli
+            Stati Uniti o in altri Paesi esterni allo Spazio economico europeo e
+            dichiarano di utilizzare gli strumenti previsti dal GDPR per i
+            trasferimenti internazionali, come il Data Privacy Framework o le
+            clausole contrattuali standard.
+          </p>
+        </section>
+
+        <section>
+          <h3>Base giuridica e conservazione</h3>
+          <p>
+            Il trattamento dei dati tecnici è fondato sulla necessità di fornire
+            le funzionalità richieste dall'utente e sul legittimo interesse a
+            mantenere il servizio sicuro e funzionante, misurarne l'utilizzo e
+            migliorarne le prestazioni. I tempi di conservazione dei log
+            dipendono dai singoli fornitori. Cloudflare conserva i dati non
+            campionati del beacon per 7 giorni, poi li conserva in forma
+            aggregata; nel pannello Web Analytics sono consultabili gli ultimi 6
+            mesi. Mapbox dichiara di eliminare normalmente gli indirizzi IP
+            entro 30 giorni; Open-Meteo dichiara di eliminare i log della
+            propria API gratuita entro 90 giorni.
+          </p>
+        </section>
+
+        <section>
+          <h3>Diritti</h3>
+          <p>
+            Nei casi previsti dal GDPR è possibile chiedere accesso, rettifica,
+            cancellazione o limitazione dei dati, opporsi al trattamento e
+            proporre reclamo al
+            <a
+              href="https://www.garanteprivacy.it/"
+              target="_blank"
+              rel="noopener"
+              >Garante per la protezione dei dati personali</a
+            >. Poiché il gestore non riceve direttamente i dati salvati nella
+            memoria locale, questi possono essere consultati o eliminati dalle
+            impostazioni del proprio browser. Per i dati detenuti dai fornitori
+            esterni è possibile rivolgersi anche direttamente al fornitore.
+          </p>
+        </section>
+      </article>
+    </dialog>
     <!-- meteogramma di una località: andamento nel tempo delle grandezze del modello scelto (vedi app/series.py) -->
     <dialog
       id="chart-dialog"
@@ -721,6 +888,17 @@
     <!-- sfondo Mapbox (vettoriale) dentro Leaflet: lo carica app.js in parallelo ai dati (vedi mapboxLib) -->
     <!-- disegno dei colori: nella pagina come riserva, e come Web Worker (stesso file) -->
     <script src="render.js"></script>
+    <script src="vendor/range-slider-input-2.4.7.min.js"></script>
     <script src="app.js"></script>
+    <script type="module">
+      if (location.hostname === "signalkuppe.github.io") {
+        const analytics = document.createElement("script");
+        analytics.type = "module";
+        analytics.src = "https://static.cloudflareinsights.com/beacon.min.js";
+        analytics.dataset.cfBeacon =
+          '{"token":"454876ac043f433f8e5f93625e7d601e"}';
+        document.body.append(analytics);
+      }
+    </script>
   </body>
 </html>

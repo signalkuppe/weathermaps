@@ -51,7 +51,21 @@
     placesEmpty: $("places-empty"),
     modelInfo: $("model-info"),
     modelInfoBtn: $("model-info-btn"),
+    privacyOpen: $("privacy-open"),
+    privacyDialog: $("privacy-dialog"),
+    privacyClose: $("privacy-close"),
   };
+
+  ui.privacyOpen.addEventListener("click", () => {
+    ui.privacyDialog.showModal();
+    ui.privacyClose.focus();
+  });
+  ui.privacyClose.addEventListener("click", () => ui.privacyDialog.close());
+  ui.privacyDialog.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    ui.privacyDialog.close();
+  });
 
   // run: sempre l'ultima corsa completa del modello (non si sceglie più a mano)
   const state = {
@@ -59,6 +73,7 @@
     var: "t850",
     run: null,
     step: null,
+    startStep: null,
     mode: null,
     opacity: 0.7,
     crisp: false,
@@ -81,6 +96,43 @@
   let probeLL = null; // punto toccato su mobile: il tooltip del valore resta lì (vedi "tooltip puntuale")
   let playTimer = null;
   const cache = new Map();
+
+  const intervalSliders = ["interval-step", "m-interval-step"].map((id) => {
+    const element = $(id);
+    let slider;
+    slider = rangeSlider(element, {
+      min: 0,
+      max: 1,
+      value: [0, 1],
+      rangeSlideDisabled: false,
+      onInput: (value, userInteraction) => {
+        if (!userInteraction || !meta) return;
+        const values = intervalSteps();
+        let [from, to] = value.map(Math.round);
+        if (from >= to) {
+          if (slider.currentValueIndex() === 0) from = Math.max(0, to - 1);
+          else to = Math.min(values.length - 1, from + 1);
+          slider.value([from, to]);
+        }
+        state.startStep = values[from];
+        state.step = values[to];
+        state.hours = state.step - state.startStep;
+        state.mode = state.startStep === 0 ? "total" : "interval";
+        ui.step.value = steps().indexOf(state.step);
+        togglePlay(false);
+        updateModeSelection();
+        update();
+        queueMicrotask(syncIntervalSliders);
+      },
+    });
+    const inputs = element.querySelectorAll('input[type="range"]');
+    for (const input of inputs) input.setAttribute("aria-hidden", "true");
+    const thumbs = element.querySelectorAll('[role="slider"]');
+    thumbs[0].setAttribute("aria-label", "Inizio dell'intervallo");
+    thumbs[1].setAttribute("aria-label", "Fine dell'intervallo");
+    slider.element = element;
+    return slider;
+  });
 
   // ---------- mappa
   const map = L.map("map", {
@@ -724,23 +776,61 @@
     });
   const hexToRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
   const variable = () => meta.variables.find((v) => v.id === state.var);
+  const rangeMode = () =>
+    variable()?.modes.includes("total") &&
+    variable()?.modes.includes("interval") &&
+    (state.mode === "total" || state.mode === "interval");
   // grandezza dei dati (colori, località, passi): per le voci combinate è quella dei colori (es. "tp")
   const dataVar = () => variable()?.field || variable()?.vector?.u || state.var;
   // nome per legenda e testi: per le combinate quello della grandezza dei colori ("Precipitazione")
   const baseLabel = () => variable().base_label || variable().label;
-  // cumulate su 3, 6, 12 o 24 ore: differenza fra il totale al passo mostrato e quello `state.hours` ore prima
+  // cumulate: differenza fra il totale ai due estremi scelti. I vecchi link con `ore` inizializzano ancora i preset.
   const INTERVALS = [3, 6, 12, 24];
-  /** Passo da cui parte la cumulata che finisce a `s`: il più vicino a s − ore fra quelli esistenti (oltre le +144h i
-   *  passi sono ogni 6 ore, quindi "3h" diventa 6h); 0 se la corsa è iniziata da meno ore. */
-  function intervalPrev(s = state.step, hours = state.hours) {
+  const intervalSteps = () => {
+    const values = steps();
+    return values[0] === 0 ? values : [0, ...values];
+  };
+  /** Passo più vicino a `s - hours`; oltre +144h i passi sono ogni 6 ore, quindi un preset 3h diventa 6h. */
+  function presetPrev(s = state.step, hours = state.hours) {
     const target = s - hours;
     if (target <= 0) return 0;
     let best = 0;
     for (const x of meta.steps) if (x <= target && x > best) best = x;
     return best;
   }
+  function intervalPrev(s = state.step, hours = state.hours) {
+    if (
+      s === state.step &&
+      Number.isFinite(state.startStep) &&
+      state.startStep >= 0 &&
+      state.startStep < s
+    )
+      return state.startStep;
+    return presetPrev(s, hours);
+  }
   // durata effettiva della cumulata al passo mostrato: sempre scritta, mai "intervallo" e basta
   const intervalHours = (s = state.step) => s - intervalPrev(s);
+
+  function syncIntervalSliders() {
+    if (!meta || state.step == null) return;
+    const values = intervalSteps();
+    const from = Math.max(0, values.indexOf(intervalPrev()));
+    const to = Math.max(from + 1, values.indexOf(state.step));
+    for (const slider of intervalSliders) {
+      slider.max(values.length - 1);
+      slider.value([from, to]);
+      const thumbs = slider.element.querySelectorAll('[role="slider"]');
+      for (const [thumb, step] of [
+        [thumbs[0], values[from]],
+        [thumbs[1], values[to]],
+      ]) {
+        const date = state.run
+          ? `, ${fmtLocal(new Date(runDate(state.run).getTime() + step * 3600e3))}`
+          : "";
+        thumb.setAttribute("aria-valuetext", `+${step}h${date}`);
+      }
+    }
+  }
   // "in 3h" / "totale" / "" (grandezze istantanee), dopo il nome della grandezza
   const modePhrase = () =>
     state.mode === "interval"
@@ -813,6 +903,7 @@
       if (typeof d.model === "string") state.model = d.model;
       if (typeof d.var === "string") state.var = d.var;
       if (Number.isFinite(d.step)) state.step = d.step;
+      if (Number.isFinite(d.startStep)) state.startStep = d.startStep;
       if (typeof d.mode === "string") state.mode = d.mode;
       if (INTERVALS.includes(d.hours)) state.hours = d.hours;
       if (typeof d.base === "string") state.base = d.base;
@@ -838,6 +929,7 @@
           model: state.model,
           var: state.var,
           step: state.step,
+          startStep: state.startStep,
           mode: state.mode,
           hours: state.hours,
           base: state.base,
@@ -858,7 +950,12 @@
   function readHash() {
     const p = new URLSearchParams(location.hash.slice(1));
     for (const k of ["model", "var", "mode"]) if (p.get(k)) state[k] = p.get(k);
-    if (INTERVALS.includes(+p.get("ore"))) state.hours = +p.get("ore");
+    if (INTERVALS.includes(+p.get("ore"))) {
+      state.hours = +p.get("ore");
+      if (!p.has("from")) state.startStep = null;
+    }
+    if (p.has("from") && Number.isFinite(+p.get("from")))
+      state.startStep = +p.get("from");
     // i parametri "corsa"/"run" dei link vecchi si ignorano: si mostra sempre l'ultima corsa completa
     if (p.get("step")) state.step = +p.get("step");
     if (p.get("opacity"))
@@ -869,11 +966,18 @@
   function writeHash() {
     const p = new URLSearchParams();
     const previous = new URLSearchParams(location.hash.slice(1));
-    for (const key of ["chart", "place", "chartModel", "chartRun", "chartStep"])
+    for (const key of [
+      "chart",
+      "place",
+      "chartModel",
+      "chartRun",
+      "chartStep",
+      "chartFrom",
+    ])
       if (previous.has(key)) p.set(key, previous.get(key));
     for (const k of ["model", "var", "step", "mode", "opacity"])
       if (state[k] != null) p.set(k, state[k]);
-    if (state.mode === "interval") p.set("ore", state.hours);
+    if (state.mode === "interval") p.set("from", intervalPrev());
     if (state.crisp) p.set("crisp", "1");
     if (!state.iso) p.set("iso", "0");
     history.replaceState(history.state, "", "#" + p.toString());
@@ -965,7 +1069,7 @@
   function setupModes() {
     const v = variable();
     if (!v.modes.includes(state.mode)) state.mode = v.modes[0];
-    // grandezze accumulate: Totale · 3h · 6h · 12h · 24h (cumulata che finisce all'ora mostrata)
+    // grandezze accumulate: Totale · 3h · 6h · 12h · 24h; il doppio slider consente ogni altro intervallo.
     const opts = v.modes.flatMap((m) =>
       m === "interval"
         ? INTERVALS.map((h) => [m, h, `${h}h`])
@@ -976,22 +1080,46 @@
         const b = document.createElement("button");
         b.type = "button";
         b.textContent = text;
+        b.dataset.mode = m;
+        if (h) b.dataset.hours = h;
         if (h)
           b.title = `Cumulata nelle ${h} ore che finiscono all'ora mostrata`;
+        else if (m === "total") b.title = "Cumulata dall'inizio della corsa";
         b.setAttribute(
           "aria-pressed",
           String(m === state.mode && (h == null || h === state.hours)),
         );
         b.addEventListener("click", () => {
           state.mode = m;
-          if (h) state.hours = h;
+          if (m === "total") {
+            state.startStep = 0;
+          } else if (h) {
+            state.hours = h;
+            state.startStep = presetPrev(state.step, h);
+          }
           setupModes();
+          setupSteps();
           update();
         });
         return b;
       }),
     );
     ui.modeRow.hidden = v.modes.length < 2;
+    document.body.classList.toggle("range-mode", rangeMode());
+    updateModeSelection();
+  }
+
+  function updateModeSelection() {
+    for (const button of ui.mode.querySelectorAll("button")) {
+      const hours = button.dataset.hours ? +button.dataset.hours : null;
+      button.setAttribute(
+        "aria-pressed",
+        String(
+          button.dataset.mode === state.mode &&
+            (hours == null || hours === intervalHours()),
+        ),
+      );
+    }
   }
 
   /** Corsa da mostrare: l'ultima completa (le corse ancora in arrivo non si mostrano). */
@@ -1149,6 +1277,16 @@
       state.step = avail.includes(24) ? 24 : (avail[0] ?? s[0]);
     }
     ui.step.value = s.indexOf(state.step);
+    const interval = intervalSteps();
+    if (state.mode === "total") state.startStep = 0;
+    else if (
+      !interval.includes(state.startStep) ||
+      state.startStep >= state.step
+    )
+      state.startStep = presetPrev(state.step);
+    state.hours = state.step - state.startStep;
+    syncIntervalSliders();
+    updateModeSelection();
   }
 
   function renderLegend() {
@@ -1378,13 +1516,13 @@
     const cv = variable().contour_field;
     for (const j of [i + 1, i - 1, i + 2]) {
       if (s[j] == null || !avail.has(s[j])) continue;
-      const ctx = `${state.model}|${state.var}|${state.run}|${state.mode}|${state.hours}`;
+      const ctx = `${state.model}|${state.var}|${state.run}|${state.mode}|${intervalPrev()}`;
       mainField(s[j])
         .then((f) => {
           // anche l'immagine dei colori, se nel frattempo non è cambiata la mappa
           if (
             ctx ===
-            `${state.model}|${state.var}|${state.run}|${state.mode}|${state.hours}`
+            `${state.model}|${state.var}|${state.run}|${state.mode}|${intervalPrev()}`
           )
             fieldImage(f, true);
         })
@@ -2717,18 +2855,22 @@
         `<span class="badge-m badge-m-model">${shortLabel(state.model)}</span>`;
       return;
     }
-    const runWord = state.model === "mean" ? "dalle" : "corsa";
+    const runText =
+      state.model === "mean"
+        ? `<strong>${cycle(state.run)}</strong> ${fmtRunDay(state.run)}`
+        : `corsa <strong>${cycle(state.run)}</strong> ${fmtRunDay(state.run)}`;
     // desktop: modello, corsa e istante; mobile (badge-m): prima l'istante, poi modello breve e corsa
     ui.badgeText.innerHTML =
-      `<b class="badge-d">${modelLabel()}</b><span class="badge-run badge-d">${runWord} <strong>${cycle(state.run)}</strong> ${fmtRunDay(state.run)}</span>` +
+      `<b class="badge-d">${modelLabel()}</b><span class="badge-run badge-d">${runText}</span>` +
       `<span class="badge-valid badge-d">+${s}h · ${fmtLocal(valid)}</span>` +
-      `<span class="badge-m badge-m-time"><b>${fmtLocal(valid)}</b></span>` +
+      `<span class="badge-m badge-m-time"><b>${rangeMode() ? `${intervalHours(s)}h · ` : ""}${fmtLocal(valid)}</b></span>` +
       `<span class="badge-m badge-m-model">${shortLabel(state.model)} ${cycle(state.run)}</span>`;
     const mStep = $("m-step"); // slider della barra su mobile, allineato a quello del pannello
     mStep.max = steps().length - 1;
     mStep.value = steps().indexOf(s);
     for (const r of [mStep, ui.step])
       r.style.setProperty("--pct", `${(100 * +r.value) / (+r.max || 1)}%`); // parte percorsa
+    syncIntervalSliders();
     const prev = intervalPrev(s);
     const utc = `${fmtUTC(valid)} UTC`;
     if (state.mode === "interval")
@@ -3724,7 +3866,7 @@
           : "";
     const runText =
       state.model === "mean"
-        ? `dalle ${cycle(state.run)} ${fmtRunDay(state.run)}`
+        ? `${cycle(state.run)} ${fmtRunDay(state.run)}`
         : `corsa ${cycle(state.run)} ${fmtRunDay(state.run)}`;
     const baseAttr = glBase
       ? "Mappa © Mapbox, dati © OpenStreetMap contributors"
@@ -4489,6 +4631,8 @@
     params.set("place", chartContext.place.name);
     params.set("chartModel", chartContext.model);
     params.set("chartStep", chartContext.until);
+    if (chartContext.from > 0) params.set("chartFrom", chartContext.from);
+    else params.delete("chartFrom");
     if (chartContext.run) params.set("chartRun", chartContext.run);
     else params.delete("chartRun");
     if (push)
@@ -4526,9 +4670,15 @@
     const until = meta.steps.includes(+params.get("chartStep"))
       ? +params.get("chartStep")
       : state.step;
+    const requestedFrom = +params.get("chartFrom");
+    const from =
+      (requestedFrom === 0 || meta.steps.includes(requestedFrom)) &&
+      requestedFrom < until
+        ? requestedFrom
+        : 0;
     openChart(
       { lat, lon, name: params.get("place") || `${lat}, ${lon}` },
-      { model, run, until, pushHistory: false },
+      { model, run, from, until, pushHistory: false },
     );
   }
 
@@ -4536,7 +4686,13 @@
 
   async function openChart(
     p,
-    { model = state.model, run, until = state.step, pushHistory = true } = {},
+    {
+      model = state.model,
+      run,
+      from = state.mode === "interval" ? intervalPrev() : 0,
+      until = state.step,
+      pushHistory = true,
+    } = {},
   ) {
     chartUi.title.textContent = p.name;
     fillModelSelect(meta.models, model, chartUi.model);
@@ -4548,6 +4704,7 @@
       place: p,
       model,
       run: run || (model === state.model ? state.run : null),
+      from,
       until,
     };
     writeChartHash(pushHistory && !chartUi.dialog.open);
@@ -4563,7 +4720,7 @@
     chartContext = request;
     writeChartHash();
     chartUi.details.textContent = run
-      ? `${model === "mean" ? "dalle" : "corsa"} ${cycle(run)} ${fmtRunDay(run)} · fino a +${request.until}h`
+      ? `${model === "mean" ? "" : "corsa "}${cycle(run)} ${fmtRunDay(run)} · ${request.from > 0 ? `da +${request.from}h a` : "fino a"} +${request.until}h`
       : "Nessuna corsa disponibile";
     chartUi.body.innerHTML = '<div class="chart-empty">Caricamento…</div>';
     chartData = null;
@@ -4574,7 +4731,13 @@
       const { lat, lon } = request.place;
       const series = await getSeries(model, run, lat, lon);
       if (chartContext !== request || !chartUi.dialog.open) return;
-      chartData = { series, model, run, until: request.until };
+      chartData = {
+        series,
+        model,
+        run,
+        from: request.from,
+        until: request.until,
+      };
       drawChart();
     } catch (e) {
       if (chartContext !== request || !chartUi.dialog.open) return;
@@ -4600,6 +4763,7 @@
         "chartModel",
         "chartRun",
         "chartStep",
+        "chartFrom",
       ])
         params.delete(key);
       history.replaceState(history.state, "", "#" + params.toString());
@@ -4854,12 +5018,16 @@
 
   /** Disegna il meteogramma nella finestra; con `exportW` restituisce invece l'SVG largo exportW (per l'immagine). */
   function drawChart(exportW, exportH) {
-    const { series, run, until } = chartData;
-    // il grafico arriva all'ora scelta con lo slider della mappa (+0h … +24h): anche il totale è quello della mappa
+    const { series, run, from, until } = chartData;
+    // Il grafico usa lo stesso intervallo della mappa. Fuori dalla modalità intervallo `from` è 0, come prima.
     const V = Object.fromEntries(
       Object.entries(series.vars).map(([k, v]) => {
         const keep = v.steps
-          .map((x, i) => (until == null || x <= until ? i : -1))
+          .map((x, i) =>
+            (from == null || x >= from) && (until == null || x <= until)
+              ? i
+              : -1,
+          )
           .filter((i) => i >= 0);
         return [
           k,
@@ -4889,35 +5057,43 @@
         '<div class="chart-empty">Nessun dato in questo punto.</div>';
       return;
     }
-    const x0 = Math.min(0, steps[0]),
+    const x0 = from > 0 ? from : Math.min(0, steps[0]),
       x1 = steps[steps.length - 1];
     const X = (h) => L + ((h - x0) / (x1 - x0 || 1)) * pw;
     const fmt = (x, d) => (x == null ? "—" : x.toFixed(d).replace("-", "−"));
     // barre per intervallo dalle cumulate (pioggia, neve)
+    const rawRain = series.vars.tp;
+    const rainBaseIndex = rawRain?.steps.indexOf(from) ?? -1;
+    const rainBase = from > 0 ? rawRain?.values[rainBaseIndex] : 0;
     const intervals = (v) =>
       v.steps.map((b, i) => {
-        const a = i ? v.steps[i - 1] : 0;
+        const a = i ? v.steps[i - 1] : from > 0 ? from : 0;
         const cur = v.values[i],
           prev = i ? v.values[i - 1] : 0;
         return {
           a,
           b,
-          y: cur == null || prev == null ? null : Math.max(0, cur - prev),
-          cum: cur,
+          y:
+            (!i && from > 0) || cur == null || prev == null
+              ? null
+              : Math.max(0, cur - prev),
+          cum:
+            cur == null || rainBase == null
+              ? null
+              : Math.max(0, cur - rainBase),
         };
       });
     const points = (v) => v.steps.map((x, i) => ({ x, y: v.values[i] }));
-    const last = (v) => [...v.values].reverse().find((x) => x != null);
     /** Pioggia: barre sempre al passo del modello (3 ore, 6 dopo +144h), per vedere quando piove; sopra, la curva
-     *  dell'accumulo dall'inizio della corsa (scala a destra). Con una cumulata scelta sulla mappa (es. 24h) il tooltip
-     *  dice anche quanto vale quella cumulata a quell'ora: lo stesso numero della mappa. */
+     *  dell'accumulo dall'inizio del periodo mostrato (scala a destra). Il tooltip dice anche quanto vale, a ogni ora,
+     *  una finestra della stessa durata scelta sulla mappa. */
     const rainHours =
       variable()?.modes?.includes("interval") && state.mode === "interval"
-        ? state.hours
+        ? intervalHours()
         : null;
     const panels = [];
     if (V.tp) {
-      const at = new Map(V.tp.steps.map((x, i) => [x, V.tp.values[i]]));
+      const at = new Map(rawRain.steps.map((x, i) => [x, rawRain.values[i]]));
       const data = intervals(V.tp).map((d) => {
         if (!rainHours || d.b - d.a >= rainHours || d.cum == null) return d;
         const a = V.tp.steps.filter((x) => x <= d.b - rainHours).pop() ?? 0; // come intervalPrev nella mappa
@@ -4936,8 +5112,9 @@
         data,
         dec: 1,
         min: 1,
-        cum: points(V.tp),
-        note: `totale ${fmt(last(V.tp), 1)} mm · linea: accumulo`,
+        cum: data.map((d) => ({ x: d.b, y: d.cum })),
+        cumLabel: from > 0 ? "periodo" : "tot",
+        note: `${from > 0 ? "periodo" : "totale"} ${fmt([...data].reverse().find((d) => d.cum != null)?.cum, 1)} mm · linea: accumulo`,
         tip: (d) => `Pioggia +${d.b - d.a}h`,
       });
     }
@@ -4996,7 +5173,8 @@
           : p.kind === "bar" && d.cum != null
             ? (d.win != null
                 ? ` · in ${d.winH}h ${b(fmt(d.win, p.dec))} ${p.unit}`
-                : "") + ` · tot ${b(fmt(d.cum, p.dec))} ${p.unit}`
+                : "") +
+              ` · ${p.cumLabel || "tot"} ${b(fmt(d.cum, p.dec))} ${p.unit}`
             : ""; // cumulata della mappa (se scelta) e totale dall'inizio
       return `${b(fmt(d.y, p.dec))} ${p.unit}${span && p.kind === "bar" ? ` in ${d.b - d.a}h` : ""}${extra}`;
     };
@@ -5427,12 +5605,25 @@
   });
 
   // ---------- eventi
+  function setStepKeepingInterval(step) {
+    if (state.mode === "interval") {
+      const values = intervalSteps();
+      const oldFrom = values.indexOf(intervalPrev());
+      const oldTo = values.indexOf(state.step);
+      const newTo = values.indexOf(step);
+      const width = Math.max(1, oldTo - oldFrom);
+      state.startStep = values[Math.max(0, newTo - width)];
+      state.hours = step - state.startStep;
+    }
+    state.step = step;
+  }
+
   function goStep(delta) {
     const s = steps();
     let i = s.indexOf(state.step) + delta;
     if (i < 0) i = s.length - 1;
     if (i >= s.length) i = 0;
-    state.step = s[i];
+    setStepKeepingInterval(s[i]);
     ui.step.value = i;
     update();
   }
@@ -5464,7 +5655,7 @@
           i = (i + 1) % s.length;
           if (avail.has(s[i])) break;
         }
-        state.step = s[i];
+        setStepKeepingInterval(s[i]);
         ui.step.value = i;
         update();
       }, 650);
@@ -5510,7 +5701,7 @@
       0,
       s.findIndex((x) => avail.has(x)),
     );
-    state.step = s[i];
+    setStepKeepingInterval(s[i]);
     ui.step.value = i;
     update();
   });
@@ -5652,7 +5843,8 @@
     setPanelCollapsed(!ui.panel.classList.contains("collapsed")),
   );
   document.addEventListener("keydown", (e) => {
-    if (e.target.closest("select, input:not([type=range])")) return;
+    if (e.target.closest("button, select, input, textarea, [role=slider]"))
+      return;
     if (e.key === "ArrowLeft") {
       e.preventDefault();
       goStep(-1);

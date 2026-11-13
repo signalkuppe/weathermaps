@@ -896,18 +896,8 @@ input[type="range"] {
       translate 200ms ease,
       visibility 0s;
   }
-  body:not(.radar-mode):has(#panel:not(.collapsed)) .badge {
-    opacity: 0;
-    translate: 0 -8px;
-    visibility: hidden;
-    transition:
-      opacity 200ms ease,
-      translate 200ms ease,
-      visibility 0s 200ms;
-  }
   @media (prefers-reduced-motion: reduce) {
-    .badge,
-    body:not(.radar-mode):has(#panel:not(.collapsed)) .badge {
+    .badge {
       transition: none;
     }
   }
@@ -1046,15 +1036,103 @@ input[type="range"] {
   outline-offset: 2px;
   border-radius: 4px;
 }
+
+/* Intervallo temporale: il componente usa due input accessibili e due maniglie visibili. */
+.interval-step {
+  display: none;
+  position: relative;
+  width: 100%;
+  height: 32px;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+body.range-mode .stepper .single-step {
+  display: none;
+}
+body.range-mode .stepper .interval-step {
+  display: block;
+}
+.interval-step::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 0;
+  left: 0;
+  height: 6px;
+  translate: 0 -50%;
+  border-radius: 3px;
+  background: var(--line);
+}
+.interval-step .range-slider__range {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  height: 6px;
+  translate: 0 -50%;
+  border-radius: 3px;
+  background: var(--accent);
+}
+.interval-step .range-slider__thumb {
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  transform: translate(-50%, -50%);
+  box-sizing: border-box;
+  border: 3px solid var(--accent);
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  transition: transform 0.12s;
+}
+.interval-step .range-slider__thumb[data-active] {
+  transform: translate(-50%, -50%) scale(1.12);
+}
+.interval-step .range-slider__thumb:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.interval-step input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  background: transparent;
+}
+.interval-step input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+}
+.interval-step input[type="range"]::-moz-range-thumb {
+  width: 0;
+  height: 0;
+  border: 0;
+}
+.interval-step input[type="range"]:focus {
+  outline: 0;
+}
 @media (pointer: coarse) {
   /* col dito: area da toccare alta 44 px e pallino più grande */
-  .wm-range {
+  .wm-range,
+  .interval-step {
     height: 44px;
   }
   .wm-range::-webkit-slider-thumb {
     width: 26px;
     height: 26px;
     margin-top: -10px;
+  }
+  .interval-step .range-slider__thumb {
+    width: 26px;
+    height: 26px;
   }
 }
 .icon-btn {
@@ -1314,6 +1392,57 @@ body.radar-mode .badge-radar .badge-btn:hover {
 .credits-data a {
   color: inherit;
   text-decoration: underline;
+}
+.privacy-open {
+  margin: 10px 0 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 11px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.privacy-head {
+  width: min(100%, 760px);
+  margin: 0 auto;
+}
+.privacy-head h2 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.2;
+}
+.privacy-body {
+  width: min(100%, 760px);
+  margin: 0 auto;
+  padding: 8px 0 40px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.privacy-body section + section {
+  margin-top: 24px;
+}
+.privacy-body h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.privacy-body p,
+.privacy-body ul {
+  margin: 0 0 12px;
+}
+.privacy-body ul {
+  padding-left: 20px;
+}
+.privacy-body li + li {
+  margin-top: 5px;
+}
+.privacy-body a {
+  color: var(--accent);
+}
+.privacy-updated {
+  color: var(--muted);
+  font-size: 12px;
 }
 .attrib .leaflet-attribution-flag {
   display: inline !important;
@@ -1875,6 +2004,10 @@ body.radar-mode .badge-radar .badge-btn:hover {
       margin 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
       opacity 0.2s ease,
       transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  body.range-mode .badge .single-step,
+  body:not(.range-mode) .badge .interval-step {
+    display: none;
   }
   /* col pannello aperto c'è già il suo slider: in basso solo a pannello chiuso. Compare e scompare scorrendo, con la
      barra che si allunga e si accorcia insieme */
