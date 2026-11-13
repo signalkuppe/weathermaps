@@ -224,7 +224,6 @@
               />
               <div id="interval-step" class="interval-step"></div>
             </div>
-            <time id="updated-at" class="updated-at" hidden></time>
           </div>
         </details>
         <!-- combinazione modello/grandezza/ora senza dati (la mappa intanto è in grigio) -->
@@ -257,10 +256,6 @@
               Modifica
             </button>
           </div>
-          <p id="places-empty" class="places-empty">
-            Nessuna località: cercane una per vedere qui il valore previsto e la
-            classifica.
-          </p>
           <ol id="points" class="points"></ol>
         </details>
         <details id="settings" class="points-box settings">
@@ -341,6 +336,16 @@
             Informativa privacy
           </button>
         </details>
+        <!-- ultimo elemento del pannello: quando sono stati aggiornati i dati; l'orologio (Lucide "clock", ISC) sta
+             nella colonna dei triangoli delle sezioni -->
+        <p id="updated-row" class="updated-row" hidden>
+          <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M12 6v6l4 2" />
+          </svg>
+          <time id="updated-at" class="updated-at"></time>
+        </p>
       </div>
     </aside>
 

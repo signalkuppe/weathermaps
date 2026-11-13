@@ -48,7 +48,6 @@
     placeQ: $("place-q"),
     placeResults: $("place-results"),
     placesEdit: $("places-edit"),
-    placesEmpty: $("places-empty"),
     modelInfo: $("model-info"),
     modelInfoBtn: $("model-info-btn"),
     privacyOpen: $("privacy-open"),
@@ -93,6 +92,7 @@
   let currentContour = null; // campo delle linee nelle voci combinate (es. zero termico sopra la pioggia)
   let currentArrows = null; // componenti del vento nelle voci combinate con le frecce (es. vento 700 hPa sopra la pioggia)
   let overlay = null;
+  let menuLL = null; // punto del menu della mappa aperto (clic destro o pressione prolungata), vedi openMapMenu
   let probeLL = null; // punto toccato su mobile: il tooltip del valore resta lì (vedi "tooltip puntuale")
   let playTimer = null;
   let playbackSelection = null;
@@ -523,6 +523,7 @@
     m.keyboard.disableRotation();
     m.on("movestart", () => {
       if (syncing) return;
+      closeMapMenu();
       view = {
         center: map.getCenter(),
         zoom: map.getZoom(),
@@ -571,7 +572,7 @@
       });
       syncing = false;
     });
-    for (const type of ["click", "mousemove", "mouseout"]) {
+    for (const type of ["click", "mousemove", "mouseout", "contextmenu"]) {
       m.on(type, (event) => {
         if (view) return;
         const latlng = L.latLng(event.lngLat.lat, event.lngLat.lng);
@@ -783,7 +784,33 @@
       hour: "2-digit",
       minute: "2-digit",
     });
-  const hexToRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const fmtDay = (d, month = true) =>
+    d.toLocaleDateString("it-IT", {
+      timeZone: "Europe/Rome",
+      weekday: "short",
+      day: "2-digit",
+      ...(month ? { month: "short" } : {}),
+    });
+  const fmtHour = (d) =>
+    d.toLocaleTimeString("it-IT", { timeZone: "Europe/Rome", hour: "2-digit", minute: "2-digit" });
+  /** Intervallo fra due istanti, con il giorno scritto una volta sola se è lo stesso:
+   *  "ven 13 nov, 06:00 → 18:00" oppure "gio 12, 18:00 → ven 13 nov, 06:00" (il mese all'inizio solo se cambia). */
+  function fmtSpan(a, b, { month = true } = {}) {
+    if (fmtDay(a) === fmtDay(b))
+      return `${fmtDay(b, month)}, ${fmtHour(a)} → ${fmtHour(b)}`;
+    const startMonth = month && fmtDay(a).split(" ").pop() !== fmtDay(b).split(" ").pop();
+    return `${fmtDay(a, startMonth)}, ${fmtHour(a)} → ${fmtDay(b, month)}, ${fmtHour(b)}`;
+  }
+  const stepDate = (step) => new Date(runDate(state.run).getTime() + step * 3600e3);
+  // inizio dell'accumulo mostrato, solo per gli intervalli scelti (non per il totale dalla corsa)
+  const intervalStartDate = (s = state.step) =>
+    state.run && state.mode === "interval" && intervalPrev(s) > 0 ? stepDate(intervalPrev(s)) : null;
+  // istante mostrato, o l'intervallo se ne è scelto uno: per pannello, popup e immagine condivisa
+  const fmtShown = (s = state.step, opts) => {
+    const start = intervalStartDate(s);
+    return start ? fmtSpan(start, stepDate(s), opts) : fmtLocal(stepDate(s));
+  };
+  const hexToRgb = (h) =>[1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
   const variable = () => meta.variables.find((v) => v.id === state.var);
   const rangeMode = () =>
     variable()?.modes.includes("total") &&
@@ -2913,7 +2940,12 @@
     const s = state.step;
     const run = runDate(state.run || "1970010100");
     const valid = new Date(run.getTime() + s * 3600e3);
-    ui.valid.textContent = state.run ? `${fmtLocal(valid)} · +${s}h` : "";
+    // pannello e barra desktop: con un intervallo solo le date, senza mese per stare in una riga; altrimenti
+    // istante e passo ("ven 13 nov, 18:00 · +18h")
+    const span = state.run && intervalStartDate(s);
+    const panelTime = span ? fmtShown(s, { month: false }) : `${fmtShown(s)} · +${s}h`;
+    ui.valid.classList.toggle("valid-span", !!span);
+    ui.valid.textContent = state.run ? panelTime : "";
     if (!state.run) {
       ui.range.textContent = "";
       // anche nella barra (su mobile il pannello di solito è chiuso): grandezza non fornita o dati non ancora arrivati
@@ -2934,21 +2966,21 @@
     const rangeLabel = rangeStart === 0
       ? `+${rangeEnd} ore`
       : `Da +${rangeStart}h a +${rangeEnd}h · ${rangeEnd - rangeStart}h`;
-    const rangeText = rangeMode()
-      ? `<span class="badge-range badge-d">${rangeLabel}</span>`
-      : "";
-    const mobileTime = fmtLocal(valid);
+    // con un intervallo anche l'ora d'inizio; su mobile senza mese per stare in una riga
+    const mobileTime = fmtShown(s, { month: false });
+    // con l'inizio già scritto nelle date basta la durata, così la riga resta una sola
     const mobileRangeLabel = rangeStart === 0
       ? rangeLabel
-      : `+${rangeStart}&ndash;${rangeEnd}h · ${rangeEnd - rangeStart}h`;
+      : intervalStartDate(s)
+        ? `${intervalHours(s)}h`
+        : `+${rangeStart}&ndash;${rangeEnd}h · ${rangeEnd - rangeStart}h`;
     const mobileRange = rangeMode()
       ? `<span class="badge-m-range">${mobileRangeLabel}</span>`
       : "";
-    const stepText = rangeMode() && rangeStart === 0 ? "" : `+${s}h · `;
     // desktop: modello, corsa e istante; mobile (badge-m): prima l'istante, poi modello breve e corsa
     ui.badgeText.innerHTML =
       `<b class="badge-d">${modelLabel()}</b><span class="badge-run badge-d">${runText}</span>` +
-      `<span class="badge-valid badge-d">${stepText}${fmtLocal(valid)}${rangeText}</span>` +
+      `<span class="badge-valid badge-d">${panelTime}</span>` +
       `<span class="badge-m badge-m-time"><b>${mobileTime}</b>${mobileRange}</span>` +
       `<span class="badge-m badge-m-model">${shortLabel(state.model)} ${cycle(state.run)}</span>`;
     const mStep = $("m-step"); // slider della barra su mobile, allineato a quello del pannello
@@ -2956,13 +2988,9 @@
     mStep.value = steps().indexOf(s);
     for (const r of [mStep, ui.step])
       r.style.setProperty("--pct", `${(100 * +r.value) / (+r.max || 1)}%`); // parte percorsa
-    const prev = intervalPrev(s);
-    const utc = `${fmtUTC(valid)} UTC`;
-    if (state.mode === "interval")
-      ui.range.textContent = `${utc} · accumulo da +${prev}h a +${s}h`;
-    else if (state.mode === "total")
-      ui.range.textContent = `${utc} · accumulo da +0h a +${s}h`;
-    else ui.range.textContent = utc;
+    // cumulate (intervallo o totale): date nella riga sopra, passi e durata nella barra in basso e in legenda;
+    // l'ora UTC resta solo per le grandezze istantanee
+    ui.range.textContent = state.mode === "interval" || state.mode === "total" ? "" : `${fmtUTC(valid)} UTC`;
   }
 
   let seq = 0;
@@ -3190,7 +3218,6 @@
       ui.points.append(li);
       pointRows.push(li);
     });
-    ui.placesEmpty.hidden = places.length > 0;
     ui.placesEdit.hidden = !places.length;
     ui.placesEdit.textContent = editing ? "Fine" : "Modifica";
     ui.placesEdit.setAttribute("aria-pressed", String(editing));
@@ -3207,14 +3234,16 @@
     setupPoints();
   });
 
-  function addPlace(name, lat, lon) {
+  /** false se c'è già una località lì (dalla ricerca). custom: punto scelto sulla mappa, sempre aggiunto. */
+  function addPlace(name, lat, lon, custom = false) {
     if (
+      !custom &&
       places.some(
         (p) => Math.abs(p.lat - lat) < 0.005 && Math.abs(p.lon - lon) < 0.005,
       )
     ) {
       toast(`${name} è già fra le località.`);
-      return;
+      return false;
     }
     places.push({
       id: Date.now().toString(36),
@@ -3224,6 +3253,7 @@
     });
     savePlaces();
     setupPoints();
+    return true;
   }
 
   // ricerca: Open-Meteo (GeoNames) e, di riserva, Photon (OpenStreetMap), limitata all'area della mappa e a località
@@ -3592,7 +3622,7 @@
     }
     const foot =
       state.run && state.step != null
-        ? fmtLocal(new Date(runDate(state.run).getTime() + state.step * 3600e3))
+        ? fmtShown()
         : "";
     pop.innerHTML =
       `<div class="pt-pop-head"><strong>${esc(p.name)}</strong>` +
@@ -3992,7 +4022,7 @@
     return {
       v,
       title: `${modelLabel()} · ${runText}`,
-      sub: `${baseLabel()}${modeText} (${v.units})${isoNote()} · +${s}h · ${fmtLocal(valid)}`,
+      sub: `${baseLabel()}${modeText} (${v.units})${isoNote()} · +${s}h · ${fmtShown(s)}`,
       // l'attribuzione di OpenStreetMap è obbligatoria anche sulle immagini
       attr: `${baseAttr} · Dati: NOAA, ECMWF, ItaliaMeteo, CIMA, LaMMA, DWD, Météo-France, MeteoSvizzera · ${location.host}${location.pathname}`,
       name: `weathermaps-${state.model}-${state.var}-${state.run}-${String(s).padStart(3, "0")}.jpg`,
@@ -4097,7 +4127,8 @@
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     // con radar e satellite le località hanno il nome al posto del valore (come sulla mappa)
-    for (const p of shareUi.points.checked ? snap.points : []) {
+    // condividendo un punto dal menu della mappa si vede solo quello, mai le località
+    for (const p of shareUi.points.checked && !snap.pin ? snap.points : []) {
       const px = (p.x - crop.x) * s;
       const py = (p.y - crop.y) * s;
       if (px < -40 || px > OW + 40 || py < -40 || py > OH + 40) continue;
@@ -4156,6 +4187,52 @@
       ctx.fillStyle = p.fg;
       ctx.font = `700 ${12 * k}px ${FONT}`;
       ctx.fillText(p.num, px, py + 1);
+    }
+
+    // punto scelto dal menu della mappa: segnaposto e, sopra, il valore (fuori dal riquadro non si disegna)
+    if (snap.pin) {
+      const k = PT_SCALE,
+        px = (snap.pin.x - crop.x) * s,
+        py = (snap.pin.y - crop.y) * s;
+      if (px >= 0 && px <= OW && py >= 0 && py <= OH) {
+        const accent =
+          getComputedStyle(document.documentElement)
+            .getPropertyValue("--accent")
+            .trim() || "#2f7fd8";
+        if (crop.pinText) {
+          ctx.font = `650 ${10.5 * k}px ${FONT}`;
+          const bw = ctx.measureText(crop.pinText).width + 14 * k,
+            bh = 21 * k,
+            t = 5 * k;
+          const bx = Math.min(Math.max(px - bw / 2, 6), OW - bw - 6);
+          const below = py - 12 * k - t - bh < 6; // troppo in alto: l'etichetta va sotto
+          const by = below ? py + 12 * k + t : py - 12 * k - t - bh;
+          ctx.fillStyle = "rgba(0,0,0,0.25)";
+          roundRect(ctx, bx, by + 2, bw, bh, 5 * k);
+          ctx.fill();
+          ctx.fillStyle = "#1d2330";
+          roundRect(ctx, bx, by, bw, bh, 5 * k);
+          ctx.fill();
+          ctx.beginPath();
+          const ty = below ? by : by + bh;
+          ctx.moveTo(px - t, ty);
+          ctx.lineTo(px, below ? ty - t : ty + t);
+          ctx.lineTo(px + t, ty);
+          ctx.closePath();
+          ctx.fill();
+          ctx.fillStyle = "#fff";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(crop.pinText, bx + bw / 2, by + bh / 2 + 1);
+        }
+        ctx.beginPath();
+        ctx.arc(px, py, 7 * k, 0, Math.PI * 2);
+        ctx.fillStyle = accent;
+        ctx.fill();
+        ctx.lineWidth = 3 * k;
+        ctx.strokeStyle = "#fff";
+        ctx.stroke();
+      }
     }
 
     // intestazione in alto a sinistra: bandiera, modello e corsa, grandezza e istante
@@ -4417,6 +4494,8 @@
     glShot = glBase ? await glCapture() : null;
     crop.snap = snapshotMap();
     glShot = null;
+    // punto scelto dal menu della mappa: posizione nella foto (cambia se la foto si allarga, vedi widenShare)
+    crop.snap.pin = crop.pinLL ? map.latLngToContainerPoint(crop.pinLL) : null;
   }
   /** Zoom indietro sotto il riquadro: la mappa si allontana di un livello attorno al centro del riquadro, si rifà la
    *  foto e il riquadro copre la stessa zona di prima (poi `factor` più largo). */
@@ -4443,7 +4522,7 @@
       crop.x = p.x - crop.w / 2;
       crop.y = p.y - cropH() / 2;
       clampCrop();
-      shareUi.pointsRow.hidden = !crop.snap.points.length;
+      shareUi.pointsRow.hidden = !crop.snap.points.length || !!crop.pinLL;
       layoutView();
       scheduleRender();
     } finally {
@@ -4456,7 +4535,10 @@
     }
   }
 
-  async function openShare() {
+  /** pin: { latlng, text } dal menu della mappa: segnaposto ed etichetta del valore nell'immagine */
+  async function openShare(pin = null) {
+    crop.pinLL = pin?.latlng || null;
+    crop.pinText = pin?.text || "";
     crop.flag = null;
     const model = state.model;
     loadFlag(model).then((img) => {
@@ -4473,12 +4555,12 @@
     // all'apertura il riquadro più grande che sta nella mappa, al centro (la proporzione resta l'ultima scelta)
     [outCanvas.width, outCanvas.height] = RATIOS[crop.ratio];
     crop.w = maxCropW();
-    const c = { x: crop.snap.W / 2, y: crop.snap.H / 2 };
+    const c = crop.snap.pin || { x: crop.snap.W / 2, y: crop.snap.H / 2 };
     crop.x = c.x - crop.w / 2;
     crop.y = c.y - cropH() / 2;
     clampCrop();
     crop.touched = false;
-    shareUi.pointsRow.hidden = !crop.snap.points.length;
+    shareUi.pointsRow.hidden = !crop.snap.points.length || !!crop.pinLL;
     // località: con le mappe dei modelli accese (valori), con radar e satellite spente (si accendono dall'interruttore)
     shareUi.points.checked = state.extra === "none";
     shareUi.dialog.showModal();
@@ -4617,6 +4699,8 @@
   }
 
   shareUi.btn.addEventListener("click", async () => {
+    const pin = shareUi.btn.pin; // punto dal menu della mappa (vedi openMapMenu), solo per questo clic
+    shareUi.btn.pin = null;
     if (!current) {
       toast("Niente da condividere: scegli un istante con dati.");
       return;
@@ -4625,7 +4709,7 @@
     setLoading(true);
     try {
       // modale con ritaglio: il clic su "Condividi" è un gesto nuovo, valido per la condivisione nativa
-      await openShare();
+      await openShare(pin);
     } catch (e) {
       toast(`Impossibile creare l'immagine: ${e.message}`);
     } finally {
@@ -4804,8 +4888,15 @@
     const request = { ...chartContext, model, run };
     chartContext = request;
     writeChartHash();
+    // periodo in date, come nella barra della mappa (i passi si riferiscono alla corsa scelta qui)
+    const at = (step) => new Date(runDate(run).getTime() + step * 3600e3);
+    const period = !run
+      ? ""
+      : request.from > 0
+        ? fmtSpan(at(request.from), at(request.until), { month: false })
+        : `fino a ${fmtLocal(at(request.until))}`;
     chartUi.details.textContent = run
-      ? `${model === "mean" ? "" : "corsa "}${cycle(run)} ${fmtRunDay(run)} · ${request.from > 0 ? `da +${request.from}h a` : "fino a"} +${request.until}h`
+      ? `${cycle(run)} · ${period}`
       : "Nessuna corsa disponibile";
     chartUi.body.innerHTML = '<div class="chart-empty">Caricamento…</div>';
     chartData = null;
@@ -5487,32 +5578,76 @@
       panels
         .map((p) => {
           const d = valueAt(p, st);
-          return d
-            ? `<div>${p.tip(d)} ${valueText(p, d, (x) => `<b>${x}</b>`, false)}</div>`
-            : "";
+          if (!d) return "";
+          // pioggia: solo l'accumulo dall'inizio (totale, o del periodo scelto sulla mappa)
+          if (p.kind === "bar")
+            return d.cum == null
+              ? ""
+              : `<div>Pioggia ${p.cumLabel === "periodo" ? "nel periodo" : "totale"} <b>${fmt(d.cum, p.dec)}</b> ${p.unit}</div>`;
+          return `<div>${p.tip(d)} ${valueText(p, d, (x) => `<b>${x}</b>`, false)}</div>`;
         })
         .join("");
-    const showAt = (st, clientX, clientY) => {
+    const touchUi = !hoverMq.matches; // telefono e tablet: niente barra in fondo, valori nel tooltip
+    // above: col dito il tooltip sta sopra il punto toccato, altrimenti il dito lo copre
+    // pinned: scheda dell'ora fissata (chiara, con le azioni) al posto del tooltip scuro di lettura
+    const showAt = (st, clientX, clientY, above = false, pinned = false) => {
       cursor.setAttribute("x1", X(st));
       cursor.setAttribute("x2", X(st));
-      cursor.setAttribute("visibility", "visible");
-      tip.innerHTML = timeHtml(st) + rowsHtml(st);
+      cursor.setAttribute("visibility", pinned ? "hidden" : "visible");
+      tip.classList.toggle("pinned", pinned);
+      tip.innerHTML =
+        timeHtml(st) +
+        rowsHtml(st) +
+        (pinned
+          ? `<div class="chart-tip-actions"><button type="button" data-act="share">Condividi</button>` +
+            `<button type="button" data-act="download">Scarica</button>` +
+            `<button type="button" data-act="remove" aria-label="Togli l'ora fissata">✕</button></div>`
+          : "");
       tip.hidden = false;
       const br = chartUi.body.getBoundingClientRect();
       const cx = clientX - br.left,
-        w = tip.offsetWidth;
-      tip.style.left = `${Math.min(Math.max(cx + 14 + w > br.width ? cx - 14 - w : cx + 14, 4), br.width - w - 4)}px`;
-      tip.style.top = `${Math.max(4, clientY - br.top + chartUi.body.scrollTop - 20)}px`;
+        w = tip.offsetWidth,
+        h = tip.offsetHeight;
+      tip.style.left = above
+        ? `${Math.min(Math.max(cx - w / 2, 4), br.width - w - 4)}px`
+        : `${Math.min(Math.max(cx + 14 + w > br.width ? cx - 14 - w : cx + 14, 4), br.width - w - 4)}px`;
+      const y = clientY - br.top + chartUi.body.scrollTop;
+      tip.style.top = above
+        ? `${Math.max(chartUi.body.scrollTop + 4, y - h - 48)}px`
+        : `${Math.max(4, y - 20)}px`;
     };
     const hide = () => {
       tip.hidden = true;
       cursor.setAttribute("visibility", "hidden");
     };
+    // ora fissata col dito: il tooltip resta sulla sua linea, in alto nella parte visibile
+    const showPinTip = () => {
+      const r = svgEl.getBoundingClientRect();
+      showAt(
+        chartPin,
+        r.left + (X(chartPin) / W) * r.width,
+        chartUi.body.getBoundingClientRect().top + 4,
+        false,
+        true,
+      );
+    };
+    const unpin = () => {
+      chartPin = null;
+      renderPin();
+      hide();
+    };
+    // azioni della scheda: stessa immagine dei pulsanti in alto, con l'ora fissata
+    tip.addEventListener("click", (ev) => {
+      const btn = ev.target.closest("button[data-act]");
+      if (!btn) return;
+      if (btn.dataset.act === "remove") unpin();
+      else chartImage(btn, btn.dataset.act === "share");
+    });
     const readout = $("chart-readout");
     const renderPin = () => {
       const on = chartPin != null && steps.includes(chartPin);
       pinLine.setAttribute("visibility", on ? "visible" : "hidden");
-      readout.hidden = !on;
+      readout.hidden = !on || touchUi;
       pinDots.innerHTML = "";
       if (!on) return;
       pinLine.setAttribute("x1", X(chartPin));
@@ -5529,11 +5664,36 @@
         timeHtml(chartPin) + rowsHtml(chartPin);
     };
     const hit = svgEl.querySelector("#ch-hit");
-    // mouse: passandoci sopra si leggono i valori. Clic o tocco fissa l'ora (un altro sulla stessa la toglie);
-    // trascinando in orizzontale (dito o mouse premuto) l'ora fissata segue il puntatore; in verticale si scorre
+    // mouse: passandoci sopra si leggono i valori. Clic fissa l'ora (un altro sulla stessa la toglie); trascinando col
+    // tasto premuto l'ora fissata segue il puntatore.
+    // dito: scorrendo in orizzontale si leggono i valori (in verticale si scorre la pagina); pressione prolungata fissa
+    // l'ora per l'immagine da condividere; un tocco breve toglie l'ora fissata o mostra i valori lì
+    const PRESS_MS = 450,
+      SLOP = 8;
     let drag = null;
     hit.addEventListener("pointermove", (ev) => {
       const st = stepAt(ev.clientX);
+      if (drag?.touch) {
+        if (!drag.moved && Math.abs(ev.clientX - drag.x0) <= SLOP) return;
+        drag.moved = true;
+        clearTimeout(drag.timer);
+        if (drag.pinning) {
+          // dopo la pressione prolungata il dito sposta l'ora fissata
+          if (st !== chartPin) {
+            chartPin = st;
+            renderPin();
+            showPinTip();
+          }
+        } else {
+          // tornando a trascinare l'ora fissata si toglie: si torna a leggere i valori
+          if (chartPin != null) {
+            chartPin = null;
+            renderPin();
+          }
+          showAt(st, ev.clientX, ev.clientY, true);
+        }
+        return;
+      }
       if (drag) {
         if (st !== chartPin) {
           drag.moved = true;
@@ -5549,6 +5709,17 @@
     });
     hit.addEventListener("pointerdown", (ev) => {
       const st = stepAt(ev.clientX);
+      if (ev.pointerType !== "mouse" && touchUi) {
+        drag = { touch: true, x0: ev.clientX, moved: false, pinning: false };
+        drag.timer = setTimeout(() => {
+          drag.pinning = true;
+          chartPin = st;
+          renderPin();
+          showPinTip();
+          navigator.vibrate?.(10);
+        }, PRESS_MS);
+        return;
+      }
       drag = { wasPinned: chartPin === st, moved: false };
       hit.setPointerCapture?.(ev.pointerId);
       if (!drag.wasPinned) {
@@ -5559,6 +5730,16 @@
     });
     const endDrag = (ev) => {
       if (!drag) return;
+      if (drag.touch) {
+        clearTimeout(drag.timer);
+        const tap = ev.type === "pointerup" && !drag.moved && !drag.pinning;
+        if (tap && chartPin != null) unpin(); // tocco breve con un'ora fissata: la toglie
+        else if (tap) showAt(stepAt(ev.clientX), ev.clientX, ev.clientY, true);
+        else if (chartPin != null) showPinTip();
+        else if (ev.type === "pointercancel") hide(); // il browser ha preso lo scorrimento verticale
+        drag = null;
+        return;
+      }
       if (ev.type === "pointerup" && drag.wasPinned && !drag.moved) {
         chartPin = null;
         renderPin();
@@ -5567,8 +5748,12 @@
     };
     hit.addEventListener("pointerup", endDrag);
     hit.addEventListener("pointercancel", endDrag); // il browser ha preso il gesto (scorrimento verticale)
-    hit.addEventListener("pointerleave", () => {
-      if (!drag) hide();
+    hit.addEventListener("pointerleave", (ev) => {
+      if (!drag && ev.pointerType === "mouse") hide(); // col dito arriva dopo ogni tocco: il tooltip resta
+    });
+    // niente menu o selezione del browser alla pressione prolungata
+    hit.addEventListener("contextmenu", (ev) => {
+      if (touchUi) ev.preventDefault();
     });
     clearChartPin = () => {
       chartPin = null;
@@ -5576,6 +5761,7 @@
       hide();
     };
     renderPin(); // ridisegno (finestra ridimensionata): l'ora fissata resta
+    if (touchUi && chartPin != null && steps.includes(chartPin)) showPinTip();
   }
 
   // ---------- tooltip puntuale (griglia nativa, nearest neighbour)
@@ -5608,6 +5794,7 @@
     // sopra una località (o col suo riquadro aperto lì) basta il riquadro nero: un solo tooltip alla volta
     if (
       !current ||
+      menuLL ||
       state.extra !== "none" ||
       popIdx != null ||
       e.originalEvent?.target?.closest?.(".pt, .pt-pop")
@@ -5687,6 +5874,264 @@
   }
   map.on("mouseout", () => {
     ui.probe.hidden = true;
+  });
+
+  // ---------- menu di un punto della mappa: clic destro (desktop) o pressione prolungata (tocco).
+  // Intestazione col valore nel punto e le coordinate; Condividi (immagine col segnaposto e il valore),
+  // Aggiungi alle località (nome precompilato con le coordinate, modificabile subito), Grafico nel tempo.
+  const mapMenu = document.createElement("div");
+  mapMenu.className = "map-menu";
+  mapMenu.hidden = true;
+  mapMenu.setAttribute("role", "menu");
+  const mapMenuPin = document.createElement("div");
+  mapMenuPin.className = "map-menu-pin";
+  mapMenuPin.hidden = true;
+  document.body.append(mapMenuPin, mapMenu);
+  let menuOpenedAt = 0;
+  const coordText = (ll) => `${ll.lat.toFixed(3)}, ${ll.lng.toFixed(3)}`;
+  /** Tutti i valori della mappa nel punto, come il tooltip, in testo semplice: colori, linee, frecce del vento e
+   *  grandezze in più ("12.4 mm · vento 10 m 25 km/h da SO"); "" senza dati. */
+  function pointValueText(ll) {
+    if (!current || state.extra !== "none") return "";
+    const v = valueAt(current, ll.lat, ll.lng);
+    if (v == null) return "";
+    let t = `${v.toFixed(variable().decimals)} ${current.units}`;
+    const d = current.u ? windDirAt(current, ll.lat, ll.lng) : null;
+    if (d) t += ` da ${d.name}`;
+    if (currentContour) {
+      const z = valueAt(currentContour, ll.lat, ll.lng);
+      if (z != null)
+        t += ` · ${contourName().toLowerCase()} ${Math.round(z)} ${currentContour.units}`;
+    }
+    if (currentArrows) {
+      const { lat0, lon0, dlat, dlon, nx, ny } = currentArrows.grid;
+      const ix = Math.round((ll.lng - lon0) / dlon),
+        iy = Math.round((ll.lat - lat0) / dlat);
+      if (ix >= 0 && iy >= 0 && ix < nx && iy < ny) {
+        const u = currentArrows.u[iy * nx + ix],
+          w = currentArrows.v[iy * nx + ix];
+        if (u != null && w != null) {
+          const d = windDirAt(currentArrows, ll.lat, ll.lng);
+          t += ` · ${lcFirst(variable().arrows.label)} ${Math.round(Math.hypot(u, w))} km/h${d ? ` da ${d.name}` : ""}`;
+        }
+      }
+    }
+    for (const x of extras()) {
+      const val = extraValue(x, ll.lat, ll.lng);
+      if (val) t += ` · ${SHORT[x.var] || x.label} ${val}`;
+    }
+    return t;
+  }
+  const escHtml = (t) =>
+    String(t).replace(
+      /[&<>"]/g,
+      (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
+    );
+  /** Pallino del menu fermo su un punto (anche a menu chiuso, per il caricamento dell'aggiunta). */
+  function showPinAt(ll) {
+    const cr = map.getContainer().getBoundingClientRect();
+    const p = map.latLngToContainerPoint(ll);
+    mapMenuPin.style.left = `${cr.left + p.x}px`;
+    mapMenuPin.style.top = `${cr.top + p.y}px`;
+    mapMenuPin.hidden = false;
+  }
+  function placeMapMenu() {
+    if (!menuLL) return;
+    const cr = map.getContainer().getBoundingClientRect();
+    const p = map.latLngToContainerPoint(menuLL);
+    const x = cr.left + p.x,
+      y = cr.top + p.y;
+    mapMenuPin.style.left = `${x}px`;
+    mapMenuPin.style.top = `${y}px`;
+    const w = mapMenu.offsetWidth,
+      h = mapMenu.offsetHeight;
+    // parte visibile della pagina: su mobile, con la tastiera aperta (campo del nome), è più bassa della finestra
+    const vv = window.visualViewport;
+    const vx = vv?.offsetLeft ?? 0,
+      vy = vv?.offsetTop ?? 0,
+      vw = vv?.width ?? innerWidth,
+      vh = vv?.height ?? innerHeight;
+    // in basso a destra del punto; se non ci sta a sinistra o sopra, sempre dentro la parte visibile
+    let left = x + 12,
+      top = y + 12;
+    if (left + w > vx + vw - 8) left = x - 12 - w;
+    if (top + h > vy + vh - 8) top = y - 12 - h;
+    mapMenu.style.left = `${Math.min(Math.max(left, vx + 8), Math.max(vx + 8, vx + vw - 8 - w))}px`;
+    mapMenu.style.top = `${Math.min(Math.max(top, vy + 8), Math.max(vy + 8, vy + vh - 8 - h))}px`;
+  }
+  // la tastiera si apre o si chiude (o iOS sposta la pagina): il menu resta sopra la tastiera
+  window.visualViewport?.addEventListener("resize", placeMapMenu);
+  window.visualViewport?.addEventListener("scroll", placeMapMenu);
+  function openMapMenu(ll) {
+    closePlacePop();
+    probeLL = null;
+    ui.probe.hidden = true;
+    menuLL = ll;
+    menuOpenedAt = Date.now();
+    const value = pointValueText(ll);
+    const full = places.length >= MAX_PLACES;
+    // titolo: le coordinate (con la X per chiudere); sotto, piccoli, i valori della mappa nel punto
+    mapMenu.innerHTML =
+      `<div class="map-menu-head">` +
+      `<span class="map-menu-title">${coordText(ll)}</span>` +
+      `<button type="button" class="map-menu-close" data-act="close" aria-label="Chiudi">✕</button>` +
+      (value ? `<span class="map-menu-value">${escHtml(value)}</span>` : "") +
+      `</div>` +
+      `<button type="button" role="menuitem" data-act="share">Condividi questo punto</button>` +
+      `<button type="button" role="menuitem" data-act="place"${full ? ` disabled title="Massimo ${MAX_PLACES} località"` : ""}>Aggiungi alle località</button>` +
+      `<button type="button" role="menuitem" data-act="chart">Grafico nel tempo</button>`;
+    mapMenu.hidden = false;
+    mapMenuPin.classList.remove("loading");
+    mapMenuPin.hidden = false;
+    document.body.classList.add("map-menu-open"); // cursore normale sulla mappa finché il menu è aperto
+    placeMapMenu();
+    mapMenu.querySelector("[role=menuitem]:not(:disabled)")?.focus({ preventScroll: true });
+  }
+  /** Località appena aggiunta dal menu: il suo segnaposto compare con un rimbalzo e un'onda (vedi .pt-num.pt-new). */
+  function popNewPlace() {
+    const num = pointMarkers.at(-1)?.getElement()?.querySelector(".pt-num");
+    if (!num) return;
+    num.classList.remove("pt-new");
+    void num.offsetWidth; // riparte l'animazione
+    num.classList.add("pt-new");
+    num.addEventListener("animationend", function done(e) {
+      if (e.pseudoElement !== "::after") return; // finisce l'onda, che dura più del rimbalzo
+      num.classList.remove("pt-new");
+      num.removeEventListener("animationend", done);
+    });
+  }
+  function closeMapMenu() {
+    if (!menuLL) return;
+    menuLL = null;
+    mapMenu.hidden = true;
+    mapMenuPin.hidden = true;
+    document.body.classList.remove("map-menu-open");
+  }
+  /** Aggiungi alle località: il menu diventa un campo col nome (le coordinate, già selezionate) e Aggiungi. */
+  function askPlaceName(ll) {
+    mapMenu.innerHTML =
+      `<form class="map-menu-form"><label for="map-menu-name">Nome della località</label>` +
+      `<input id="map-menu-name" type="text" maxlength="60" autocomplete="off" required>` +
+      `<div class="map-menu-row"><button type="button" data-act="cancel">Annulla</button>` +
+      `<button type="submit" class="primary">Aggiungi</button></div></form>`;
+    const input = mapMenu.querySelector("input");
+    input.value = coordText(ll);
+    placeMapMenu();
+    input.focus();
+    input.select();
+    // la finestra si chiude subito; il pallino resta sul punto in caricamento, poi lascia il posto al segnaposto
+    // nuovo (rimbalzo e onda, vedi popNewPlace). Punto scelto sulla mappa: aggiunto anche vicino a una località.
+    mapMenu.querySelector("form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const name = input.value.trim() || coordText(ll);
+      input.blur(); // su mobile chiude la tastiera
+      closeMapMenu();
+      showPinAt(ll);
+      mapMenuPin.classList.add("loading");
+      setTimeout(() => {
+        mapMenuPin.classList.remove("loading");
+        if (!menuLL) mapMenuPin.hidden = true; // nel frattempo può essersi aperto un altro menu
+        if (addPlace(name, ll.lat, ll.lng, true)) popNewPlace();
+      }, 450);
+    });
+  }
+  mapMenu.addEventListener("click", (e) => {
+    const act = e.target.closest("[data-act]")?.dataset.act;
+    if (!act || !menuLL) return;
+    const ll = menuLL;
+    if (act === "close") {
+      closeMapMenu();
+      return;
+    }
+    if (act === "place") {
+      askPlaceName(ll);
+      return;
+    }
+    const text = pointValueText(ll);
+    closeMapMenu();
+    if (act === "share") {
+      shareUi.btn.pin = { latlng: ll, text };
+      shareUi.btn.click();
+    } else if (act === "chart")
+      openChart({ name: coordText(ll), lat: +ll.lat.toFixed(4), lon: +ll.lng.toFixed(4) });
+  });
+  // desktop: clic destro (con Mapbox arriva inoltrato da connectMapbox); col tocco si usa la pressione prolungata qui
+  // sotto, così Android (che manda anche contextmenu) e iOS (che non lo manda) si comportano uguale
+  map.on("contextmenu", (e) => {
+    e.originalEvent?.preventDefault?.();
+    if (!hoverMq.matches) return;
+    openMapMenu(e.latlng);
+  });
+  const LONG_PRESS_MS = 500,
+    LONG_PRESS_SLOP = 8; // px: oltre è un trascinamento della mappa
+  let press = null;
+  const onMapSurface = (t) =>
+    !!t.closest?.("#map, .wm-native-map") &&
+    !t.closest(".leaflet-control, .mapboxgl-ctrl, .leaflet-marker-icon, .pt-pop");
+  document.addEventListener(
+    "touchstart",
+    (e) => {
+      clearTimeout(press?.timer);
+      press = null;
+      if (e.touches.length !== 1 || !onMapSurface(e.target)) return;
+      if (mobileMq.matches && !ui.panel.classList.contains("collapsed")) return;
+      const t = e.touches[0];
+      press = {
+        x: t.clientX,
+        y: t.clientY,
+        timer: setTimeout(() => {
+          const cr = map.getContainer().getBoundingClientRect();
+          navigator.vibrate?.(10);
+          openMapMenu(map.containerPointToLatLng([press.x - cr.left, press.y - cr.top]));
+          press = null;
+        }, LONG_PRESS_MS),
+      };
+    },
+    { capture: true, passive: true },
+  );
+  document.addEventListener(
+    "touchmove",
+    (e) => {
+      if (!press) return;
+      const t = e.touches[0];
+      if (Math.hypot(t.clientX - press.x, t.clientY - press.y) > LONG_PRESS_SLOP) {
+        clearTimeout(press.timer);
+        press = null;
+      }
+    },
+    { capture: true, passive: true },
+  );
+  for (const type of ["touchend", "touchcancel"])
+    document.addEventListener(
+      type,
+      () => {
+        clearTimeout(press?.timer);
+        press = null;
+      },
+      true,
+    );
+  // menu aperto: un clic fuori lo chiude e basta (niente valore del punto); il clic che segue la pressione
+  // prolungata non deve né chiuderlo né mostrare il valore
+  document.addEventListener(
+    "click",
+    (e) => {
+      if (!menuLL || mapMenu.contains(e.target)) return;
+      // anche sui segnaposto delle località: col menu aperto nessun altro riquadro
+      if (e.target.closest?.("#map, .wm-native-map") && !e.target.closest(".leaflet-control, .mapboxgl-ctrl")) {
+        e.stopPropagation();
+        e.preventDefault();
+      }
+      if (Date.now() - menuOpenedAt > 600) closeMapMenu();
+    },
+    true,
+  );
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && menuLL) closeMapMenu();
+  });
+  map.on("movestart zoomstart", closeMapMenu); // con Mapbox anche da connectMapbox, all'inizio del gesto
+  // niente menu del browser sulla mappa (pressione prolungata su Android, clic destro senza Mapbox)
+  document.addEventListener("contextmenu", (e) => {
+    if (onMapSurface(e.target)) e.preventDefault();
   });
 
   // ---------- eventi
@@ -5974,6 +6419,21 @@
   ui.collapse.addEventListener("click", () =>
     setPanelCollapsed(!ui.panel.classList.contains("collapsed")),
   );
+  // su mobile, col pannello aperto, un tocco sulla mappa chiude soltanto il pannello: niente valore del punto,
+  // niente riquadro della località. In cattura sul documento, prima che il clic arrivi a Leaflet (segnaposto) o
+  // alla mappa Mapbox: con lo sfondo vettoriale i tocchi vanno a .wm-native-map, non al contenitore di Leaflet
+  document.addEventListener(
+    "click",
+    (e) => {
+      if (!mobileMq.matches || ui.panel.classList.contains("collapsed")) return;
+      if (!e.target.closest("#map, .wm-native-map")) return;
+      if (e.target.closest(".leaflet-control, .mapboxgl-ctrl")) return;
+      e.stopPropagation();
+      e.preventDefault();
+      setPanelCollapsed(true);
+    },
+    true,
+  );
   document.addEventListener("keydown", (e) => {
     if (e.target.closest("button, select, input, textarea, [role=slider]"))
       return;
@@ -6003,28 +6463,28 @@
     }
     renderUpdated();
   }
-  /** In fondo alla sezione "Modelli e parametri": quando sono stati aggiornati i dati ("oggi alle 14:17", "il 10 nov alle 20:05"). */
+  /** Ultima riga del pannello: quando sono stati aggiornati i dati ("Aggiornamento 13/11 17:12"). */
   function renderUpdated() {
     const el = $("updated-at");
     const d = publishedAt ? new Date(publishedAt) : null;
     if (!d || Number.isNaN(d.getTime())) {
-      el.hidden = true;
+      $("updated-row").hidden = true;
       return;
     }
-    const day = (x) =>
-      x.toLocaleDateString("it-IT", {
+    // formato corto: "Aggiornamento 13/11 17:12"
+    const when = d
+      .toLocaleString("it-IT", {
         timeZone: "Europe/Rome",
-        day: "numeric",
-        month: "short",
-      });
-    const hm = d.toLocaleTimeString("it-IT", {
-      timeZone: "Europe/Rome",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-    el.textContent = `Dati aggiornati ${day(d) === day(new Date()) ? "oggi" : `il ${day(d)}`} alle ${hm}`;
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+      .replace(",", "");
+    el.textContent = `Aggiornamento ${when}`;
+    el.title = d.toLocaleString("it-IT", { timeZone: "Europe/Rome", dateStyle: "full", timeStyle: "short" });
     el.dateTime = publishedAt;
-    el.hidden = false;
+    $("updated-row").hidden = false;
   }
 
   // ---------- avvio

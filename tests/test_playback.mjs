@@ -133,50 +133,63 @@ test("playback keeps both range thumbs fixed while its progress advances", () =>
   playback.play(false);
 });
 
-test("desktop time bar shows the fixed selected range during playback", () => {
+test("time bars show the interval as dates, with the start", () => {
   const state = { run: "2026111306", model: "icon-d2", mode: "interval", step: 9 };
   const time = vm.createContext({
     state,
     playbackSelection: { from: 3, to: 24 },
-    ui: { valid: {}, range: {}, badgeText: {}, step: { style: { setProperty() {} } } },
+    ui: {
+      valid: { classList: { toggle() {} } },
+      range: {},
+      badgeText: {},
+      step: { style: { setProperty() {} } },
+    },
     runDate: () => new Date("2026-11-13T06:00:00Z"),
-    fmtLocal: () => "ven 13 nov, 16:00",
-    fmtUTC: () => "15:00",
+    fmtLocal: () => "ven 13 nov, 15:00",
+    fmtUTC: () => "14:00",
     cycle: () => "06Z",
     fmtRunDay: () => "ven 13 nov",
     modelLabel: () => "ICON-D2",
     shortLabel: () => "ICON-D2",
     rangeMode: () => true,
-    intervalPrev: () => 3,
+    intervalPrev: () => (state.mode === "interval" ? 3 : 0),
     intervalHours: () => 6,
     syncIntervalSliders() {},
     steps: () => [3, 6, 9, 12, 24],
     $: () => ({ style: { setProperty() {} } }),
   });
-  vm.runInContext(source.slice(
-    source.indexOf("  function renderTime()"),
-    source.indexOf("  let seq = 0;"),
-  ) + "\nrenderTime();", time);
-  assert.match(time.ui.badgeText.innerHTML, /Da \+3h a \+24h · 21h/);
-  assert.match(time.ui.badgeText.innerHTML, /badge-m-range">\+3&ndash;24h · 21h<\/span><\/span>/);
-  assert.match(time.ui.badgeText.innerHTML, /badge-valid badge-d">\+9h/);
+  // formattatori veri delle date (fmtDay … fmtShown) e renderTime
+  vm.runInContext(
+    source.slice(source.indexOf("  const fmtDay ="), source.indexOf("  const hexToRgb =")) +
+      source.slice(source.indexOf("  function renderTime()"), source.indexOf("  let seq = 0;")) +
+      "\nrenderTime();",
+    time,
+  );
+  // intervallo da +3h (10:00 a Roma) al passo mostrato +9h (16:00), stesso giorno: il giorno una volta sola
+  const span = "ven 13, 10:00 → 16:00";
+  assert.match(time.ui.badgeText.innerHTML, new RegExp(`badge-valid badge-d">${span}</span>`));
+  assert.match(time.ui.badgeText.innerHTML, new RegExp(`badge-m-time"><b>${span}</b><span class="badge-m-range">6h</span>`));
+  assert.equal(time.ui.valid.textContent, span);
+  assert.equal(time.ui.range.textContent, "");
   assert.match(time.ui.badgeText.innerHTML, /<strong>06z<\/strong> 13\/11/);
-  assert.doesNotMatch(time.ui.badgeText.innerHTML, /corsa/);
+  assert.doesNotMatch(time.ui.badgeText.innerHTML, /corsa|Da \+/);
 
   time.playbackSelection = null;
   vm.runInContext("renderTime();", time);
-  assert.match(time.ui.badgeText.innerHTML, /Da \+3h a \+9h · 6h/);
-  assert.match(time.ui.badgeText.innerHTML, /badge-m-range">\+3&ndash;9h · 6h<\/span><\/span>/);
+  assert.match(time.ui.badgeText.innerHTML, new RegExp(`badge-valid badge-d">${span}</span>`));
 
+  // totale dalla corsa: istante e passo, niente data d'inizio
+  state.mode = "total";
   time.playbackSelection = { from: 0, to: 24 };
   vm.runInContext("renderTime();", time);
-  assert.match(time.ui.badgeText.innerHTML, /badge-range badge-d">\+24 ore<\/span>/);
-  assert.doesNotMatch(time.ui.badgeText.innerHTML, /Da \+0h/);
-  assert.doesNotMatch(time.ui.badgeText.innerHTML, /badge-valid badge-d">\+9h/);
+  assert.match(time.ui.badgeText.innerHTML, /badge-valid badge-d">ven 13 nov, 15:00 · \+9h<\/span>/);
   assert.match(time.ui.badgeText.innerHTML, /badge-m-range">\+24 ore<\/span>/);
+  assert.doesNotMatch(time.ui.badgeText.innerHTML, /→/);
 
+  // grandezza istantanea: niente intervallo, l'ora UTC sotto nel pannello
+  state.mode = "value";
   time.rangeMode = () => false;
   vm.runInContext("renderTime();", time);
-  assert.doesNotMatch(time.ui.badgeText.innerHTML, /badge-range/);
   assert.doesNotMatch(time.ui.badgeText.innerHTML, /badge-m-range/);
+  assert.equal(time.ui.range.textContent, "14:00 UTC");
 });

@@ -147,13 +147,24 @@ body.is-starting > :not(.startup-loader):not(script) {
   font-weight: 400;
   color: var(--muted);
 } /* stessa linea di base del nome: le cifre stanno all'altezza delle minuscole */
-.updated-at {
-  display: block;
-  text-align: right;
-  font-size: 10px;
+/* ultima riga del pannello: orologio nella colonna dei triangoli delle sezioni (9px + 7px), testo allineato ai titoli */
+.updated-row {
+  display: flex;
+  align-items: center;
+  gap: 6px; /* -1 + 11 + 6 = 16px, come triangolo (9) + spazio (7) delle sezioni */
+  margin: 0;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
   color: var(--muted);
-} /* in fondo alla sezione dei modelli */
-.updated-at[hidden] {
+  opacity: 0.7;
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+.updated-row svg {
+  flex: none;
+  margin-left: -1px;
+}
+.updated-row[hidden] {
   display: none;
 }
 .panel.collapsed .panel-body {
@@ -865,9 +876,6 @@ input[type="range"] {
 .badge-valid {
   color: var(--muted);
 }
-.badge-range {
-  margin-left: 10px;
-}
 .badge-text {
   display: flex;
   align-items: center;
@@ -941,6 +949,9 @@ input[type="range"] {
   font-size: 16px;
   font-weight: 650;
   padding-right: 20px;
+}
+.valid.valid-span {
+  white-space: nowrap;
 }
 .range {
   color: var(--muted);
@@ -1843,11 +1854,6 @@ body.radar-mode .badge-radar .badge-btn:hover {
   color: var(--accent);
   cursor: pointer;
 }
-.places-empty {
-  margin: 6px 0 0;
-  font-size: 12px;
-  color: var(--muted);
-}
 .points li.editing {
   cursor: default;
 }
@@ -2090,6 +2096,42 @@ body.radar-mode .badge-radar .badge-btn:hover {
   }
   body.radar-mode .badge .extra-close {
     margin-left: 4px;
+  }
+  /* pannello aperto: ora, play e slider sono già nel pannello; in basso resta solo la legenda. La riga dei
+     controlli si chiude scorrendo verso il basso (come lo slider) e la barra si accorcia insieme */
+  .badge {
+    transition: padding-top 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .badge > .badge-btn,
+  .badge > .share-btn,
+  .badge-m,
+  .badge-radar {
+    transition:
+      height 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
+      opacity 0.2s ease,
+      transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  body:has(#panel:not(.collapsed)) .badge {
+    padding-top: 8px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .badge,
+    .badge > .badge-btn,
+    .badge > .share-btn,
+    .badge-m,
+    .badge-radar {
+      transition: none;
+    }
+  }
+  body:has(#panel:not(.collapsed)) .badge > .badge-btn,
+  body:has(#panel:not(.collapsed)) .badge > .share-btn,
+  body:has(#panel:not(.collapsed)) .badge-m,
+  body:has(#panel:not(.collapsed)) .badge-radar {
+    height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transform: translateY(6px);
+    pointer-events: none;
   }
   .badge .legend {
     order: 7;
@@ -2348,7 +2390,7 @@ body.radar-mode .badge-radar .badge-btn:hover {
   overflow-y: auto;
   position: relative;
   touch-action: pan-y;
-  padding-top: 30px;
+  padding-top: 6px; /* sotto l'intestazione c'è già lo spazio della finestra (gap) e la riga dei giorni */
 }
 .chart-body > svg {
   display: block;
@@ -2359,6 +2401,7 @@ body.radar-mode .badge-radar .badge-btn:hover {
   font-variant-numeric: tabular-nums;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-touch-callout: none; /* pressione prolungata: fissa l'ora, niente menu di iOS */
 }
 .chart-body .ch-title {
   font-size: 12.5px;
@@ -2401,8 +2444,14 @@ body.radar-mode .badge-radar .badge-btn:hover {
   opacity: 0.6;
 }
 .chart-body .ch-cursor.pinned {
-  stroke-width: 1.5;
-  opacity: 0.9;
+  stroke: var(--accent);
+  stroke-width: 2;
+  opacity: 1;
+}
+@media (hover: none) {
+  .chart-body .ch-cursor:not(.pinned) {
+    stroke-dasharray: 3 3;
+  }
 } /* ora fissata con un clic o un tocco */
 .chart-body .ch-zero {
   stroke: var(--muted);
@@ -2425,6 +2474,46 @@ body.radar-mode .badge-radar .badge-btn:hover {
 }
 .chart-tip b {
   font-weight: 650;
+}
+/* ora fissata col dito: scheda chiara bordata (il tooltip di lettura è scuro), con Condividi · Scarica · ✕ */
+.chart-tip.pinned {
+  pointer-events: auto;
+  padding: 8px 10px 6px;
+  background: var(--panel);
+  color: var(--fg);
+  border: 1.5px solid var(--accent);
+  box-shadow: var(--shadow);
+}
+.chart-tip.pinned .t {
+  color: var(--accent);
+  font-weight: 650;
+}
+.chart-tip-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 6px -4px 0;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+.chart-tip-actions button {
+  height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.chart-tip-actions [data-act="remove"] {
+  margin-left: auto;
+  color: var(--muted);
+}
+.chart-tip-actions button:disabled {
+  opacity: 0.5;
+  cursor: progress;
 }
 /* ora fissata: barra in fondo alla finestra del grafico, sempre visibile; valori a sinistra (su più colonne se c'è
    spazio), azioni a destra */
@@ -2624,11 +2713,15 @@ body.radar-mode .badge-radar .badge-btn:hover {
   (orientation: portrait) and (pointer: coarse) and (max-width: 1100px) {
   .wm-mapbox-logo {
     margin-bottom: var(--logo-bottom, 140px) !important;
-    transition: margin 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition:
+      margin 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
+      opacity 0.2s ease;
   }
+  /* pannello aperto: la barra cambia altezza e il logo salterebbe; sparisce sfumando e torna alla chiusura */
   body:has(#panel:not(.collapsed)) .wm-mapbox-logo {
-    margin-bottom: 104px !important;
-  } /* barra senza slider */
+    opacity: 0;
+    pointer-events: none;
+  }
   body.radar-mode .wm-mapbox-logo {
     margin-bottom: 104px !important;
   } /* radar e satellite: la barra non cambia */
@@ -2676,4 +2769,245 @@ body.radar-mode .badge-radar .badge-btn:hover {
   .wm-mapbox-logo {
     transition: none !important;
   }
+}
+
+/* menu di un punto della mappa (clic destro o pressione prolungata): valore e coordinate, poi le azioni */
+.map-menu {
+  position: fixed;
+  z-index: 1100;
+  min-width: 210px;
+  max-width: calc(100vw - 16px);
+  padding: 4px;
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  animation: map-menu-in 0.14s ease-out;
+}
+.map-menu[hidden] {
+  display: none;
+}
+@keyframes map-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+/* titolo (coordinate) e X sulla prima riga, sotto i valori della mappa in piccolo */
+.map-menu-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 8px;
+  padding: 2px 0 6px 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+.map-menu-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+.map-menu-value {
+  grid-column: 1 / -1;
+  max-width: 300px;
+  padding-right: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.map-menu-close {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.map-menu-close:hover {
+  background: var(--accent-tint);
+}
+.map-menu > button {
+  display: block;
+  width: 100%;
+  min-height: 36px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.map-menu > button:hover,
+.map-menu > button:focus-visible {
+  background: var(--accent-tint);
+  outline: none;
+}
+.map-menu > button:disabled {
+  color: var(--muted);
+  cursor: default;
+  background: none;
+}
+.map-menu-form {
+  display: grid;
+  gap: 6px;
+  padding: 6px;
+}
+.map-menu-form label {
+  font-size: 11px;
+  color: var(--muted);
+}
+.map-menu-form input {
+  width: 100%;
+  min-width: 220px;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 16px; /* niente zoom automatico di iOS sul campo */
+}
+.map-menu-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+/* come i pulsanti della condivisione (.share-actions): bordo, fondo della pagina; il principale col velo blu */
+.map-menu-row button {
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.map-menu-row button.primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-tint);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+/* segnaposto del punto finché il menu è aperto */
+.map-menu-pin {
+  position: fixed;
+  z-index: 1099;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 3px solid #fff;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.4);
+  pointer-events: none;
+}
+.map-menu-pin[hidden] {
+  display: none;
+}
+/* punto selezionato (menu aperto): un'onda che si allarga e sfuma, di continuo */
+.map-menu-pin::before {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  z-index: -1; /* dietro al pallino (il pallino ha già il suo contesto: position fixed e z-index) */
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pin-pulse 1.6s ease-out infinite;
+}
+@keyframes pin-pulse {
+  from {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  to {
+    transform: scale(3.2);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-menu-pin::before {
+    animation: none;
+    display: none;
+  }
+}
+/* aggiunta in corso: niente onda, un anello che gira attorno al pallino */
+.map-menu-pin.loading::before {
+  display: block; /* anche con "riduci movimento", dove l'onda è spenta */
+  inset: -7px;
+  z-index: 0;
+  background: none;
+  border: 2px solid rgb(255 255 255 / 0.5);
+  border-top-color: var(--accent);
+  opacity: 1;
+  animation: spin 0.7s linear infinite;
+}
+/* località aggiunta dal menu della mappa: il segnaposto nuovo compare con un rimbalzo e un'onda che si allarga */
+.pt .pt-num.pt-new {
+  position: relative;
+  animation: pt-pop 0.45s cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+.pt .pt-num.pt-new::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  pointer-events: none;
+  animation: pt-ring 0.9s ease-out forwards;
+}
+@keyframes pt-pop {
+  from {
+    transform: scale(0.3);
+    opacity: 0;
+  }
+}
+@keyframes pt-ring {
+  from {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pt .pt-num.pt-new,
+  .pt .pt-num.pt-new::after {
+    animation-duration: 0.01s;
+  }
+}
+/* pressione prolungata sulla mappa: niente lente o menu di iOS */
+#map,
+.wm-native-map {
+  -webkit-touch-callout: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-menu {
+    animation: none;
+  }
+}
+/* menu aperto: sulla mappa e sui segnaposto cursore normale (niente mano o mirino: un clic chiude soltanto) */
+body.map-menu-open #map,
+body.map-menu-open #map *,
+body.map-menu-open .wm-native-map,
+body.map-menu-open .wm-native-map .mapboxgl-canvas-container,
+body.map-menu-open .wm-native-map canvas {
+  cursor: default !important;
 }
