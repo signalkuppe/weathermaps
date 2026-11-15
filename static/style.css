@@ -101,6 +101,17 @@ body.is-starting > :not(.startup-loader):not(script) {
   inset: 0;
 }
 /* fondo del colore del terreno degli sfondi: zoomando indietro, la parte non ancora ridisegnata non è un vuoto grigio */
+/* condivisione della carta sinottica su schermo stretto: la mappa sotto la finestra diventa larga 16:9 (vedi
+   shareWideStart in app.js) */
+body.share-wide #map,
+body.share-wide .wm-native-map {
+  position: fixed;
+  inset: auto;
+  left: 0;
+  top: 0;
+  width: var(--share-w);
+  height: var(--share-h);
+}
 #map.leaflet-container {
   background: hsl(47, 26%, 88%);
 }
@@ -2476,6 +2487,20 @@ body.radar-mode .badge-radar .badge-btn:hover {
   font-weight: 650;
 }
 /* ora fissata col dito: scheda chiara bordata (il tooltip di lettura è scuro), con Condividi · Scarica · ✕ */
+/* spaghetti: una riga per grafico "Ufficiale x  Media y", celle dei valori di uguale larghezza (1fr), cifre della stessa larghezza */
+.chart-tip .ens-vals {
+  display: grid;
+  column-gap: 5px;
+  row-gap: 1px;
+  justify-items: start;
+  font-variant-numeric: tabular-nums;
+}
+.chart-tip .ens-vals .h {
+  opacity: 0.75;
+}
+.chart-tip .ens-vals b {
+  margin-right: 9px; /* stacco prima della coppia successiva */
+}
 .chart-tip.pinned {
   pointer-events: auto;
   padding: 8px 10px 6px;
@@ -2665,8 +2690,9 @@ body.radar-mode .badge-radar .badge-btn:hover {
   font-weight: 650;
   color: #fb923c;
 }
-.map-nodata .leaflet-tile-pane {
-  filter: grayscale(1);
+.map-nodata .leaflet-tile-pane,
+body.no-data .wm-native-map canvas {
+  filter: grayscale(1); /* anche lo sfondo Mapbox, che non sta dentro la mappa Leaflet */
 }
 /* senza dati sopra la mappa resta solo il menu principale: niente barra, legenda, località né tooltip */
 .no-data .badge,
@@ -3019,4 +3045,37 @@ body.map-menu-open .wm-native-map,
 body.map-menu-open .wm-native-map .mapboxgl-canvas-container,
 body.map-menu-open .wm-native-map canvas {
   cursor: default !important;
+}
+
+/* Carta sinottica (geopotenziale 500 hPa e pressione, Atlantico ed Europa): niente radar, satellite e menu del punto;
+   le località aprono solo gli spaghetti dell'ensemble GFS. Dello sfondo restano i colori, coste e stati (vedi
+   applyArea in app.js) */
+body.synoptic-mode #extra,
+body.synoptic-mode .map-menu,
+body.synoptic-mode .map-menu-pin {
+  display: none !important;
+}
+/* isobare della carta sinottica: etichette bianche con ombra nera, come su Meteociel (le linee sono bianche, vedi
+   drawContours) */
+body.synoptic-mode .iso-lbl span {
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  text-shadow:
+    1px 1px 0 #000,
+    -1px 1px 0 #000,
+    1px -1px 0 #000,
+    -1px -1px 0 #000,
+    0 0 3px rgba(0, 0, 0, 0.8);
+}
+
+/* spaghetti dell'ensemble GFS: media spessa nel colore del testo (bianca col tema scuro), controllo verde */
+.ch-ens-mean {
+  stroke: var(--fg);
+}
+.ch-ens-ctl {
+  stroke: #22c55e; /* "ufficiale" (controllo) in verde */
+}
+.ch-ens-halo {
+  stroke: var(--bg);
 }

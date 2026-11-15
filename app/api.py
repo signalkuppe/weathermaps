@@ -12,6 +12,7 @@ from . import variables
 from .config import STEPS, get_initial_view, get_version, prev_step
 from . import fetcher
 from . import mean as mean_mod
+from . import ensemble
 from . import series as series_mod
 from .fetcher import MODELS, steps_for
 from .sources import parse_run_id
@@ -59,6 +60,8 @@ def meta(request: Request):
             # token pubblico Mapbox (sfondi Streets/Outdoors, se c'è): limitarlo ai domini del sito nel pannello Mapbox
             "mapbox_token": os.environ.get("MAPBOX_TOKEN", "").strip(),
             "series": {"dstep": series_mod.DSTEP, "tile": series_mod.TILE},
+            # ensemble di GFS ed ECMWF per gli spaghetti delle località nella carta sinottica ({modello: ...})
+            "ensemble": ensemble.info(store),
             "models": [m.as_dict() for m in MODELS.values()],
             "variables": variables.menu(),
         },
@@ -132,6 +135,15 @@ def series_point(request: Request, model: str, run: str, lat: float, lon: float)
     if run not in store.runs(model):
         raise HTTPException(404, "Corsa non disponibile")
     return JSONResponse(series_mod.point_series(store, model, run, lat, lon), headers={"Cache-Control": "public, max-age=300"})
+
+
+@router.get("/ensemble")
+def ensemble_point(request: Request, model: str, lat: float, lon: float):
+    """Spaghetti dell'ensemble di `model` (gfs, ecmwf) nel punto più vicino: temperatura a 850 hPa e pioggia."""
+    data = ensemble.point_series(_store(request), model, lat, lon)
+    if data is None:
+        raise HTTPException(404, "Ensemble non disponibile")
+    return JSONResponse(data, headers={"Cache-Control": "public, max-age=300"})
 
 
 @router.get("/field")

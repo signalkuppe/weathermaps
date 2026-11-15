@@ -33,6 +33,7 @@ function renderer() {
     meta: { variables: [{ id: "tp", decimals: 1 }] },
     getField: async (step) => fields.get(step),
     variable: () => ({ scale: {} }),
+    synoptic: () => false,
     state: { var: "tp", crisp: false },
     renderWorker: null,
     renderSeq: 0,

@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
+from . import ensemble
 from .config import SCHEDULER_INTERVAL_MIN
 from .fetcher import SOURCES, update_model
 from .mean import build_mean
@@ -43,6 +44,18 @@ def start(store: Store) -> BackgroundScheduler:
         max_instances=1,
         coalesce=True,
     )
+    # ensemble di GFS ed ECMWF (spaghetti delle località nella carta sinottica)
+    for model, src in ensemble.SOURCES.items():
+        sched.add_job(
+            ensemble.update,
+            "interval",
+            minutes=SCHEDULER_INTERVAL_MIN,
+            args=[model, store],
+            id=f"update-{src.store_id}",
+            next_run_time=first + timedelta(minutes=1),
+            max_instances=1,
+            coalesce=True,
+        )
     sched.start()
     log.info("Scheduler avviato: ogni %d minuti per %s", SCHEDULER_INTERVAL_MIN, list(SOURCES))
     return sched

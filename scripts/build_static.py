@@ -3,11 +3,13 @@
 Produce in OUT_DIR:
   index.html, app.js, render.js, style.css   la pagina, in modalità statica
   borders.json                       contorni geografici (da scripts/make_borders.py)
+  borders-synoptic.json              coste e stati della carta sinottica (make_borders.py --synoptic)
   data/meta.json                     come /api/meta
   data/runs.json                     come /api/runs + istante di generazione
   data/field/{model}/{var}/{run}/{step}.bin    campo "totale" (o "valore") come /api/field, in formato compatto:
                                                valori in interi a 16 bit (app/packed.py), circa 1/3 del JSON
   data/series/{model}/{run}/{riga}_{colonna}.json   meteogrammi in riquadri di 2°×2° (app/series.py)
+  data/ensemble/{model}/{run}/{riga}_{colonna}.json  spaghetti degli ensemble GFS ed ECMWF, un punto (app/ensemble.py)
 
 Per contenere il numero di file (GitHub Pages li sincronizza uno per uno, entro 10 minuti):
   - le due componenti del vento stanno in un solo file per passo: data/field/{model}/{vettore}/{run}/{step}.bin
@@ -33,7 +35,7 @@ sys.path.insert(0, str(ROOT))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import packed, series, variables  # noqa: E402
+from app import ensemble, packed, series, variables  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.store import Store  # noqa: E402
 
@@ -81,7 +83,7 @@ def main(out_dir: Path) -> int:
     out_dir.mkdir(parents=True)
 
     # pagina: stessi file del server, marcati come statici
-    for name in ("render.js", "style.css", "borders.json", "manifest.webmanifest"):
+    for name in ("render.js", "style.css", "borders.json", "borders-synoptic.json", "manifest.webmanifest"):
         shutil.copy(ROOT / "static" / name, out_dir / name)
     build_javascript(out_dir / "app.js")
     shutil.copytree(ROOT / "static" / "icons", out_dir / "icons")  # logo: favicon e icone della home del telefono
@@ -150,6 +152,11 @@ def main(out_dir: Path) -> int:
                         body.update(var=vec["id"], u=fu["values"], v=fv["values"])
                         size += write_bin(out_dir / "data" / "field" / model / vec["id"] / run / f"{step}.bin", body)
                         files += 1
+        # spaghetti degli ensemble di GFS ed ECMWF: un file per punto della loro griglia (vedi app/ensemble.py)
+        nens = 0
+        for model, iy, ix, body in ensemble.all_points(store):
+            size += write_json(out_dir / "data" / "ensemble" / model / body["run"] / f"{iy}_{ix}.json", body)
+            nens += 1
         # meteogrammi: serie temporali su una griglia di 0,1° in riquadri di 2°×2° (vedi app/series.py)
         nser = 0
         for model, items in runs.items():
@@ -159,7 +166,8 @@ def main(out_dir: Path) -> int:
                 for (ty, tx), body in series.build_tiles(store, model, item["run"]).items():
                     size += write_json(out_dir / "data" / "series" / model / item["run"] / f"{ty}_{tx}.json", body)
                     nser += 1
-    print(f"Sito statico in {out_dir}: {files} campi, {nser} riquadri di serie, {size / 1e6:.1f} MB di dati")
+    print(f"Sito statico in {out_dir}: {files} campi, {nser} riquadri di serie, {nens} punti dell'ensemble, "
+          f"{size / 1e6:.1f} MB di dati")
     return 0
 
 

@@ -411,3 +411,42 @@ def test_series_point_and_tiles(tmp_path):
     cell = (gy % per) * t["nx"] + (gx % per)
     v = t["vars"]["tp"]
     assert [x / v["scale"] for x in v["values"][cell * 3:(cell + 1) * 3]] == [3.0, 6.0, 9.0]
+
+
+def test_carta_sinottica_area_propria_senza_mediana(client):
+    """Geopotenziale 500 hPa e pressione: voce combinata, area Atlantico-Europa, GFS, ECMWF e la loro mediana."""
+    vs = {v["id"]: v for v in client.get("/api/meta").json()["variables"]}
+    assert "z500" not in vs and "msl" not in vs  # nel menu solo la voce combinata
+    syn = vs["z500_msl"]
+    assert syn["field"] == "z500" and syn["contour_field"] == "msl"
+    assert syn["area"] == {"lat_min": 25, "lat_max": 72, "lon_min": -70, "lon_max": 64}
+    assert syn["models"] == ["ecmwf", "gfs", "mean"]
+    assert vs["t850"]["area"] is None and "mean" in vs["t850"]["models"]
+    z, p = variables.get("z500"), variables.get("msl")
+    assert z.convert["gfs"](5520.0) == pytest.approx(552) and p.convert["ecmwf"](101500.0) == pytest.approx(1015)
+
+
+def test_carta_sinottica_scaricata_sulla_sua_area(tmp_path):
+    from app import fetcher
+
+    store = Store(data_dir=tmp_path, bbox=BOX)
+    assert fetcher.area_of(variables.get("z500"), store) == BBox.parse("25,72,-70,64")
+    assert fetcher.area_of(variables.get("msl"), store) == BBox.parse("25,72,-70,64")
+    assert fetcher.area_of(variables.get("t850"), store) == BOX
+
+
+def test_mediana_carta_sinottica_sulla_sua_area(tmp_path):
+    """Con GFS ed ECMWF la mediana è la media, sulla griglia di 0,25° dell'area sinottica (non quella fine di 2 km)."""
+    from app import mean
+    from app.fetcher import steps_for
+
+    store = Store(data_dir=tmp_path, bbox=BOX)
+    var = variables.get("z500")
+    for model, val in (("gfs", 550.0), ("ecmwf", 560.0)):
+        for s in steps_for(var, model):
+            store.save(model, "2026110900", "z500", s,
+                       Field(values=np.full((189, 537), val, np.float32), lat0=25, lon0=-70, dlat=0.25, dlon=0.25))
+    mean.build_mean(store)
+    vals, grid = store.load("mean", "2026110900", "z500", 24)
+    assert grid == {"lat0": 25, "lon0": -70, "dlat": 0.25, "dlon": 0.25, "nx": 537, "ny": 189}
+    assert np.nanmin(vals) == pytest.approx(555) and np.nanmax(vals) == pytest.approx(555)

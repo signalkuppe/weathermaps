@@ -13,6 +13,10 @@ Coste più precise (aggiorna solo "coast" nel borders.json esistente):
   costa dal contorno del mare di OpenStreetMap, gli stessi dati degli sfondi Mapbox (niente fiumi, a differenza del
   contorno dell'acqua di Mapbox): https://osmdata.openstreetmap.de/download/simplified-water-polygons-split-3857.zip
   python scripts/make_borders.py --water CARTELLA_OSM_ESTRATTA
+
+Carta sinottica (static/borders-synoptic.json, coste e stati sull'Atlantico e l'Europa):
+  ne_50m_coastline e ne_50m_admin_0_boundary_lines_land dalla stessa cartella di Natural Earth
+  python scripts/make_borders.py --synoptic CARTELLA_NE
 """
 from __future__ import annotations
 
@@ -206,9 +210,37 @@ def main(ne_dir: Path) -> int:
     return 0
 
 
+SYN_TOL = 0.05  # carta sinottica: ~5 km, a quella scala basta
+
+
+def main_synoptic(ne_dir: Path) -> int:
+    """static/borders-synoptic.json: coste e stati (Natural Earth 1:50m) sull'area della carta sinottica."""
+    from app.config import SYNOPTIC_BBOX, BBox
+
+    b = BBox.parse(SYNOPTIC_BBOX)
+    box = (b.lat_min - 0.5, b.lat_max + 0.5, b.lon_min - 0.5, b.lon_max + 0.5)
+    out: dict[str, list] = {}
+    for key, name in (("coast", "ne_50m_coastline.geojson"), ("countries", "ne_50m_admin_0_boundary_lines_land.geojson")):
+        parts = []
+        for feat in json.loads((ne_dir / name).read_text(encoding="utf-8"))["features"]:
+            for line in lines_of(feat["geometry"]):
+                for seg in clip(line, box):
+                    seg = simplify(seg, SYN_TOL)
+                    if len(seg) >= 2:
+                        parts.append([[round(y, 2), round(x, 2)] for x, y in seg])
+        out[key] = parts
+        print(f"{key}: {len(parts)} linee, {sum(len(p) for p in parts)} punti")
+    path = ROOT / "static" / "borders-synoptic.json"
+    path.write_text(json.dumps(out, separators=(",", ":")), encoding="utf-8")
+    print(f"{path}: {path.stat().st_size / 1e3:.0f} kB")
+    return 0
+
+
 if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == "--water":
         raise SystemExit(main_water(Path(sys.argv[2])))
+    if len(sys.argv) == 3 and sys.argv[1] == "--synoptic":
+        raise SystemExit(main_synoptic(Path(sys.argv[2])))
     if len(sys.argv) != 2:
         print(__doc__)
         raise SystemExit(2)

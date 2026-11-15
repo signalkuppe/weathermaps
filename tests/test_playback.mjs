@@ -144,7 +144,8 @@ test("time bars show the interval as dates, with the start", () => {
       badgeText: {},
       step: { style: { setProperty() {} } },
     },
-    runDate: () => new Date("2026-11-13T06:00:00Z"),
+    // come quella vera: con la corsa vuota si rompe (slice di null)
+    runDate: (rid) => (rid.slice(0, 4), new Date("2026-11-13T06:00:00Z")),
     fmtLocal: () => "ven 13 nov, 15:00",
     fmtUTC: () => "14:00",
     cycle: () => "06Z",
@@ -192,4 +193,11 @@ test("time bars show the interval as dates, with the start", () => {
   vm.runInContext("renderTime();", time);
   assert.doesNotMatch(time.ui.badgeText.innerHTML, /badge-m-range/);
   assert.equal(time.ui.range.textContent, "14:00 UTC");
+
+  // grandezza che il modello non ha: nessuna corsa, niente date (prima l'avvio si fermava con un errore)
+  state.run = null;
+  time.variable = () => ({ models: ["gfs"] });
+  vm.runInContext("renderTime();", time);
+  assert.equal(time.ui.valid.textContent, "");
+  assert.match(time.ui.badgeText.innerHTML, /grandezza non disponibile/);
 });

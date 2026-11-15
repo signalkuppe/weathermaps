@@ -478,7 +478,7 @@
     };
     for (const [id, lvl] of Object.entries(levels)) {
       if (!m.getLayer(id)) continue;
-      m.setLayoutProperty(id, "visibility", n >= lvl ? "visible" : "none");
+      m.setLayoutProperty(id, "visibility", n >= lvl && !synoptic() ? "visible" : "none");
       if (id.endsWith("-bg")) {
         // alone chiaro sotto la linea: bianco come in Streets (Outdoors lo ha rosato)
         m.setPaintProperty(id, "line-color", "#ffffff");
@@ -602,6 +602,30 @@
     });
   }
   let glShot = null; // ultima copia di glCapture, usata da snapshotMap
+  /** Carta sinottica: dello sfondo Mapbox restano solo il fondo e i nostri strati (colori dei dati); coste e stati
+   *  sono linee nostre a bassa risoluzione (styleSynBorders). Tornando alla mappa normale riappare tutto com'era. */
+  function glSynopticBase() {
+    const m = glMap();
+    if (!m) return;
+    if (synoptic()) {
+      m.__synHidden ??= new Set();
+      for (const l of m.getStyle().layers) {
+        if (l.type === "background" || glImgs.has(l.id)) continue; // restano il fondo e le immagini dei dati
+        if (m.getLayoutProperty(l.id, "visibility") === "none") continue;
+        m.__synHidden.add(l.id);
+        m.setLayoutProperty(l.id, "visibility", "none");
+      }
+    } else if (m.__synHidden) {
+      for (const id of m.__synHidden)
+        if (m.getLayer(id)) m.setLayoutProperty(id, "visibility", "visible");
+      m.__synHidden = null;
+    }
+    glBorders();
+  }
+  const glBounds = (a) => [
+    [a.lon_min, a.lat_min],
+    [a.lon_max, a.lat_max],
+  ];
   function setupMapbox(token) {
     if (!token || !window.mapboxgl || !mapboxgl.supported()) return;
     const container = document.createElement("div");
@@ -616,10 +640,7 @@
       zoom: map.getZoom() - 1,
       minZoom: Math.max(0, map.getMinZoom() - 1),
       maxZoom: 21,
-      maxBounds: [
-        [meta.bbox.lon_min, meta.bbox.lat_min],
-        [meta.bbox.lon_max, meta.bbox.lat_max],
-      ],
+      maxBounds: glBounds(areaNow()),
       projection: "mercator",
       attributionControl: false,
       dragRotate: false,
@@ -655,7 +676,8 @@
       hideTransportLabels(m);
       meteoPalette(m);
       strongRelief(m);
-      glBorders();
+      m.__synHidden = null; // stile nuovo: nessuno strato nascosto dalla carta sinottica
+      glSynopticBase();
       for (const [id, c] of glImgs) if (c.url) glApply(m, id, c); // lo stile nuovo non ha i nostri strati
     });
     for (const layer of Object.values(bases)) map.removeLayer(layer);
@@ -818,6 +840,9 @@
     (state.mode === "total" || state.mode === "interval");
   // grandezza dei dati (colori, località, passi): per le voci combinate è quella dei colori (es. "tp")
   const dataVar = () => variable()?.field || variable()?.vector?.u || state.var;
+  // carta sinottica (geopotenziale e pressione): area propria, niente località, grafici, radar e satellite
+  const synoptic = () => !!(meta && variable()?.area);
+  const areaNow = () => variable()?.area || meta.bbox;
   // nome per legenda e testi: per le combinate quello della grandezza dei colori ("Precipitazione")
   const baseLabel = () => variable().base_label || variable().label;
   // cumulate: differenza fra il totale ai due estremi scelti. I vecchi link con `ore` inizializzano ancora i preset.
@@ -1072,6 +1097,7 @@
       "chartRun",
       "chartStep",
       "chartFrom",
+      "chartEns",
     ])
       if (previous.has(key)) p.set(key, previous.get(key));
     for (const k of ["model", "var", "step", "mode", "opacity"])
@@ -1159,7 +1185,7 @@
       state.var = meta.variables[0].id;
     fillSelect(
       ui.varSel,
-      meta.variables.map((v) => [v.id, v.label]),
+      meta.variables.map((v) => [v.id, v.menu_label || v.label]), // nome breve, sta su una riga
       state.var,
     );
     ui.varRow.hidden = meta.variables.length < 2;
@@ -1237,7 +1263,9 @@
     const r = runList()[0];
     state.run = r ? r.run : null;
     if (!r) {
-      ui.run.textContent = "nessuna corsa disponibile";
+      // grandezza che il modello non ha: lo dice già l'avviso, qui nessuna corsa da indicare
+      ui.run.textContent = variable()?.models.includes(state.model) ? "nessuna corsa disponibile" : "—";
+      ui.run.title = "";
       ui.runAge.textContent = "";
     } else {
       ui.run.innerHTML = `<strong>${cycle(r.run)}</strong> ${fmtRunDay(r.run)}`;
@@ -1413,8 +1441,12 @@
     const modeLabel = modePhrase();
     const num = (x) => String(x).replace("-", "−");
     const openLow = v.scale.transparent_below == null; // la prima classe include anche i valori più bassi
-    // con molte soglie (T850 ogni 2 °C) se ne scrive una su due, per non affollare la barra
-    const every = thresholds.length > 14 ? 2 : 1;
+    // con molte soglie (T850 ogni 2 °C) se ne scrive una su due, per non affollare la barra; meno ancora se le
+    // etichette sono lunghe (geopotenziale: 31 soglie di tre cifre)
+    let every = thresholds.length > 14 ? 2 : 1;
+    const chars = (k) =>
+      thresholds.reduce((a, t, i) => a + (i % k ? 0 : num(t).length + 1), 0);
+    while (chars(every) > 50) every *= 2;
     if (v.scale.continuous) {
       // barra sfumata: un tratto per ogni coppia di punti di colore, soglie sui bordi (l'ultima a destra)
       const n = thresholds.length;
@@ -2074,7 +2106,7 @@
     }
     radarFrames = [];
     radarIdx = -1;
-    state.extra = EXTRAS[name] ? name : "none";
+    state.extra = EXTRAS[name] && !synoptic() ? name : "none"; // radar e satellite solo sulla mappa normale
     const cfg = extraCfg();
     // con un livello extra: spariscono colori, isolinee e frecce del modello (sarebbe illeggibile), legenda e barra in
     // alto passano al livello; il modello resta scelto e torna togliendolo
@@ -2446,12 +2478,16 @@
       dlon,
       scale: v.scale,
       crisp: state.crisp,
-      // 2 pixel per cella (almeno 1100 in larghezza); le griglie più fini (ICON-CH1, 1 km) ne hanno già abbastanza
-      upscale: Math.max(
-        nx >= 800 && !state.crisp ? 1 : 2,
-        Math.ceil(1100 / nx),
-      ),
-      smooth: own ? Math.min(4, Math.round(0.1 / dlon)) : 0,
+      // 2 pixel per cella (almeno 1100 in larghezza); le griglie più fini (ICON-CH1, 1 km) ne hanno già abbastanza.
+      // Carta sinottica: le celle di 0,25° sullo schermo sono grandi, con le fasce strette di 4 dam servono più pixel
+      // (altrimenti i bordi delle fasce vengono a scalini); 7 tiene la larghezza sotto i 4096 pixel delle texture
+      // dei telefoni
+      upscale: synoptic()
+        ? Math.max(2, Math.min(7, Math.floor(4096 / nx)))
+        : Math.max(nx >= 800 && !state.crisp ? 1 : 2, Math.ceil(1100 / nx)),
+      // carta sinottica: GFS a 0,25° ha piccole irregolarità fra celle vicine che, con fasce di 4 dam, fanno i bordi
+      // a quadretti; due passate di media danno le fasce morbide delle carte classiche (il tooltip resta grezzo)
+      smooth: synoptic() ? 2 : own ? Math.min(4, Math.round(0.1 / dlon)) : 0,
     };
     const pr = renderWorker
       ? new Promise((resolve) => {
@@ -2570,6 +2606,12 @@
   const borderLines = {}; // chiave -> polyline, create al primo caricamento di borders.json
   let bordersLoad = null;
   function styleBorders() {
+    styleSynBorders();
+    if (synoptic()) {
+      bordersLayer.remove();
+      glBorders();
+      return;
+    }
     if (glBase) {
       bordersLayer.remove();
       glBorders();
@@ -2607,6 +2649,31 @@
         bordersLoad = null;
       }); // senza contorni la mappa funziona lo stesso: si riproverà
     bordersLoad?.then(apply);
+  }
+  // coste e stati della carta sinottica (Natural Earth 1:50m, scripts/make_borders.py --synoptic): sopra i colori,
+  // anche con Mapbox (del suo sfondo lì resta solo il fondo). "Confini: Nessuno" li spegne.
+  map.createPane("synBorders");
+  map.getPane("synBorders").style.zIndex = 410;
+  map.getPane("synBorders").style.pointerEvents = "none";
+  const synRenderer = L.canvas({ pane: "synBorders", padding: 0.5 });
+  const synLayer = L.layerGroup();
+  let synLoad = null;
+  function styleSynBorders() {
+    if (!synoptic() || state.borders === "none") {
+      synLayer.remove();
+      return;
+    }
+    synLayer.addTo(map);
+    synLoad ??= fetch("borders-synoptic.json")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.statusText))))
+      .then((b) => {
+        const st = { renderer: synRenderer, interactive: false, color: "#1f2328" };
+        synLayer.addLayer(L.polyline(b.coast, { ...st, weight: 1.2, opacity: 0.85 }));
+        synLayer.addLayer(L.polyline(b.countries, { ...st, weight: 0.9, opacity: 0.7 }));
+      })
+      .catch(() => {
+        synLoad = null;
+      });
   }
   const isoLines = L.layerGroup().addTo(map);
   const isoLabels = L.layerGroup().addTo(map);
@@ -2739,7 +2806,8 @@
       const { nx, ny, dlon } = f.grid;
       f._smooth = {
         ...f,
-        values: blurred(f.values, nx, ny, Math.min(4, Math.round(0.1 / dlon))),
+        // carta sinottica: isobare morbide come nelle carte classiche (a 0,25° altrimenti nessuna passata)
+        values: blurred(f.values, nx, ny, synoptic() ? 3 : Math.min(4, Math.round(0.1 / dlon))),
       };
     }
     return f._smooth;
@@ -2861,9 +2929,10 @@
             renderer: isoRenderer,
             interactive: false,
             smoothFactor: 0.5,
-            color: "#1f2328",
-            weight: isBold ? 2 : 0.9,
-            opacity: isBold ? 0.85 : 0.55,
+            // carta sinottica: isobare bianche e più spesse sopra i colori pieni, come su Meteociel
+            ...(synoptic()
+              ? { color: "#ffffff", weight: isBold ? 4 : 3, opacity: 0.95 }
+              : { color: "#1f2328", weight: isBold ? 2 : 0.9, opacity: isBold ? 0.85 : 0.55 }),
           }),
         );
       }
@@ -2943,9 +3012,10 @@
     // pannello e barra desktop: con un intervallo solo le date, senza mese per stare in una riga; altrimenti
     // istante e passo ("ven 13 nov, 18:00 · +18h")
     const span = state.run && intervalStartDate(s);
-    const panelTime = span ? fmtShown(s, { month: false }) : `${fmtShown(s)} · +${s}h`;
+    // senza corsa (grandezza che il modello non ha) niente date: fmtShown ha bisogno della corsa
+    const panelTime = !state.run ? "" : span ? fmtShown(s, { month: false }) : `${fmtShown(s)} · +${s}h`;
     ui.valid.classList.toggle("valid-span", !!span);
-    ui.valid.textContent = state.run ? panelTime : "";
+    ui.valid.textContent = panelTime;
     if (!state.run) {
       ui.range.textContent = "";
       // anche nella barra (su mobile il pannello di solito è chiuso): grandezza non fornita o dati non ancora arrivati
@@ -2954,7 +3024,7 @@
         : "non disponibile";
       // stessa struttura della barra normale: su mobile "non disponibile" al posto dell'ora, il modello a destra
       ui.badgeText.innerHTML =
-        `<b class="badge-d">${modelLabel()}</b><span class="badge-run badge-d">${what === "nessun dato" ? "nessun dato" : `${baseLabel()} non disponibile`}</span>` +
+        `<b class="badge-d">${modelLabel()}</b><span class="badge-run badge-d">${what === "nessun dato" ? "nessun dato" : "grandezza non disponibile"}</span>` +
         `<span class="badge-m badge-m-time"><b>${what}</b></span>` +
         `<span class="badge-m badge-m-model">${shortLabel(state.model)}</span>`;
       return;
@@ -3008,10 +3078,7 @@
       const names = meta.models
         .filter((m) => variable().models.includes(m.id))
         .map((m) => shortLabel(m.id));
-      showNoData(
-        `${modelLabel()} non fornisce ${baseLabel()}`,
-        `Disponibile con: ${names.join(", ")}.`,
-      );
+      showNoData("Grandezza non disponibile", `Disponibile con: ${names.join(", ")}.`);
       return;
     }
     if (!state.run) {
@@ -3434,8 +3501,9 @@
   function renderPoints() {
     const pts = places;
     if (pointMarkers.length !== pts.length) return; // all'avvio prima di setupPoints: le disegna lui
-    if (state.extra !== "none") {
-      // radar o satellite: le località servono solo a orientarsi, niente valori del modello
+    if (state.extra !== "none" || synoptic()) {
+      // radar o satellite: le località servono solo a orientarsi, niente valori del modello. Carta sinottica: il
+      // nome, e toccandole si aprono gli spaghetti dell'ensemble GFS
       pts.forEach((p, i) => {
         const el = pointMarkers[i].getElement();
         if (el) {
@@ -3528,6 +3596,14 @@
   const POP_GAP = 16; // distanza dal centro del cerchio alla punta della freccia
 
   function openPlacePop(idx) {
+    // carta sinottica: la località apre solo gli spaghetti, dell'ensemble del modello scelto (GFS o ECMWF; con la
+    // mediana quello di GFS); nel grafico si passa all'altro
+    if (synoptic()) {
+      const ens = meta.ensemble || {};
+      const model = ens[state.model] ? state.model : ens.gfs ? "gfs" : Object.keys(ens)[0];
+      if (model) openChart(places[idx], { ensemble: true, model });
+      return;
+    }
     if (state.extra !== "none") return; // con radar o satellite il riquadro dei valori del modello non serve
     popIdx = idx;
     ui.probe.hidden = true;
@@ -3887,6 +3963,14 @@
       );
       ctx.globalAlpha = 1;
     }
+    // carta sinottica: coste e stati sono linee nostre anche con Mapbox (vedi styleSynBorders)
+    const synCanvas = map.getPane("synBorders").querySelector("canvas");
+    if (synCanvas && synoptic() && state.borders !== "none") {
+      const r = synCanvas.getBoundingClientRect();
+      ctx.globalAlpha = state.bordersOpacity;
+      ctx.drawImage(synCanvas, r.left - cr.left, r.top - cr.top, r.width, r.height);
+      ctx.globalAlpha = 1;
+    }
     const arrowsCanvas = map.getPane("arrows").querySelector("canvas");
     if (
       arrowsCanvas &&
@@ -3924,7 +4008,8 @@
       const x = r.left - cr.left + r.width / 2,
         y = r.top - cr.top + r.height / 2;
       ctx.lineWidth = 3;
-      ctx.strokeStyle = "rgba(255,255,255,0.9)";
+      // ombra nera sotto le etichette bianche della carta sinottica, alone chiaro sotto quelle scure
+      ctx.strokeStyle = synoptic() ? "rgba(0,0,0,0.9)" : "rgba(255,255,255,0.9)";
       ctx.lineJoin = "round";
       ctx.strokeText(el.textContent, x, y);
       ctx.fillStyle = cs.color;
@@ -3932,7 +4017,7 @@
     }
     // punti: centro del cerchio e posizione del valore rispetto al centro (come sullo schermo)
     const points = [];
-    for (const m of pointMarkers) {
+    for (const m of synoptic() ? [] : pointMarkers) {
       const el = m.getElement();
       if (!el) continue;
       const num = el.querySelector(".pt-num");
@@ -4546,6 +4631,7 @@
     // si parte dalla mappa così come la stai guardando (stessa zona e stesso zoom): niente posizione del dispositivo
     shareRestore = null;
     widenMore = 1;
+    await shareWideStart();
     await takeSnap();
     crop.texts = shareTexts();
     // all'apertura il riquadro più grande che sta nella mappa, al centro (la proporzione resta l'ultima scelta)
@@ -4558,7 +4644,7 @@
     crop.touched = false;
     shareUi.pointsRow.hidden = !crop.snap.points.length || !!crop.pinLL;
     // località: con le mappe dei modelli accese (valori), con radar e satellite spente (si accendono dall'interruttore)
-    shareUi.points.checked = state.extra === "none";
+    shareUi.points.checked = state.extra === "none" && !synoptic();
     shareUi.dialog.showModal();
     layoutView();
     setRatio(crop.ratio);
@@ -4569,7 +4655,37 @@
     if (shareRestore)
       map.setView(shareRestore.center, shareRestore.zoom, { animate: false });
     shareRestore = null;
+    shareWideEnd();
   });
+
+  // Carta sinottica su uno schermo stretto (telefono in verticale): la mappa vista è alta e stretta e l'immagine
+  // coprirebbe poca Europa. Con la finestra di condivisione aperta la mappa, nascosta sotto, diventa larga 16:9 alla
+  // stessa altezza e si inquadra come sul desktop; alla chiusura torna com'era.
+  let shareWide = null;
+  async function shareWideStart() {
+    const r = map.getContainer().getBoundingClientRect();
+    if (!synoptic() || r.width / r.height >= 1.4) return;
+    shareWide = { center: map.getCenter(), zoom: map.getZoom() };
+    const root = document.documentElement.style;
+    root.setProperty("--share-w", `${Math.round((r.height * 16) / 9)}px`);
+    root.setProperty("--share-h", `${Math.round(r.height)}px`);
+    document.body.classList.add("share-wide");
+    map.invalidateSize({ pan: false });
+    glBase?.resize();
+    updateMinZoom();
+    synopticView();
+    await mapReady();
+  }
+  function shareWideEnd() {
+    if (!shareWide) return;
+    const { center, zoom } = shareWide;
+    shareWide = null;
+    document.body.classList.remove("share-wide");
+    map.invalidateSize({ pan: false });
+    glBase?.resize();
+    updateMinZoom();
+    map.setView(center, Math.max(zoom, map.getMinZoom()), { animate: false });
+  }
 
   // posizione del dispositivo: non si usa più (prima centrava l'immagine condivisa); via quella salvata dalle versioni
   // precedenti
@@ -4751,6 +4867,7 @@
   // margine uguale su tutti i lati (come --cm in style.css): a sinistra coincide con lo spazio dei numeri dell'asse,
   // così titolo della finestra e titoli dei grafici partono alla stessa distanza dal bordo che i grafici hanno a destra
   const CHART_AXIS = 40; // spazio dei numeri dell'asse dentro l'SVG, a sinistra del grafico
+  const OFFICIAL = "#22c55e"; // verde della corsa ufficiale (controllo) negli spaghetti
   const CHART_R = 30; // dentro l'SVG, a destra: la scala dell'accumulo della pioggia e l'ultima ora sull'asse
   chartUi.close.addEventListener("click", () => chartUi.dialog.close());
 
@@ -4789,6 +4906,21 @@
     return { lat: t.lat0 + iy * dstep, lon: t.lon0 + ix * dstep, vars };
   }
 
+  /** Spaghetti dell'ensemble di un modello nel punto più vicino: dal server o, nel sito statico, dal file del punto. */
+  async function getEnsemble(model, lat, lon) {
+    if (!STATIC) {
+      const r = await fetch(`api/ensemble?${new URLSearchParams({ model, lat, lon })}`);
+      if (!r.ok) throw new Error(r.statusText);
+      return r.json();
+    }
+    const { run, grid: g } = meta.ensemble[model];
+    const iy = Math.min(Math.max(Math.round((lat - g.lat0) / g.dlat), 0), g.ny - 1),
+      ix = Math.min(Math.max(Math.round((lon - g.lon0) / g.dlon), 0), g.nx - 1);
+    const r = await fetch(`data/ensemble/${model}/${run}/${iy}_${ix}.json`);
+    if (!r.ok) throw new Error("ensemble non disponibile per questo punto");
+    return r.json();
+  }
+
   function writeChartHash(push = false) {
     if (!chartContext) return;
     const params = new URLSearchParams(location.hash.slice(1));
@@ -4800,6 +4932,8 @@
     else params.delete("chartFrom");
     if (chartContext.run) params.set("chartRun", chartContext.run);
     else params.delete("chartRun");
+    if (chartContext.ensemble) params.set("chartEns", "1");
+    else params.delete("chartEns");
     if (push)
       history.pushState(
         { ...history.state, weatherChart: true },
@@ -4843,7 +4977,14 @@
         : 0;
     openChart(
       { lat, lon, name: params.get("place") || `${lat}, ${lon}` },
-      { model, run, from, until, pushHistory: false },
+      {
+        model,
+        run,
+        from,
+        until,
+        pushHistory: false,
+        ensemble: params.get("chartEns") === "1" && !!meta.ensemble?.[model],
+      },
     );
   }
 
@@ -4857,21 +4998,29 @@
       from = state.mode === "interval" ? intervalPrev() : 0,
       until = state.step,
       pushHistory = true,
+      ensemble = false, // spaghetti dell'ensemble GFS (carta sinottica) al posto del meteogramma
     } = {},
   ) {
     chartUi.title.textContent = p.name;
-    fillModelSelect(meta.models, model, chartUi.model);
-    for (const option of chartUi.model.options)
-      option.disabled = !(runs[option.value] || []).some(
-        (run) => !run.incoming,
-      );
-    chartContext = {
-      place: p,
-      model,
-      run: run || (model === state.model ? state.run : null),
-      from,
-      until,
-    };
+    if (ensemble)
+      // spaghetti: solo i modelli con l'ensemble (GFS, ECMWF)
+      fillModelSelect(meta.models.filter((m) => meta.ensemble?.[m.id]), model, chartUi.model);
+    else {
+      fillModelSelect(meta.models, model, chartUi.model);
+      for (const option of chartUi.model.options)
+        option.disabled = !(runs[option.value] || []).some(
+          (run) => !run.incoming,
+        );
+    }
+    chartContext = ensemble
+      ? { place: p, model, run: meta.ensemble?.[model]?.run, from: 0, until: 384, ensemble: true }
+      : {
+          place: p,
+          model,
+          run: run || (model === state.model ? state.run : null),
+          from,
+          until,
+        };
     writeChartHash(pushHistory && !chartUi.dialog.open);
     if (!chartUi.dialog.open) chartUi.dialog.showModal();
     chartUi.dialog.focus();
@@ -4879,11 +5028,36 @@
   }
   async function loadChart(model, selectedRun) {
     if (!chartContext) return;
-    const run =
-      selectedRun || (runs[model] || []).find((entry) => !entry.incoming)?.run;
+    const run = chartContext.ensemble
+      ? meta.ensemble?.[model]?.run // spaghetti: l'ultima corsa completa dell'ensemble del modello
+      : selectedRun || (runs[model] || []).find((entry) => !entry.incoming)?.run;
     const request = { ...chartContext, model, run };
     chartContext = request;
     writeChartHash();
+    if (request.ensemble) {
+      const info = meta.ensemble?.[model];
+      chartUi.details.textContent = run
+        ? `${info.label} · ${cycle(run)} ${fmtRunDay(run)}`
+        : "Ensemble non disponibile";
+      chartUi.body.innerHTML = '<div class="chart-empty">Caricamento…</div>';
+      chartData = null;
+      chartPin = null;
+      $("chart-readout").hidden = true;
+      try {
+        if (!run) throw new Error("nessuna corsa disponibile");
+        const ens = await getEnsemble(model, request.place.lat, request.place.lon);
+        if (chartContext !== request || !chartUi.dialog.open) return;
+        chartData = { ensemble: ens, model, run, from: 0, until: 384 };
+        drawChart();
+      } catch (e) {
+        if (chartContext !== request || !chartUi.dialog.open) return;
+        const message = document.createElement("div");
+        message.className = "chart-empty";
+        message.textContent = `Grafico non disponibile: ${e.message}`;
+        chartUi.body.replaceChildren(message);
+      }
+      return;
+    }
     // periodo in date, come nella barra della mappa (i passi si riferiscono alla corsa scelta qui)
     const at = (step) => new Date(runDate(run).getTime() + step * 3600e3);
     const period = !run
@@ -4936,6 +5110,7 @@
         "chartRun",
         "chartStep",
         "chartFrom",
+        "chartEns",
       ])
         params.delete(key);
       history.replaceState(history.state, "", "#" + params.toString());
@@ -4972,11 +5147,14 @@
       `.ch-pin{stroke:${c.fg};stroke-width:1.5;opacity:.75}.ch-pin-dot{stroke:${c.bg};stroke-width:2}`,
       `.ch-pin-bar{stroke:${c.fg};stroke-width:1.5}`,
       `.ch-acc{stroke:${c.acc}}.ch-acc-area{fill:${c.acc};fill-opacity:.1}.ch-acc-tick{fill:${c.acc}}`,
+      `.ch-ens-mean{stroke:${c.fg}}.ch-ens-ctl{stroke:${OFFICIAL}}.ch-ens-halo{stroke:${c.bg}}`,
     ].join("");
   async function makeChartFile() {
     const { model, run } = chartData;
     const title = chartUi.title.textContent;
-    const subtitle = `${meta.models.find((entry) => entry.id === model)?.label || model} · ${chartUi.details.textContent}`;
+    const subtitle = chartData.ensemble
+      ? chartUi.details.textContent // dice già "Ensemble GFS/ECMWF"
+      : `${meta.models.find((entry) => entry.id === model)?.label || model} · ${chartUi.details.textContent}`;
     // immagine verticale 4:5 (2160 × 2700 px): formato pieno su Instagram, intera nelle chat; i pannelli si allungano.
     // Si disegna su 600 × 750 punti ingranditi 3,6 volte: testi e linee in proporzione come nella pagina sul telefono
     // (su 1080 punti, rimpicciolita nello schermo, sembrava tutto minuscolo)
@@ -4984,16 +5162,16 @@
       OH = 750,
       M = 28,
       K = 3.6,
-      FOOT = 48; // dimensioni, margine, scala, spazio dei crediti in fondo
+      FOOT = 30; // dimensioni, margine, scala, spazio di "Realizzato da" in fondo
     const EW = OW - 2 * M + CHART_R; // larghezza dell'SVG (a destra il suo margine interno sostituisce M)
     const TOP = M + 78; // titolo, sottotitolo e spazio prima dei grafici
-    const PB = { stem: 14, pad: 10, line: 19, font: 13 }; // riquadro dell'ora fissata
-    const probe = drawChart(EW);
-    if (!probe) throw new Error("niente da condividere");
-    const pbH = probe.pinBox
-      ? PB.stem + PB.pad * 2 + PB.line * (1 + probe.pinBox.rows.length) + 12
-      : 0;
-    const g = drawChart(EW, OH - TOP - pbH - FOOT - M);
+    const PB = { pad: 10, line: 19, font: 13 }; // riquadro dell'ora fissata
+    // righe dei valori del riquadro: una per grafico
+    const pbLines = (pb) => (pb.table ? pb.table.rows.length : pb.rows.length);
+    // il grafico prende tutta l'altezza: il riquadro dell'ora fissata sta sopra il grafico, in alto accanto alla sua
+    // linea (come la scheda nella pagina), e non tocca mai "Realizzato da" in fondo
+    const g = drawChart(EW, OH - TOP - FOOT - M);
+    if (!g) throw new Error("niente da condividere");
     const c = chartColors();
     // larghezza e altezza già alla risoluzione finale: il browser rasterizza l'SVG a quella misura (nitido)
     const svgText = `<svg xmlns="http://www.w3.org/2000/svg" width="${g.W * K}" height="${g.H * K}" viewBox="0 0 ${g.W} ${g.H}"><style>${chartCss(c)}</style>${g.markup}</svg>`;
@@ -5008,7 +5186,7 @@
       loadFlag(model, c.fg),
     ]);
     const cw = OW,
-      chh = Math.max(OH, TOP + g.H + pbH + FOOT + M); // più alta solo se i pannelli non ci stanno
+      chh = Math.max(OH, TOP + g.H + FOOT + M); // più alta solo se i pannelli non ci stanno
     const cv = document.createElement("canvas");
     cv.width = cw * K;
     cv.height = chh * K;
@@ -5047,29 +5225,39 @@
           return w + ctx.measureText(t).width;
         }, 0);
       ctx.font = `400 ${PB.font}px ${FONT}`;
+      // tabella (spaghetti), più piccola: per riga "Ufficiale 3.7 °C  Media 2.3 °C", le celle dei valori tutte larghe
+      // quanto il valore più largo, così le colonne restano allineate
+      const tb = pb.table,
+        TF = 11.5, // font della tabella
+        TL = 16, // interlinea della tabella
+        LGAP = 5, // tra etichetta e valore
+        COLGAP = 14; // tra una coppia e l'altra
+      let labW = [],
+        valW = 0;
+      if (tb) {
+        ctx.font = `400 ${TF}px ${FONT}`;
+        labW = tb.head.map((h) => Math.ceil(ctx.measureText(h.t).width));
+        ctx.font = `650 ${TF}px ${FONT}`;
+        for (const r of tb.rows) for (const v of r) valW = Math.max(valW, Math.ceil(ctx.measureText(v).width));
+      }
+      const tableW = labW.reduce((a, w) => a + w + LGAP + valW, 0) + COLGAP * Math.max(0, labW.length - 1);
+      const HF = tb ? TF : PB.font, // font e interlinea del riquadro (più piccoli per gli spaghetti)
+        HL = tb ? TL : PB.line,
+        HP = tb ? 8 : PB.pad;
+      ctx.font = `400 ${HF}px ${FONT}`;
       const bw =
         Math.ceil(
-          Math.max(ctx.measureText(pb.head).width, ...pb.rows.map(widthOf)),
+          Math.max(ctx.measureText(pb.head).width, tableW, ...pb.rows.map(widthOf)),
         ) +
-        PB.pad * 2 +
+        HP * 2 +
         4;
-      const bh = PB.pad * 2 + PB.line * (1 + pb.rows.length) - 4;
-      const by = TOP + g.H + PB.stem,
+      const bh = HP * 2 + HL * (1 + pbLines(pb)) - 4;
+      // in alto, sotto il titolo del primo grafico, dal lato della linea con più spazio
+      const by = TOP + 24,
         bx = Math.max(
           M,
-          Math.min(
-            pb.x < pb.right / 2 ? lx - 14 : lx - bw + 14,
-            M + pb.right - bw,
-          ),
+          Math.min(pb.x < pb.right / 2 ? lx + 10 : lx - bw - 10, M + pb.right - bw),
         );
-      ctx.strokeStyle = c.fg;
-      ctx.globalAlpha = 0.75;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(lx, TOP + g.H - 1);
-      ctx.lineTo(lx, by);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
       ctx.beginPath();
       ctx.roundRect(bx + 0.5, by + 0.5, bw, bh, 7);
       ctx.fillStyle = c.bg;
@@ -5077,41 +5265,48 @@
       ctx.strokeStyle = c.line;
       ctx.lineWidth = 1;
       ctx.stroke();
-      let ty = by + PB.pad + PB.font;
-      ctx.font = `400 ${PB.font}px ${FONT}`;
+      let ty = by + HP + HF;
+      ctx.font = `400 ${HF}px ${FONT}`;
       ctx.fillStyle = c.muted;
-      ctx.fillText(pb.head, bx + PB.pad, ty);
+      ctx.fillText(pb.head, bx + HP, ty);
       ctx.fillStyle = c.fg;
+      if (tb) {
+        for (const r of tb.rows) {
+          ty += HL;
+          let tx = bx + HP;
+          r.forEach((v, k) => {
+            ctx.font = `400 ${TF}px ${FONT}`;
+            ctx.fillStyle = tb.head[k].col || c.muted;
+            ctx.fillText(tb.head[k].t, tx, ty);
+            tx += labW[k] + LGAP;
+            ctx.font = `650 ${TF}px ${FONT}`;
+            ctx.fillStyle = c.fg;
+            ctx.fillText(v, tx, ty);
+            tx += valW + COLGAP;
+          });
+        }
+      }
       for (const parts of pb.rows) {
         ty += PB.line;
         let tx = bx + PB.pad;
-        for (const [t, b] of parts) {
+        for (const [t, b, col] of parts) {
           ctx.font = `${b ? 650 : 400} ${PB.font}px ${FONT}`;
+          ctx.fillStyle = col || c.fg; // "Ufficiale" nel verde della sua linea
           ctx.fillText(t, tx, ty);
           tx += ctx.measureText(t).width;
         }
       }
     }
-    // crediti dei dati su una riga, sotto "Realizzato da" a destra
-    ctx.font = `400 10px ${FONT}`;
-    const attr = shareTexts().attr;
-    ctx.fillText(
-      attr.slice(Math.max(0, attr.indexOf("Dati:"))),
-      M,
-      chh - M,
-      cw - M * 2,
-    ); // niente crediti della mappa
+    // in fondo a destra solo "Realizzato da signalkuppe.com", piccolo (niente riga dei crediti dei dati)
     ctx.textAlign = "right";
-    ctx.translate(0, -18); // "Realizzato da" una riga sopra
-    ctx.font = `700 14px ${FONT}`;
+    ctx.font = `700 9.5px ${FONT}`;
     ctx.fillStyle = c.fg;
     const site = "signalkuppe.com";
     ctx.fillText(site, cw - M, chh - M);
     const sw = ctx.measureText(site).width;
-    ctx.font = `400 14px ${FONT}`;
+    ctx.font = `400 9.5px ${FONT}`;
     ctx.fillStyle = c.muted;
     ctx.fillText("Realizzato da ", cw - M - sw, chh - M);
-    ctx.translate(0, 18);
     const blob = await new Promise((resolve) =>
       cv.toBlob(resolve, "image/jpeg", 0.92),
     );
@@ -5189,7 +5384,310 @@
   };
 
   /** Disegna il meteogramma nella finestra; con `exportW` restituisce invece l'SVG largo exportW (per l'immagine). */
+  /** Spaghetti di un ensemble: una linea per membro (sottili, colorate), il controllo ("ufficiale", GFS) in verde e la media spessa;
+   *  sopra la temperatura a 850 hPa, sotto la pioggia di ogni 6 ore. Tooltip con media e forbice dei membri. */
+  function drawEnsemble(exportW, exportH) {
+    const { ensemble: E, run } = chartData;
+    const t0 = runDate(run).getTime();
+    const W = exportW || Math.max(280, chartUi.body.clientWidth);
+    const R = exportW ? CHART_R : 14; // nella finestra a destra basta l'ultima etichetta dei giorni (niente scala della pioggia); nell'immagine fa da margine
+    let L = CHART_AXIS, // si stringe sui numeri dell'asse (vedi sotto)
+      pw = W - L - R;
+    const HEAD = 30,
+      GAP = 16,
+      AXIS = 34;
+    const steps = E.steps,
+      x0 = 0,
+      x1 = steps[steps.length - 1];
+    const X = (h) => L + ((h - x0) / (x1 - x0 || 1)) * pw;
+    const fmt = (x, d) => (x == null ? "—" : x.toFixed(d).replace("-", "−"));
+    const mean = (rows) =>
+      steps.map((_, i) => {
+        const v = rows.map((r) => r[i]).filter((x) => x != null);
+        return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+      });
+    const ctl = E.control ? E.members.indexOf(E.control) : -1; // l'ensemble ECMWF dei dati aperti non ha il controllo
+    const panels = [
+      { title: "Temperatura 850 hPa", unit: "°C", rows: E.t850, dec: 1, zero: true, ph: 170 },
+      { title: "Pioggia", unit: "mm in 6 ore", rows: E.tp, dec: 1, min: 2, floor0: true, ph: 110 },
+    ];
+    // altezza: quella dell'immagine o, nella finestra, tutta quella disponibile (i pannelli si allungano)
+    const fitH = exportH || (chartUi.body.clientHeight > 320 ? chartUi.body.clientHeight - 12 : null);
+    const avail = fitH ? fitH - AXIS - panels.length * (HEAD + GAP) + GAP : null;
+    if (avail) {
+      const tot = panels.reduce((a, p) => a + p.ph, 0);
+      for (const p of panels) p.ph = Math.max(60, (p.ph / tot) * avail);
+    }
+    const svg = [];
+    let top = HEAD;
+    const tickText = (t) => fmt(t, Math.abs(t) < 10 && t % 1 ? 1 : 0);
+    for (const p of panels) {
+      p.mean = mean(p.rows);
+      const vals = p.rows.flat().filter((x) => x != null);
+      let lo = p.floor0 ? 0 : Math.min(...vals),
+        hi = Math.max(p.min ?? -Infinity, ...vals);
+      if (p.zero) {
+        lo = Math.min(lo, 0);
+        hi = Math.max(hi, 0);
+      }
+      p.ticks = niceTicks(lo, hi, 4);
+      p.lo = Math.min(lo, p.ticks[0]);
+      p.hi = Math.max(hi, p.ticks[p.ticks.length - 1]);
+    }
+    {
+      // il grafico parte subito dopo il numero più largo dell'asse (11-11.5 px, ~6.6 px per cifra)
+      const chars = Math.max(...panels.flatMap((p) => p.ticks.map((t) => tickText(t).length)));
+      L = Math.ceil(chars * 6.6) + 5;
+      pw = W - L - R;
+    }
+    for (const p of panels) {
+      const { ticks, lo, hi } = p;
+      const bot = top + p.ph;
+      const Y = (y) => bot - ((y - lo) / (hi - lo || 1)) * p.ph;
+      Object.assign(p, { top, bot, Y });
+      svg.push(
+        `<text class="ch-title" x="0" y="${top - 14}">${p.title} <tspan class="ch-note">(${p.unit})</tspan></text>`,
+      );
+      for (const t of ticks) {
+        svg.push(`<line class="ch-grid" x1="${L}" x2="${L + pw}" y1="${Y(t)}" y2="${Y(t)}"/>`);
+        svg.push(
+          `<text class="ch-tick" x="${L - 4}" y="${Y(t) + 3.5}" text-anchor="end">${tickText(t)}</text>`,
+        );
+      }
+      if (p.zero && lo < 0 && hi > 0)
+        svg.push(`<line class="ch-zero" x1="${L}" x2="${L + pw}" y1="${Y(0)}" y2="${Y(0)}"/>`);
+      const path = (row) => {
+        let d = "",
+          pen = false;
+        row.forEach((v, i) => {
+          if (v == null) {
+            pen = false;
+            return;
+          }
+          d += `${pen ? "L" : "M"}${X(steps[i]).toFixed(1)},${Y(v).toFixed(1)}`;
+          pen = true;
+        });
+        return d;
+      };
+      // membri perturbati: arcobaleno come le carte classiche, sottili e un po' trasparenti
+      p.rows.forEach((row, k) => {
+        if (k === ctl) return;
+        const hue = Math.round((k * 300) / p.rows.length);
+        svg.push(
+          `<path d="${path(row)}" fill="none" stroke="hsl(${hue} 70% 50%)" stroke-width="0.8" stroke-opacity="0.6" stroke-linejoin="round"/>`,
+        );
+      });
+      svg.push(
+        `<path class="ch-ens-mean" d="${path(p.mean)}" fill="none" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>`,
+      );
+      // controllo sopra a tutto, più spesso e con un bordo del colore di fondo che lo stacca dagli spaghetti
+      if (ctl >= 0) {
+        const d = path(p.rows[ctl]);
+        svg.push(
+          `<path class="ch-ens-halo" d="${d}" fill="none" stroke-width="${exportW ? 2 : 2.6}" stroke-linejoin="round" stroke-linecap="round"/>`,
+          `<path class="ch-ens-ctl" d="${d}" fill="none" stroke-width="${exportW ? 1.1 : 1.4}" stroke-linejoin="round" stroke-linecap="round"/>`,
+        );
+      }
+      top = bot + GAP + HEAD;
+    }
+    const H = panels[panels.length - 1].bot + AXIS;
+    const yBot = H - AXIS;
+    // giorni a mezzanotte (ora di Roma), etichette solo se c'è spazio
+    const hourOf = (h) =>
+      +new Date(t0 + h * 3600e3).toLocaleString("it-IT", {
+        timeZone: "Europe/Rome",
+        hour: "2-digit",
+        hour12: false,
+      });
+    const perDay = pw / ((x1 - x0) / 24);
+    const labelEvery = perDay >= 34 ? 1 : perDay >= 17 ? 2 : 4;
+    let nDay = 0;
+    for (let h = 1; h <= x1; h++) {
+      if (hourOf(h) % 24 !== 0) continue;
+      svg.push(`<line class="ch-day" x1="${X(h)}" x2="${X(h)}" y1="${HEAD + 2}" y2="${yBot}"/>`);
+      if (nDay++ % labelEvery) continue;
+      const d = new Date(t0 + h * 3600e3).toLocaleDateString("it-IT", {
+        timeZone: "Europe/Rome",
+        ...(perDay >= 52 ? { weekday: "short", day: "numeric" } : { day: "numeric" }),
+      });
+      svg.push(
+        `<text class="ch-tick" x="${X(h)}" y="${yBot + 16}" text-anchor="middle" font-weight="600">${d}</text>`,
+      );
+    }
+    // valori a un passo in tabella: colonne Ufficiale (il controllo, se c'è) e Media, una riga per grafico; per
+    // tooltip, scheda dell'ora fissata e immagine
+    const valueTable = (i) => {
+      const cols = [...(ctl >= 0 ? [{ t: "Ufficiale", col: OFFICIAL, row: (p) => p.rows[ctl][i] }] : []),
+        { t: "Media", row: (p) => p.mean[i] }];
+      const rows = panels
+        .map((p) => cols.map((c) => c.row(p)).map((v) => (v == null ? "—" : `${fmt(v, p.dec)} ${unitOf(p)}`)))
+        .filter((r) => r.some((x) => x !== "—"));
+      return rows.length ? { head: cols.map(({ t, col }) => ({ t, col })), rows } : null;
+    };
+    const unitOf = (p) => (p.title === "Pioggia" ? "mm" : "°C");
+    const pin = chartPin != null && steps.includes(chartPin) ? chartPin : null;
+    if (exportW) {
+      // ora fissata: linea sul grafico e riquadro con ora e valori accanto, in alto (come gli altri grafici)
+      if (pin != null)
+        svg.push(`<line class="ch-pin" x1="${X(pin)}" x2="${X(pin)}" y1="${HEAD + 2}" y2="${yBot}"/>`);
+      const i = steps.indexOf(pin);
+      const pinBox =
+        pin == null
+          ? null
+          : {
+              x: X(pin),
+              right: X(x1),
+              head: `${fmtLocal(new Date(t0 + pin * 3600e3))} · +${pin}h`,
+              rows: [],
+              table: valueTable(i),
+            };
+      return { markup: svg.join(""), W, H, pinBox };
+    }
+    svg.push(
+      `<line class="ch-cursor" id="ch-cursor" x1="0" x2="0" y1="${HEAD + 2}" y2="${yBot}" visibility="hidden"/>`,
+      `<line class="ch-cursor pinned" id="ch-pinline" x1="0" x2="0" y1="${HEAD + 2}" y2="${yBot}" visibility="hidden"/>`,
+    );
+    svg.push(`<rect id="ch-hit" x="${L}" y="0" width="${pw}" height="${yBot}" fill="transparent"/>`);
+    chartUi.body.innerHTML =
+      `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="Spaghetti dell'ensemble">${svg.join("")}</svg>` +
+      '<div class="chart-tip" hidden></div>';
+    const svgEl = chartUi.body.querySelector("svg"),
+      tip = chartUi.body.querySelector(".chart-tip"),
+      cursor = svgEl.querySelector("#ch-cursor"),
+      pinLine = svgEl.querySelector("#ch-pinline"),
+      hit = svgEl.querySelector("#ch-hit");
+    const stepAt = (clientX) => {
+      const r = svgEl.getBoundingClientRect();
+      const h = x0 + (((clientX - r.left) * (W / r.width) - L) / pw) * (x1 - x0);
+      let i = 0;
+      for (let k = 1; k < steps.length; k++) if (Math.abs(steps[k] - h) < Math.abs(steps[i] - h)) i = k;
+      return steps[i];
+    };
+    const rowsHtml = (st) => {
+      const tb = valueTable(steps.indexOf(st));
+      if (!tb) return "";
+      // una riga per grafico, "Ufficiale 3.7 °C  Media 2.3 °C": le celle dei valori hanno tutte la stessa larghezza
+      const label = ({ t, col }) => `<span class="h"${col ? ` style="color:${col}"` : ""}>${t}</span>`;
+      return (
+        `<div class="ens-vals" style="grid-template-columns:${tb.head.map(() => "auto 1fr").join(" ")}">` +
+        tb.rows.map((r) => r.map((v, k) => label(tb.head[k]) + `<b>${v}</b>`).join("")).join("") +
+        "</div>"
+      );
+    };
+    // tooltip di lettura (scuro) o scheda dell'ora fissata (chiara, con Condividi · Scarica · ✕)
+    const showAt = (st, clientX, clientY, pinned = false) => {
+      cursor.setAttribute("x1", X(st));
+      cursor.setAttribute("x2", X(st));
+      cursor.setAttribute("visibility", pinned ? "hidden" : "visible");
+      tip.classList.toggle("pinned", pinned);
+      tip.innerHTML =
+        `<div class="t">${fmtLocal(new Date(t0 + st * 3600e3))} · +${st}h</div>` +
+        rowsHtml(st) +
+        (pinned
+          ? `<div class="chart-tip-actions"><button type="button" data-act="share">Condividi</button>` +
+            `<button type="button" data-act="download">Scarica</button>` +
+            `<button type="button" data-act="remove" aria-label="Togli l'ora fissata">✕</button></div>`
+          : "");
+      tip.hidden = false;
+      const br = chartUi.body.getBoundingClientRect();
+      const cx = clientX - br.left,
+        w = tip.offsetWidth;
+      tip.style.left = `${Math.min(Math.max(cx + 14 + w > br.width ? cx - 14 - w : cx + 14, 4), br.width - w - 4)}px`;
+      tip.style.top = `${Math.max(chartUi.body.scrollTop + 4, clientY - br.top + chartUi.body.scrollTop - 20)}px`;
+    };
+    const hide = () => {
+      tip.hidden = true;
+      cursor.setAttribute("visibility", "hidden");
+    };
+    const renderPin = () => {
+      const on = chartPin != null && steps.includes(chartPin);
+      pinLine.setAttribute("visibility", on ? "visible" : "hidden");
+      if (!on) return;
+      pinLine.setAttribute("x1", X(chartPin));
+      pinLine.setAttribute("x2", X(chartPin));
+    };
+    // scheda dell'ora fissata in alto, accanto alla sua linea
+    const showPinTip = () => {
+      const r = svgEl.getBoundingClientRect();
+      showAt(chartPin, r.left + (X(chartPin) / W) * r.width, chartUi.body.getBoundingClientRect().top + 4, true);
+    };
+    const pinAt = (st) => {
+      chartPin = st;
+      renderPin();
+      showPinTip();
+    };
+    const unpin = () => {
+      chartPin = null;
+      renderPin();
+      hide();
+    };
+    tip.addEventListener("click", (ev) => {
+      const btn = ev.target.closest("button[data-act]");
+      if (!btn) return;
+      if (btn.dataset.act === "remove") unpin();
+      else chartImage(btn, btn.dataset.act === "share"); // stessa immagine dei pulsanti in alto, con l'ora fissata
+    });
+    // mouse: passandoci sopra si leggono i valori, il clic destro fissa l'ora. Dito: scorrendo si leggono i valori,
+    // la pressione prolungata fissa l'ora (poi trascinando la si sposta); tornando a scorrere si toglie
+    const PRESS_MS = 450,
+      SLOP = 8;
+    let touch = null;
+    hit.addEventListener("contextmenu", (ev) => {
+      ev.preventDefault();
+      if (ev.pointerType === "touch" || touch) return; // col dito ci pensa la pressione prolungata
+      pinAt(stepAt(ev.clientX));
+    });
+    hit.addEventListener("pointerdown", (ev) => {
+      if (ev.pointerType === "mouse") return;
+      const st = stepAt(ev.clientX);
+      touch = { x0: ev.clientX, moved: false, pinning: false };
+      touch.timer = setTimeout(() => {
+        touch.pinning = true;
+        navigator.vibrate?.(10);
+        pinAt(st);
+      }, PRESS_MS);
+    });
+    hit.addEventListener("pointermove", (ev) => {
+      const st = stepAt(ev.clientX);
+      if (touch) {
+        if (!touch.moved && Math.abs(ev.clientX - touch.x0) <= SLOP) return;
+        touch.moved = true;
+        clearTimeout(touch.timer);
+        if (touch.pinning) {
+          if (st !== chartPin) pinAt(st);
+        } else {
+          if (chartPin != null) {
+            chartPin = null;
+            renderPin();
+          }
+          showAt(st, ev.clientX, ev.clientY);
+        }
+        return;
+      }
+      if (ev.pointerType !== "mouse" || chartPin != null) return; // con l'ora fissata resta la sua scheda
+      showAt(st, ev.clientX, ev.clientY);
+    });
+    const endTouch = (ev) => {
+      if (!touch) return;
+      clearTimeout(touch.timer);
+      const tap = ev.type === "pointerup" && !touch.moved && !touch.pinning;
+      if (tap && chartPin != null) unpin(); // tocco breve con un'ora fissata: la toglie
+      else if (tap) showAt(stepAt(ev.clientX), ev.clientX, ev.clientY);
+      else if (ev.type === "pointercancel" && chartPin == null) hide();
+      touch = null;
+    };
+    hit.addEventListener("pointerup", endTouch);
+    hit.addEventListener("pointercancel", endTouch);
+    hit.addEventListener("pointerleave", (ev) => {
+      if (ev.pointerType === "mouse" && chartPin == null) hide();
+    });
+    clearChartPin = unpin;
+    renderPin(); // ridisegno (finestra ridimensionata): l'ora fissata resta
+    if (pin != null) showPinTip();
+  }
+
   function drawChart(exportW, exportH) {
+    if (chartData.ensemble) return drawEnsemble(exportW, exportH);
     const { series, run, from, until } = chartData;
     // Il grafico usa lo stesso intervallo della mappa. Fuori dalla modalità intervallo `from` è 0, come prima.
     const V = Object.fromEntries(
@@ -5511,8 +6009,8 @@
     if (pin != null) {
       // linea dell'ora fissata sopra tutto, poi i pallini
       svg.push(
-        `<line class="ch-pin" x1="${X(pin)}" x2="${X(pin)}" y1="${HEAD + 2}" y2="${H}"/>`,
-      ); // scende fino al riquadro
+        `<line class="ch-pin" x1="${X(pin)}" x2="${X(pin)}" y1="${HEAD + 2}" y2="${yBot}"/>`,
+      ); // il riquadro coi valori le sta accanto, in alto
       for (const p of panels) if (p.pinDot) svg.push(p.pinDot);
     }
     if (exportW) {
@@ -5959,6 +6457,7 @@
   window.visualViewport?.addEventListener("resize", placeMapMenu);
   window.visualViewport?.addEventListener("scroll", placeMapMenu);
   function openMapMenu(ll) {
+    if (synoptic()) return; // carta sinottica: gli spaghetti si aprono dalle località
     closePlacePop();
     probeLL = null;
     ui.probe.hidden = true;
@@ -6299,6 +6798,7 @@
   // opacità dei confini (Impostazioni), separata da quella dei colori: vale per tutto il livello delle linee
   const applyBordersOpacity = () => {
     map.getPane("borders").style.opacity = state.bordersOpacity;
+    map.getPane("synBorders").style.opacity = state.bordersOpacity;
     glBorders();
   };
   ui.bordersOpacity.addEventListener("input", () => {
@@ -6333,6 +6833,7 @@
     togglePlay(false);
     if (state.extra !== "none") setExtra("none");
     state.var = ui.varSel.value;
+    applyArea();
     setupModels();
     setupModes();
     setupRuns();
@@ -6493,6 +6994,60 @@
     $("updated-row").hidden = false;
   }
 
+  // ---------- area della mappa: quella dei dati (BBOX) o quella della carta sinottica, che cambia con la grandezza
+  const toBounds = (b) =>
+    L.latLngBounds([b.lat_min, b.lon_min], [b.lat_max, b.lon_max]);
+  let areaBox = null, // area in cui si può muovere la mappa adesso
+    areaKey = null,
+    startView = null, // vista iniziale (Lombardia)
+    localView = null; // vista della mappa normale lasciata passando alla carta sinottica, per ritrovarla tornando
+  // Lo zoom minimo è quello per cui la vista sta tutta dentro l'area coperta dai dati:
+  // non si può mai vedere mappa senza dati. Si ricalcola se la finestra cambia dimensione.
+  function updateMinZoom() {
+    map.setMinZoom(0);
+    map.setMinZoom(map.getBoundsZoom(areaBox, true));
+  }
+  /** Carta sinottica centrata sul Nord Italia (centro della vista iniziale), allontanata quanto basta a riempire lo
+   *  schermo senza uscire dall'area: la fascia di latitudini attorno al centro che sta dentro l'area. */
+  function synopticView() {
+    const a = areaNow();
+    const c = startView.getCenter(),
+      merc = (lat) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360)),
+      unmerc = (y) => (Math.atan(Math.exp(y)) * 360) / Math.PI - 90,
+      half = Math.min(merc(a.lat_max) - merc(c.lat), merc(c.lat) - merc(a.lat_min)),
+      dlon = Math.min(c.lng - a.lon_min, a.lon_max - c.lng);
+    const band = L.latLngBounds(
+      [unmerc(merc(c.lat) - half), c.lng - dlon],
+      [unmerc(merc(c.lat) + half), c.lng + dlon],
+    );
+    map.setView(c, Math.max(map.getMinZoom(), map.getBoundsZoom(band, true)), { animate: false });
+  }
+  function applyArea() {
+    const a = areaNow(),
+      key = JSON.stringify(a);
+    if (key === areaKey) return;
+    if (areaKey && !document.body.classList.contains("synoptic-mode"))
+      localView = map.getBounds();
+    areaKey = key;
+    const syn = synoptic();
+    document.body.classList.toggle("synoptic-mode", syn);
+    closeMapMenu(); // le voci del menu cambiano fra le due aree
+    if (syn) closePlacePop();
+    ui.probe.hidden = true;
+    probeLL = null;
+    areaBox = toBounds(a);
+    // prima si tolgono i limiti di Mapbox: col cambio di zoom minimo riporterebbe Leaflet nella vecchia area
+    glBase?.setMaxBounds(null);
+    map.setMaxBounds(null);
+    updateMinZoom();
+    map.setMaxBounds(areaBox);
+    if (syn) synopticView();
+    else map.fitBounds(localView || startView, { animate: false });
+    glBase?.setMaxBounds(glBounds(a));
+    glSynopticBase();
+    styleBorders();
+  }
+
   // ---------- avvio
   /** Mapbox GL: caricato senza bloccare l'avvio della pagina, mentre si scaricano
    *  meta e corse. Se non arrivano entro 8 s si parte con gli sfondi di riserva. */
@@ -6532,26 +7087,15 @@
       setStatus(`Impossibile contattare il server: ${e.message}`, true);
       return;
     }
-    const toBounds = (b) =>
-      L.latLngBounds([b.lat_min, b.lon_min], [b.lat_max, b.lon_max]);
-    const box = toBounds(meta.bbox);
-    const start = toBounds(meta.initial_view || meta.bbox);
-    // Lo zoom minimo è quello per cui la vista sta tutta dentro l'area coperta dai dati:
-    // non si può mai vedere mappa senza dati. Si ricalcola se la finestra cambia dimensione.
-    const updateMinZoom = () => {
-      map.setMinZoom(0);
-      map.setMinZoom(map.getBoundsZoom(box, true));
-    };
-    map.setMaxBounds(box);
-    updateMinZoom();
-    map.fitBounds(start, { animate: false });
+    startView = toBounds(meta.initial_view || meta.bbox);
+    applyArea(); // area della mappa o, se la grandezza scelta è la carta sinottica, la sua
     await mapboxLib; // scaricata ed eseguita mentre arrivavano meta e corse
     setupMapbox(meta.mapbox_token); // dopo la prima vista: Leaflet aggiunge i livelli solo a mappa posizionata
     map.on("resize", () => {
       updateMinZoom();
       if (map.getZoom() < map.getMinZoom())
         map.setZoom(map.getMinZoom(), { animate: false });
-      map.panInsideBounds(box, { animate: false });
+      map.panInsideBounds(areaBox, { animate: false });
     });
     setBorders(state.borders, false);
     setExtra(state.extra, false);

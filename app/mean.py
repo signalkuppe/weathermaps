@@ -27,7 +27,7 @@ from datetime import timedelta
 import numpy as np
 
 from . import variables
-from .config import STEPS
+from .config import STEPS, BBox
 from .grid import Field
 from .sources import ModelInfo, parse_run_id, run_id
 from .store import Store
@@ -45,6 +45,7 @@ MODEL = ModelInfo(
 TARGET_DLAT = 0.02
 TARGET_DLON = 0.028
 ALIGN_HOURS = 6
+AREA_DSTEP = 0.25  # grandezze con area propria (carta sinottica): griglia di GFS ed ECMWF
 
 _lock = threading.Lock()
 
@@ -103,9 +104,17 @@ def _build(store: Store) -> dict:
     rid0 = run_id(t0)
     for var in variables.REGISTRY.values():
         chosen = {m: latest[m] for m in var.selectors if m in latest}
-        # griglia comune: per le grandezze a metà risoluzione (vento) una cella su due per lato
-        k = 2 if var.half_res else 1
-        vlats, vlons = tlats[::k], tlons[::k]
+        if var.area:
+            # carta sinottica (solo GFS ed ECMWF, stessa griglia): sulla sua area, a 0,25° come i due modelli
+            a = BBox.parse(var.area)
+            vdlat = vdlon = AREA_DSTEP
+            vlats = a.lat_min + np.arange(int(round((a.lat_max - a.lat_min) / vdlat)) + 1) * vdlat
+            vlons = a.lon_min + np.arange(int(round((a.lon_max - a.lon_min) / vdlon)) + 1) * vdlon
+        else:
+            # griglia comune: per le grandezze a metà risoluzione (vento) una cella su due per lato
+            k = 2 if var.half_res else 1
+            vlats, vlons = tlats[::k], tlons[::k]
+            vdlat, vdlon = TARGET_DLAT * k, TARGET_DLON * k
         if len(chosen) < 2:
             continue
         have = {m: set(store.steps(m, r, var.id)) for m, r in chosen.items()}
@@ -159,7 +168,7 @@ def _build(store: Store) -> dict:
             else:
                 out = m_val.astype(np.float32)
             store.save("mean", rid0, var.id, s, Field(values=out, lat0=float(vlats[0]), lon0=float(vlons[0]),
-                                                      dlat=TARGET_DLAT * k, dlon=TARGET_DLON * k))
+                                                      dlat=vdlat, dlon=vdlon))
             written[s] = used
 
         # passi di una versione precedente non più calcolabili

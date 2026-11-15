@@ -11,6 +11,8 @@ from typing import Callable, Literal
 
 import numpy as np
 
+from .config import SYNOPTIC_BBOX
+
 Kind = Literal["accum", "instant", "vector"]
 
 
@@ -75,6 +77,7 @@ class Variable:
     convert: dict[str, Callable[[float], float]]  # per modello, unità GRIB -> presentazione
     scale: ColorScale
     decimals: int = 1
+    menu_label: str | None = None  # nome breve nella tendina "Grandezza" (sta su una riga); legenda e grafici usano label
     steps: list[int] | None = None  # None = config.STEPS
     nonnegative: bool = False
     rank: Literal["desc", "asc"] = "desc"  # classifica dei punti: desc = valore più alto primo
@@ -90,6 +93,9 @@ class Variable:
     details: list | None = None
     # grandezze calcolate da due campi (selettore con `dew`): (campo, secondo campo) grezzi -> campo grezzo
     combine: Callable | None = None
+    # area propria, al posto di quella della mappa (BBOX): "lat_min,lat_max,lon_min,lon_max". Carta sinottica: niente
+    # località e grafici (mediana a 0,25°, vedi mean.py); la pagina passa a quest'area scegliendo la grandezza
+    area: str | None = None
 
     @property
     def modes(self) -> list[str]:
@@ -99,6 +105,7 @@ class Variable:
         return {
             "id": self.id,
             "label": self.label,
+            "menu_label": self.menu_label,
             "units": self.units,
             "kind": self.kind,
             "modes": self.modes,
@@ -109,7 +116,15 @@ class Variable:
             "details": self.details,
             # "mean" = mediana dei modelli, disponibile se la grandezza ha almeno due modelli
             "models": sorted(self.selectors) + (["mean"] if len(self.selectors) > 1 else []),
+            "area": _area_dict(self.area),
         }
+
+
+def _area_dict(area: str | None) -> dict | None:
+    if not area:
+        return None
+    s, n, w, e = (float(x) for x in area.split(","))
+    return {"lat_min": s, "lat_max": n, "lon_min": w, "lon_max": e}
 
 
 def _identity(x):
@@ -232,6 +247,7 @@ register(
     Variable(
         id="t850",
         label="Temperatura 850 hPa",
+        menu_label="Temp. 850 hPa",
         units="°C",
         kind="instant",
         selectors={
@@ -367,6 +383,7 @@ register(
     Variable(
         id="t2m",
         label="Temperatura 2 m",
+        menu_label="Temp. 2 m",
         units="°C",
         kind="instant",
         selectors=T2M_SEL,
@@ -604,6 +621,83 @@ register(
 )
 
 
+# Carta sinottica (Atlantico ed Europa, 0,25°): geopotenziale a 500 hPa a colori e pressione al livello del mare a
+# linee, come le classiche carte "Z500 e pressione al suolo". Grandezze nascoste: nel menu c'è la voce combinata.
+SYNOPTIC_AREA = SYNOPTIC_BBOX
+
+# decametri geopotenziali, fasce di 4 dam: la scala delle carte "Géop. Z500" di Meteociel, dal viola delle saccature
+# fredde al nero degli anticicloni più caldi
+Z500_SCALE = ColorScale(
+    thresholds=list(range(492, 613, 4)),
+    colors=[
+        "#400040",  # < 496
+        "#600060",  # 496-500
+        "#aa00aa",  # 500-504
+        "#801080",  # 504-508
+        "#600040",  # 508-512
+        "#303366",  # 512-516
+        "#003399",  # 516-520
+        "#0000cc",  # 520-524
+        "#0000ff",  # 524-528
+        "#0055ff",  # 528-532
+        "#0099ff",  # 532-536
+        "#33ccff",  # 536-540
+        "#66ffff",  # 540-544
+        "#66ff99",  # 544-548
+        "#66ff66",  # 548-552
+        "#66ff00",  # 552-556
+        "#bffa0e",  # 556-560
+        "#ffff09",  # 560-564
+        "#ffff86",  # 564-568
+        "#fde851",  # 568-572
+        "#ffcc00",  # 572-576
+        "#ff9900",  # 576-580
+        "#ff6900",  # 580-584
+        "#ff4d33",  # 584-588
+        "#ff3000",  # 588-592
+        "#ff0000",  # 592-596
+        "#cc0000",  # 596-600
+        "#990000",  # 600-604
+        "#6c0000",  # 604-608
+        "#4f0000",  # 608-612
+        "#000000",  # > 612
+    ],
+)
+
+
+def _gpm_to_dam(x):
+    return np.asarray(x, dtype=np.float64) / 10.0
+
+
+def _pa_to_hpa(x):
+    return np.asarray(x, dtype=np.float64) / 100.0
+
+
+register(
+    Variable(
+        id="z500", label="Geopotenziale 500 hPa", units="dam", kind="instant",
+        selectors={
+            "gfs": GribSelector(var="HGT", level="500_mb", short_name="gh"),
+            "ecmwf": GribSelector(param="gh", levtype="pl", levelist="500", short_name="gh"),
+        },
+        convert={"gfs": _gpm_to_dam, "ecmwf": _gpm_to_dam},
+        # un decimale (1 m): ai decametri interi le fasce di 4 dam avrebbero i bordi sui bordi delle celle, a scalini
+        scale=Z500_SCALE, decimals=1, rank="asc", hidden=True, area=SYNOPTIC_AREA,
+    )
+)
+register(
+    Variable(
+        id="msl", label="Pressione al livello del mare", units="hPa", kind="instant",
+        selectors={
+            "gfs": GribSelector(var="PRMSL", level="mean_sea_level"),
+            "ecmwf": GribSelector(param="msl", levtype="sfc"),
+        },
+        convert={"gfs": _pa_to_hpa, "ecmwf": _pa_to_hpa},
+        scale=HZERO_SCALE, decimals=1, rank="asc", hidden=True, area=SYNOPTIC_AREA,
+    )
+)
+
+
 for _lvl in ("10", "700"):
     for _c in ("u", "v"):
         register(_wind_component(_c, _lvl))
@@ -622,14 +716,25 @@ COMBOS = [
     {
         "id": "tp_hzero",
         "label": "Precip. e zero termico",
+        "menu_label": "Precip. e zero term.",  # nella tendina
         "after": "tp",  # posizione nel menu
         "field": "tp",  # colori, legenda, località e modalità
         "contour_field": "hzero",  # linee
         "contours": {"label": "Zero termico", "units": "m", "step": 250, "bold": [1000, 2000, 3000, 4000]},
     },
     {
+        "id": "z500_msl",
+        "label": "Pressione - Geop. 500 hPa",
+        "menu_label": "Press. - Geop. 500",  # nella tendina
+        "after": "t850",
+        "field": "z500",
+        "contour_field": "msl",
+        "contours": {"label": "Isobare", "units": "hPa", "step": 5, "bold": [1015]},
+    },
+    {
         "id": "tp_wind700",
         "label": "Precip. e vento 700 hPa",
+        "menu_label": "Precip. e vento 700",  # nella tendina
         "after": "tp_hzero",  # posizione nel menu: dopo l'altra combinata della pioggia
         "field": "tp",
         "arrows": "wind700",  # frecce del vento a 700 hPa (direzione e, con la lunghezza, intensità)
@@ -657,7 +762,7 @@ def menu() -> list[dict]:
     for vec in VECTORS:
         u, v = REGISTRY[vec["u"]].as_dict(), REGISTRY[vec["v"]].as_dict()
         models = [m for m in u["models"] if m in v["models"]]
-        out.append({**u, "id": vec["id"], "label": vec["label"], "kind": "vector", "rank": "desc",
+        out.append({**u, "id": vec["id"], "label": vec["label"], "menu_label": vec.get("menu_label"), "kind": "vector", "rank": "desc",
                     "vector": {"u": vec["u"], "v": vec["v"]}, "models": models})
     return out
 
@@ -676,7 +781,7 @@ def _combo_item(c: dict) -> dict | None:
     models = [m for m in base["models"] if all(m in n for n in needs)]
     if not models:
         return None
-    return {**base, "id": c["id"], "label": c["label"], "base_label": base["label"], "field": c["field"], **extra,
+    return {**base, "id": c["id"], "label": c["label"], "menu_label": c.get("menu_label"), "base_label": base["label"], "field": c["field"], **extra,
             "models": models}
 
 

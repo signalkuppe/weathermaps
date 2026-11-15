@@ -66,6 +66,12 @@ _load_dotenv()
 
 DEFAULT_BBOX = "42,49,4,17"
 
+# Area della carta sinottica (geopotenziale a 500 hPa e pressione): Atlantico ed Europa, come le carte classiche.
+# Solo per le grandezze con `area` (vedi variables.Variable): non dipende da BBOX.
+# Largo come uno schermo 16:9, così la carta lo riempie senza bordi; a sud fino a 25° per poterla centrare sul Nord
+# Italia (vedi applyArea in static/app.js) con circa 90° di longitudine sullo schermo, come le carte di Meteociel
+SYNOPTIC_BBOX = "25,72,-70,64"
+
 # Passi comuni a GFS e ECMWF: 3h fino a 144h, poi 6h fino a 192h.
 STEPS: list[int] = list(range(3, 145, 3)) + list(range(150, 193, 6))
 

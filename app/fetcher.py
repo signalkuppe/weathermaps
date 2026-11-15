@@ -11,7 +11,7 @@ import httpx
 import numpy as np
 
 from . import variables
-from .config import STEPS
+from .config import STEPS, BBox
 from .grid import Field, halve, lambert_to_earth
 from . import mean
 from .sources import NotAvailable, ecmwf, gfs, icon_2i, icon_d2, make_client, run_id
@@ -139,6 +139,11 @@ def is_complete(store: Store, model_id: str, rid: str) -> bool:
     return len(complete_vars(store, model_id, rid)) == n_vars
 
 
+def area_of(var, store: Store) -> BBox:
+    """Area da scaricare: quella della grandezza (carta sinottica) o quella della mappa."""
+    return BBox.parse(var.area) if var.area else store.bbox
+
+
 def latest_complete(store: Store, model_id: str) -> str | None:
     """Corsa da mostrare: l'ultima con tutte le grandezze complete. Se nessuna lo è (per esempio una grandezza che
     la sorgente non fornisce più), l'ultima con almeno una grandezza completa, così il modello non sparisce."""
@@ -198,7 +203,7 @@ def _update(model_id: str, store: Store, now: datetime | None) -> dict:
                 got = 0
                 for step in todo:
                     try:
-                        field = _fetch_field(source, client, run, step, var, store.bbox)
+                        field = _fetch_field(source, client, run, step, var, area_of(var, store))
                     except NotAvailable:
                         # i passi escono in ordine: i successivi non ci sono ancora
                         break
