@@ -847,8 +847,9 @@
   }
   const stepDate = (step) => new Date(runDate(state.run).getTime() + step * 3600e3);
   // inizio dell'accumulo mostrato, solo per gli intervalli scelti (non per il totale dalla corsa)
+  // inizio della cumulata (anche il totale dall'inizio della corsa): così si leggono sempre inizio e fine
   const intervalStartDate = (s = state.step) =>
-    state.run && state.mode === "interval" && intervalPrev(s) > 0 ? stepDate(intervalPrev(s)) : null;
+    state.run && rangeMode() && intervalPrev(s) < s ? stepDate(intervalPrev(s)) : null;
   // istante mostrato, o l'intervallo se ne è scelto uno: per pannello, popup e immagine condivisa
   const fmtShown = (s = state.step, opts) => {
     const start = intervalStartDate(s);
@@ -1139,7 +1140,27 @@
     if (p.get("crisp")) state.crisp = p.get("crisp") === "1";
     if (p.get("iso")) state.iso = p.get("iso") !== "0";
   }
+  // Safari permette al massimo 100 replaceState ogni 30 secondi, poi dà errore: scorrendo lo slider avanti e indietro
+  // l'aggiornamento della mappa si fermava lì (sembrava bloccata). L'indirizzo si scrive quindi poco dopo l'ultima
+  // modifica (una volta sola per una serie di spostamenti) e un eventuale errore non ferma nulla.
+  function replaceHash(hash) {
+    try {
+      history.replaceState(history.state, "", hash);
+    } catch {
+      /* limite del browser: l'indirizzo si aggiorna alla prossima modifica */
+    }
+  }
+  let hashTimer = null;
+  // uscendo dalla pagina (ricarica, chiusura) l'indirizzo in attesa si scrive subito
+  window.addEventListener("pagehide", () => {
+    if (hashTimer) writeHashNow();
+  });
   function writeHash() {
+    clearTimeout(hashTimer);
+    hashTimer = setTimeout(writeHashNow, 300);
+  }
+  function writeHashNow() {
+    hashTimer = null;
     const p = new URLSearchParams();
     const previous = new URLSearchParams(location.hash.slice(1));
     for (const key of [
@@ -1161,7 +1182,7 @@
     }
     if (state.crisp) p.set("crisp", "1");
     if (!state.iso) p.set("iso", "0");
-    history.replaceState(history.state, "", "#" + p.toString());
+    replaceHash("#" + p.toString());
   }
 
   // ---------- popolamento controlli
@@ -3108,10 +3129,10 @@
     // con un intervallo anche l'ora d'inizio; su mobile senza mese per stare in una riga
     const mobileTime = fmtShown(s, { month: false });
     // con l'inizio già scritto nelle date basta la durata, così la riga resta una sola
-    const mobileRangeLabel = rangeStart === 0
-      ? rangeLabel
-      : intervalStartDate(s)
-        ? `${intervalHours(s)}h`
+    const mobileRangeLabel = intervalStartDate(s)
+      ? `${rangeEnd - rangeStart}h`
+      : rangeStart === 0
+        ? rangeLabel
         : `+${rangeStart}&ndash;${rangeEnd}h · ${rangeEnd - rangeStart}h`;
     const mobileRange = rangeMode()
       ? `<span class="badge-m-range">${mobileRangeLabel}</span>`
@@ -3130,6 +3151,7 @@
     // cumulate (intervallo o totale): date nella riga sopra, passi e durata nella barra in basso e in legenda;
     // l'ora UTC resta solo per le grandezze istantanee
     ui.range.textContent = state.mode === "interval" || state.mode === "total" ? "" : `${fmtUTC(valid)} UTC`;
+    if (typeof renderLandscapeNav === "function") renderLandscapeNav(); // mini barra del telefono in orizzontale
   }
 
   let seq = 0;
@@ -3222,13 +3244,19 @@
 
   // spinner del caricamento: compare solo se l'attesa supera 150 ms (con i dati in cache non lampeggia)
   let loadingTimer = null;
+  // caricamento della mappa: rotellina nel pannello e linea animata sulla barra dell'ora (su mobile il pannello è
+  // di solito chiuso), solo se l'attesa supera 150 ms (le immagini già in memoria non fanno lampeggiare nulla)
   function setLoading(on) {
     clearTimeout(loadingTimer);
     if (on)
       loadingTimer = setTimeout(() => {
         ui.loading.hidden = false;
+        document.body.classList.add("field-loading");
       }, 150);
-    else ui.loading.hidden = true;
+    else {
+      ui.loading.hidden = true;
+      document.body.classList.remove("field-loading");
+    }
   }
 
   // ---------- località preferite: scelte dall'utente con la ricerca, salvate nel browser (localStorage).
@@ -3571,8 +3599,8 @@
     const pts = places;
     if (pointMarkers.length !== pts.length) return; // all'avvio prima di setupPoints: le disegna lui
     if (state.extra !== "none" || synoptic()) {
-      // radar o satellite: le località servono solo a orientarsi, niente valori del modello. Carta sinottica: il
-      // nome, e toccandole si aprono gli spaghetti dell'ensemble GFS
+      // radar o satellite: le località servono solo a orientarsi, niente valori del modello (sulla carta a 500 hPa
+      // sono nascoste, vedi body.synoptic-mode .pt in style.css)
       pts.forEach((p, i) => {
         const el = pointMarkers[i].getElement();
         if (el) {
@@ -3666,7 +3694,10 @@
 
   // il clic su una località apre sempre lo stesso riquadro con i valori (anche sulla carta a 500 hPa); da lì il grafico
   // nel tempo e, se il modello scelto ha l'ensemble (GFS, ECMWF), gli spaghetti
+  // telefono in orizzontale: solo la mappa a tutto schermo, niente località, riquadri, menu o tooltip al tocco
+  const landscapeView = () => document.body.classList.contains("landscape-view");
   function openPlacePop(idx) {
+    if (landscapeView() || synoptic()) return; // sulla carta a 500 hPa le località non si mostrano
     if (state.extra !== "none") return; // con radar o satellite il riquadro dei valori del modello non serve
     popIdx = idx;
     ui.probe.hidden = true;
@@ -4191,6 +4222,8 @@
     y: 0,
     w: 0,
     touched: false,
+    fixed: false, // carta a 500 hPa: inquadratura fissa (come Meteociel), niente proporzioni né zoom né trascinamento
+    savedRatio: null,
   };
   const ratioOf = () => RATIOS[crop.ratio][0] / RATIOS[crop.ratio][1];
   const cropH = () => crop.w / ratioOf();
@@ -4515,6 +4548,7 @@
   }
   const viewScale = () => view.fw / crop.w; // px della vista per px della mappa
   function renderView() {
+    if (shareUi.dialog.classList.contains("share-preparing")) return; // foto non ancora pronta
     renderOut();
     const ctx = shareUi.canvas.getContext("2d");
     const { snap } = crop;
@@ -4522,6 +4556,11 @@
     ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
     ctx.clearRect(0, 0, view.cw, view.ch);
     ctx.imageSmoothingQuality = "high";
+    if (crop.fixed) {
+      // inquadratura fissa: solo l'immagine finale, senza la mappa intorno né la cornice del ritaglio
+      ctx.drawImage(outCanvas, view.fx, view.fy, view.fw, view.fh);
+      return;
+    }
     // mappa intera nella stessa scala del riquadro, così fuori si vede il contesto
     ctx.drawImage(
       snap.canvas,
@@ -4705,50 +4744,92 @@
     // si parte dalla mappa così come la stai guardando (stessa zona e stesso zoom): niente posizione del dispositivo
     shareRestore = null;
     widenMore = 1;
+    crop.fixed = synoptic();
+    shareUi.dialog.classList.toggle("share-fixed", crop.fixed);
+    if (crop.fixed) {
+      // carta a 500 hPa: la mappa sotto si ridimensiona e si sposta per l'inquadratura fissa; la finestra si apre
+      // subito (con "Preparazione…") così non si vede la mappa muoversi
+      shareUi.dialog.classList.add("share-preparing");
+      if (!shareUi.dialog.open) shareUi.dialog.showModal();
+    }
     await shareWideStart();
+    if (crop.fixed && !shareWide) {
+      // carta a 500 hPa: la mappa mostra tutta l'inquadratura fissa; alla chiusura torna dov'era
+      shareRestore = { center: map.getCenter(), zoom: map.getZoom() };
+      map.fitBounds(SYN_FRAME, { animate: false });
+      await mapReady();
+    }
     await takeSnap();
     crop.texts = shareTexts();
     // all'apertura il riquadro più grande che sta nella mappa, al centro (la proporzione resta l'ultima scelta)
+    if (crop.fixed && crop.ratio !== "16:9") {
+      crop.savedRatio = crop.ratio; // si ritrova alla prossima condivisione delle altre mappe
+      crop.ratio = "16:9";
+    }
     [outCanvas.width, outCanvas.height] = RATIOS[crop.ratio];
     crop.w = maxCropW();
     const c = crop.snap.pin || { x: crop.snap.W / 2, y: crop.snap.H / 2 };
     crop.x = c.x - crop.w / 2;
     crop.y = c.y - cropH() / 2;
+    if (crop.fixed) {
+      // riquadro 16:9 largo quanto l'inquadratura fissa, centrato in altezza su di lei
+      const nw = map.latLngToContainerPoint(SYN_FRAME.getNorthWest()),
+        se = map.latLngToContainerPoint(SYN_FRAME.getSouthEast());
+      crop.w = se.x - nw.x;
+      crop.x = nw.x;
+      crop.y = (nw.y + se.y) / 2 - cropH() / 2;
+    }
     clampCrop();
     crop.touched = false;
     shareUi.pointsRow.hidden = !crop.snap.points.length || !!crop.pinLL;
     // località: con le mappe dei modelli accese (valori), con radar e satellite spente (si accendono dall'interruttore)
     shareUi.points.checked = state.extra === "none" && !synoptic();
-    shareUi.dialog.showModal();
+    if (crop.fixed && !shareUi.dialog.open) return; // chiusa mentre si preparava (la mappa è già tornata dov'era)
+    shareUi.dialog.classList.remove("share-preparing");
+    if (!shareUi.dialog.open) shareUi.dialog.showModal();
     layoutView();
     setRatio(crop.ratio);
   }
 
   // alla chiusura (X, Esc, dopo la condivisione) la mappa torna dov'era, se nella finestra ci si è allontanati
   shareUi.dialog.addEventListener("close", () => {
+    shareUi.dialog.classList.remove("share-preparing");
     if (shareRestore)
       map.setView(shareRestore.center, shareRestore.zoom, { animate: false });
     shareRestore = null;
     shareWideEnd();
+    if (crop.savedRatio) {
+      crop.ratio = crop.savedRatio;
+      crop.savedRatio = null;
+    }
   });
 
-  // Carta sinottica su uno schermo stretto (telefono in verticale): la mappa vista è alta e stretta e l'immagine
-  // coprirebbe poca Europa. Con la finestra di condivisione aperta la mappa, nascosta sotto, diventa larga 16:9 alla
-  // stessa altezza e si inquadra come sul desktop; alla chiusura torna com'era.
+  // Carta sinottica: con la finestra di condivisione aperta la mappa, nascosta sotto, diventa 1600×900 e si inquadra
+  // su SYN_FRAME, su qualunque schermo; alla chiusura torna com'era.
   let shareWide = null;
+  // inquadratura dell'immagine della carta a 500 hPa, come Meteociel: da Terranova al Mar Nero, dal Nord Africa
+  // all'Islanda (Italia a destra), 16:9
+  // più a sud del centro "geografico": in basso l'immagine ha sopra la mappa la barra dei colori e i crediti (~12%
+  // dell'altezza), che coprirebbero il Mediterraneo; il 16:9 ne prende ~25–66 N
+  const SYN_FRAME = L.latLngBounds([26, -60], [66, 40]);
   async function shareWideStart() {
-    const r = map.getContainer().getBoundingClientRect();
-    if (!synoptic() || r.width / r.height >= 1.4) return;
+    if (!synoptic()) return;
+    // sempre la stessa mappa 1600×900 sotto la finestra (qualunque schermo): l'inquadratura fissa ci sta tutta e
+    // l'immagine viene uguale su telefono e desktop
     shareWide = { center: map.getCenter(), zoom: map.getZoom() };
     const root = document.documentElement.style;
-    root.setProperty("--share-w", `${Math.round((r.height * 16) / 9)}px`);
-    root.setProperty("--share-h", `${Math.round(r.height)}px`);
+    root.setProperty("--share-w", "1600px");
+    root.setProperty("--share-h", "900px");
     document.body.classList.add("share-wide");
     map.invalidateSize({ pan: false });
     glBase?.resize();
     updateMinZoom();
-    synopticView();
-    await mapReady();
+    // due passate: il primo adattamento può essere spostato dalla sincronizzazione con Mapbox dopo il cambio di misura
+    // (succedeva partendo da uno schermo stretto: l'Italia finiva fuori in basso)
+    for (let k = 0; k < 2; k++) {
+      map.fitBounds(SYN_FRAME, { animate: false });
+      await mapReady();
+    }
   }
   function shareWideEnd() {
     if (!shareWide) return;
@@ -4793,6 +4874,7 @@
     crop.y + (vy - view.fy) / viewScale(),
   ];
   shareUi.canvas.addEventListener("pointerdown", (e) => {
+    if (crop.fixed) return; // inquadratura fissa
     crop.touched = true;
     shareUi.canvas.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, toView(e));
@@ -4830,6 +4912,7 @@
     "wheel",
     (e) => {
       e.preventDefault();
+      if (crop.fixed) return;
       crop.touched = true;
       // rotella in avanti = mappa più grande (più dettaglio)
       scaleCropAt(Math.exp(e.deltaY * 0.0015), ...viewToMap(toView(e)));
@@ -4924,6 +5007,7 @@
     body: $("chart-body"),
     title: $("chart-title"),
     details: $("chart-details"),
+    warn: $("chart-warn"),
     model: $("chart-model"),
     close: $("chart-close"),
   };
@@ -4944,6 +5028,7 @@
   const CLIM_RED = "#ef4444"; // climatologia negli spaghetti
   const SNOW_BAR = "#a78bfa"; // parte di neve delle barre della precipitazione nei meteogrammi
   const OFFICIAL = "#22c55e"; // verde della corsa ufficiale (controllo) negli spaghetti
+  const CHART_MAX_PH = 280; // altezza massima di un pannello a schermo: oltre, le curve si allungano senza dire di più
   const CHART_R = 30; // dentro l'SVG, a destra: la scala dell'accumulo della pioggia e l'ultima ora sull'asse
   chartUi.close.addEventListener("click", () => chartUi.dialog.close());
 
@@ -4956,7 +5041,8 @@
       if (!r.ok) throw new Error(r.statusText);
       return r.json();
     }
-    const { dstep, tile } = meta.series;
+    const { tile } = meta.series;
+    const dstep = meta.series.dsteps?.[model] ?? meta.series.dstep; // 0,05° per i modelli ad alta risoluzione
     const b = meta.bbox;
     const per = Math.round(tile / dstep);
     const gy = Math.round((lat - b.lat_min) / dstep),
@@ -5059,7 +5145,7 @@
         "",
         "#" + params.toString(),
       );
-    else history.replaceState(history.state, "", "#" + params.toString());
+    else replaceHash("#" + params.toString());
   }
 
   function restoreChartFromHash() {
@@ -5145,6 +5231,45 @@
     chartUi.dialog.focus();
     await loadChart(model, chartContext.run);
   }
+  /** Il grafico legge un punto della griglia delle serie (0,05° o 0,1°), la mappa la cella del modello: in montagna i
+   *  totali possono essere molto diversi. Se la mappa mostra la stessa cosa (stesso modello e corsa, pioggia o neve
+   *  dall'inizio della corsa) e la differenza è grande, un avviso lo dice, con il punto usato dal grafico. */
+  function chartPointWarning(series, request, model, run) {
+    const v = dataVar();
+    const sv = series.vars?.[v];
+    if (!current || !sv || !["tp", "sf"].includes(v) || state.model !== model || state.run !== run) return;
+    if (!rangeMode() || intervalPrev() !== 0) return; // solo il totale dall'inizio della corsa è confrontabile
+    const i = sv.steps.indexOf(state.step);
+    const onChart = i >= 0 ? sv.values[i] : null;
+    const onMap = valueAt(current, request.place.lat, request.place.lon);
+    if (onChart == null || onMap == null) return;
+    const diff = Math.abs(onMap - onChart);
+    if (diff < 2 || diff < 0.1 * Math.max(onMap, onChart)) return; // oltre il 10% (e almeno 2 mm o 2 cm)
+    const R = 6371,
+      rad = Math.PI / 180;
+    const km =
+      R *
+      Math.hypot(
+        (series.lon - request.place.lon) * rad * Math.cos(request.place.lat * rad),
+        (series.lat - request.place.lat) * rad,
+      );
+    const u = current.units;
+    const dec = v === "sf" ? 0 : 1;
+    // breve riga sempre visibile; la spiegazione si apre toccandola (su desktop è già aperta)
+    const details = document.createElement("details");
+    details.open = !mobileMq.matches;
+    const summary = document.createElement("summary");
+    summary.textContent = "Perché leggo valori diversi dalla mappa?";
+    const text = document.createElement("p");
+    text.textContent =
+      `Qui ${baseLabel().toLowerCase()} totale è ${onChart.toFixed(dec)} ${u}, sulla mappa ${onMap.toFixed(dec)} ${u}. ` +
+      `Il grafico usa il punto di griglia più vicino (${series.lat.toFixed(2)} N, ${series.lon.toFixed(2)} E, a ` +
+      `${km < 1 ? "meno di 1" : km.toFixed(1).replace(".", ",")} km), la mappa la cella del modello sotto la ` +
+      `località: in montagna i valori cambiano molto in pochi km.`;
+    details.append(summary, text);
+    chartUi.warn.replaceChildren(details);
+    chartUi.warn.hidden = false;
+  }
   async function loadChart(model, selectedRun) {
     if (!chartContext) return;
     const run = chartContext.ensemble
@@ -5158,6 +5283,7 @@
       chartUi.details.textContent = run
         ? `${info.label} · ${cycle(run)} ${fmtRunDay(run)}`
         : "Ensemble non disponibile";
+      chartUi.warn.hidden = true;
       chartUi.body.innerHTML = '<div class="chart-empty">Caricamento…</div>';
       chartData = null;
       chartPin = null;
@@ -5188,6 +5314,7 @@
     chartUi.details.textContent = run
       ? `${cycle(run)} · ${period}`
       : "Nessuna corsa disponibile";
+    chartUi.warn.hidden = true;
     chartUi.body.innerHTML = '<div class="chart-empty">Caricamento…</div>';
     chartData = null;
     chartPin = null;
@@ -5197,6 +5324,13 @@
       const { lat, lon } = request.place;
       const series = await getSeries(model, run, lat, lon);
       if (chartContext !== request || !chartUi.dialog.open) return;
+      // nessun valore nel punto (es. mentre il modello si aggiorna): avviso invece di un grafico vuoto
+      const hasData = Object.values(series.vars || {}).some((v) =>
+        v.values.some((x, i) => x != null && v.steps[i] <= request.until),
+      );
+      if (!hasData) throw new Error("nessun dato in questo punto");
+      chartUi.warn.hidden = true;
+      chartPointWarning(series, request, model, run);
       chartData = {
         series,
         model,
@@ -5209,7 +5343,10 @@
       if (chartContext !== request || !chartUi.dialog.open) return;
       const message = document.createElement("div");
       message.className = "chart-empty";
-      message.textContent = `Grafico non disponibile: ${e.message}`;
+      // con una corsa nuova in arrivo il motivo è quasi sempre l'aggiornamento: lo si dice chiaramente
+      message.textContent = (runs[model] || []).some((r) => r.incoming)
+        ? "Il modello si sta aggiornando: il grafico sarà disponibile fra poco, appena la nuova corsa è completa."
+        : `Grafico non disponibile: ${e.message}`;
       chartUi.body.replaceChildren(message);
     }
   }
@@ -5233,7 +5370,7 @@
         "chartEns",
       ])
         params.delete(key);
-      history.replaceState(history.state, "", "#" + params.toString());
+      replaceHash("#" + params.toString());
     }
   });
   new ResizeObserver(() => {
@@ -6003,7 +6140,22 @@
         48,
         Math.floor((exportH - AXIS) / panels.length - HEAD - GAP),
       );
-    const H = panels.length * (HEAD + PH + GAP) + AXIS;
+    for (const p of panels) p.h = PH;
+    // a schermo: i pannelli riempiono la finestra, la precipitazione (barre fitte) un po' più alta delle curve;
+    // mai sotto PH (su schermi bassi la finestra scorre come prima) né sopra CHART_MAX_PH
+    if (!exportW && panels.length) {
+      const body = chartUi.body;
+      const free =
+        body.clientHeight -
+        parseFloat(getComputedStyle(body).paddingTop) -
+        AXIS -
+        panels.length * (HEAD + GAP);
+      const weight = (p) => (p.kind === "bar" ? 1.4 : 1);
+      const total = panels.reduce((s, p) => s + weight(p), 0);
+      for (const p of panels)
+        p.h = Math.max(PH, Math.min(CHART_MAX_PH, Math.floor((free * weight(p)) / total)));
+    }
+    const H = panels.reduce((s, p) => s + HEAD + p.h + GAP, 0) + AXIS;
     const svg = [];
     // giorni (mezzanotte locale) e ore ogni 6 ore, ora di Roma come nel resto della pagina
     const hourOf = (h) =>
@@ -6047,9 +6199,12 @@
       L = Math.ceil(chars * 6.6) + 5;
       pw = W - L - R;
     }
-    panels.forEach((p, i) => {
-      const top = i * (HEAD + PH + GAP) + HEAD,
+    let panelTop = 0;
+    panels.forEach((p) => {
+      const PH = p.h,
+        top = panelTop + HEAD,
         bot = top + PH;
+      panelTop = bot + GAP;
       const { ticks, lo, hi } = p.scale;
       const Y = (y) => bot - ((y - lo) / (hi - lo || 1)) * PH;
       p.Y = Y;
@@ -6447,7 +6602,7 @@
     if (hoverMq.matches) showProbe(e);
   });
   map.on("click", (e) => {
-    if (hoverMq.matches) return;
+    if (hoverMq.matches || landscapeView()) return;
     probeLL = e.latlng;
     showProbe(e);
   });
@@ -6639,7 +6794,7 @@
   window.visualViewport?.addEventListener("resize", placeMapMenu);
   window.visualViewport?.addEventListener("scroll", placeMapMenu);
   function openMapMenu(ll) {
-    if (synoptic()) return; // carta sinottica: gli spaghetti si aprono dalle località
+    if (synoptic() || landscapeView()) return; // carta sinottica: niente menu del punto
     closePlacePop();
     probeLL = null;
     ui.probe.hidden = true;
@@ -7197,20 +7352,12 @@
     map.setMinZoom(0);
     map.setMinZoom(map.getBoundsZoom(areaBox, true));
   }
-  /** Carta sinottica centrata sul Nord Italia (centro della vista iniziale), allontanata quanto basta a riempire lo
-   *  schermo senza uscire dall'area: la fascia di latitudini attorno al centro che sta dentro l'area. */
+  /** Carta sinottica: sempre allo zoom minimo (tutta l'area che sta nello schermo), centrata un po' a sud del Nord
+   *  Italia; vale per la vista, per il telefono in orizzontale e per l'immagine condivisa. */
   function synopticView() {
-    const a = areaNow();
-    const c = startView.getCenter(),
-      merc = (lat) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360)),
-      unmerc = (y) => (Math.atan(Math.exp(y)) * 360) / Math.PI - 90,
-      half = Math.min(merc(a.lat_max) - merc(c.lat), merc(c.lat) - merc(a.lat_min)),
-      dlon = Math.min(c.lng - a.lon_min, a.lon_max - c.lng);
-    const band = L.latLngBounds(
-      [unmerc(merc(c.lat) - half), c.lng - dlon],
-      [unmerc(merc(c.lat) + half), c.lng + dlon],
-    );
-    map.setView(c, Math.max(map.getMinZoom(), map.getBoundsZoom(band, true)), { animate: false });
+    const c = L.latLng(startView.getCenter().lat - 3, startView.getCenter().lng);
+    map.setView(c, map.getMinZoom(), { animate: false });
+    map.panInsideBounds(areaBox, { animate: false });
   }
   function applyArea() {
     const a = areaNow(),
@@ -7218,6 +7365,9 @@
     if (key === areaKey) return;
     if (areaKey && !document.body.classList.contains("synoptic-mode"))
       localView = map.getBounds();
+    // cambio d'area (carta a 500 hPa e ritorno): via subito i colori e le linee dell'altra area, che nella vista nuova
+    // comparirebbero per un attimo prima della mappa giusta (alla prima apertura non c'è ancora nulla)
+    if (areaKey) clearOverlay();
     areaKey = key;
     const syn = synoptic();
     document.body.classList.toggle("synoptic-mode", syn);
@@ -7246,6 +7396,70 @@
     if (document.activeElement?.matches?.("input, textarea")) return;
     if (window.scrollX || window.scrollY) window.scrollTo(0, 0);
   });
+
+  // ---------- telefono in orizzontale: solo la mappa a tutto schermo (niente località né tocchi) e in fondo « ‹ a
+  // sinistra, › » a destra e la data in mezzo per muoversi nel tempo (come le frecce: un passo, un intervallo con
+  // 3/6/12/24h, un passo nel periodo col Totale).
+  const landscapeMq = window.matchMedia("(orientation: landscape) and (pointer: coarse) and (max-height: 520px)");
+  const lvNav = document.createElement("div");
+  lvNav.className = "lv-nav";
+  const icon = (paths) =>
+    `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.25" ` +
+    `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths.map((d) => `<path d="${d}"/>`).join("")}</svg>`;
+  lvNav.innerHTML =
+    `<div class="lv-side">` +
+    `<button type="button" data-go="first" aria-label="All'inizio">${icon(["m11 17-5-5 5-5", "m18 17-5-5 5-5"])}</button>` +
+    `<button type="button" data-go="-1" aria-label="Indietro">${icon(["m15 18-6-6 6-6"])}</button></div>` +
+    `<span class="lv-time" aria-live="polite"></span>` +
+    `<div class="lv-side">` +
+    `<button type="button" data-go="1" aria-label="Avanti">${icon(["m9 18 6-6-6-6"])}</button>` +
+    `<button type="button" data-go="last" aria-label="Alla fine">${icon(["m6 17 5-5-5-5", "m13 17 5-5-5-5"])}</button></div>`;
+  document.body.append(lvNav);
+  /** Primo o ultimo scatto (nel periodo col Totale, sulla corsa altrimenti), come le frecce. */
+  function goEdge(last) {
+    const avail = availableSteps();
+    const frames = dualMode() ? rangeFrames() : slideSteps().filter((x) => avail.has(x));
+    const target = last ? frames.at(-1) : frames[0];
+    if (target == null) return;
+    setStepKeepingInterval(target);
+    ui.step.value = slideSteps().indexOf(state.step);
+    update();
+  }
+  lvNav.addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b || !meta) return;
+    togglePlay(false);
+    const go = b.dataset.go;
+    if (go === "first" || go === "last") goEdge(go === "last");
+    else goStep(+go);
+  });
+  function renderLandscapeNav() {
+    lvNav.querySelector(".lv-time").textContent =
+      meta && state.run && variable() ? fmtShown(state.step, { month: false }) : "";
+  }
+  function applyLandscape() {
+    const on = landscapeMq.matches;
+    document.body.classList.toggle("landscape-view", on);
+    // niente zoom col doppio tocco: toccando in fretta i pulsanti la mappa si ingrandiva e si perdeva la zona
+    const dbl = glBase ? glBase.doubleClickZoom : map.doubleClickZoom;
+    if (dbl) on ? dbl.disable() : dbl.enable();
+    if (on) {
+      closeMapMenu();
+      closePlacePop();
+      probeLL = null; // via anche il tooltip del punto toccato
+      ui.probe.hidden = true;
+      renderLandscapeNav();
+      // si parte sempre dalla vista intera (zoom minimo), dopo che la mappa ha preso le misure nuove
+      setTimeout(() => {
+        if (!landscapeMq.matches) return;
+        map.invalidateSize({ pan: false });
+        updateMinZoom();
+        if (synoptic()) synopticView();
+        else map.setView(areaBox.getCenter(), map.getMinZoom(), { animate: false });
+      }, 300);
+    }
+  }
+  landscapeMq.addEventListener("change", applyLandscape);
 
   // ---------- app dalla schermata Home: non c'è la barra del browser, quindi niente ricarica e niente "tira giù per
   // aggiornare". Un tasto accanto a quello del pannello ricarica la pagina (corse e passi nuovi).
@@ -7311,6 +7525,7 @@
     applyArea(); // area della mappa o, se la grandezza scelta è la carta sinottica, la sua
     await mapboxLib; // scaricata ed eseguita mentre arrivavano meta e corse
     setupMapbox(meta.mapbox_token); // dopo la prima vista: Leaflet aggiunge i livelli solo a mappa posizionata
+    applyLandscape(); // telefono già in orizzontale all'apertura
     map.on("resize", () => {
       updateMinZoom();
       if (map.getZoom() < map.getMinZoom())

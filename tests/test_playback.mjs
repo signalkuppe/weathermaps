@@ -185,14 +185,13 @@ test("time bars show the interval as dates, with the start", () => {
   vm.runInContext("renderTime();", time);
   assert.match(time.ui.badgeText.innerHTML, new RegExp(`badge-valid badge-d">${span}</span>`));
 
-  // totale dalla corsa: istante e passo, niente data d'inizio
+  // totale dall'inizio della corsa: anche qui inizio e fine (06Z = 07:00 a Roma, +9h = 16:00) e la durata
   state.mode = "total";
   time.playbackSelection = { from: 0, to: 24 };
   vm.runInContext("renderTime();", time);
-  assert.match(time.ui.badgeText.innerHTML, /badge-valid badge-d">ven 13 nov, 15:00 · \+9h<\/span>/);
+  assert.match(time.ui.badgeText.innerHTML, /badge-valid badge-d">ven 13, 07:00 → 16:00<\/span>/);
   // durante il play la barra dice la cumulata dell'immagine mostrata (fino a +9h), non la fine del range
-  assert.match(time.ui.badgeText.innerHTML, /badge-m-range">\+9 ore<\/span>/);
-  assert.doesNotMatch(time.ui.badgeText.innerHTML, /→/);
+  assert.match(time.ui.badgeText.innerHTML, /badge-m-range">9h<\/span>/);
 
   // grandezza istantanea: niente intervallo, l'ora UTC sotto nel pannello
   state.mode = "value";

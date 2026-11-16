@@ -402,7 +402,9 @@ def test_series_point_and_tiles(tmp_path):
     with TestClient(app) as c:
         d = c.get("/api/series", params={"model": "gfs", "run": "2026110900", "lat": 45.5, "lon": 9.2}).json()
         assert d["vars"]["tp"] == {"steps": [3, 6, 9], "values": [3.0, 6.0, 9.0]}
-        assert c.get("/api/meta").json()["series"] == {"dstep": series.DSTEP, "tile": series.TILE}
+        meta_series = c.get("/api/meta").json()["series"]
+        assert (meta_series["dstep"], meta_series["tile"]) == (series.DSTEP, series.TILE)
+        assert meta_series["dsteps"]["gfs"] == 0.1 and meta_series["dsteps"]["icon-ch2"] == 0.05
         assert c.get("/api/series", params={"model": "gfs", "run": "2026110100", "lat": 45, "lon": 9}).status_code == 404
     tiles = series.build_tiles(store, "gfs", "2026110900")
     t = tiles[series.tile_of(store.bbox, 45.5, 9.2)]
@@ -411,6 +413,25 @@ def test_series_point_and_tiles(tmp_path):
     cell = (gy % per) * t["nx"] + (gx % per)
     v = t["vars"]["tp"]
     assert [x / v["scale"] for x in v["values"][cell * 3:(cell + 1) * 3]] == [3.0, 6.0, 9.0]
+
+
+def test_serie_alta_risoluzione_cella_piu_vicina(tmp_path):
+    """Modelli a 1-2 km: griglia delle serie a 0,05° e valore della cella più vicina (come il tooltip), senza la
+    media con le celle intorno che in montagna abbassava i picchi di neve."""
+    from app import series
+    store = Store(data_dir=tmp_path, bbox=BOX)
+    vals = np.zeros((351, 651), np.float32)  # 0.02° su 42-49 N, 4-17 E
+    iy, ix = round((45.95 - 42) / 0.02), round((7.0 - 4) / 0.02)
+    vals[iy, ix] = 170.0  # un solo picco nella cella del punto
+    store.save("icon-ch2", "2026111606", "tp", 3, Field(values=vals, lat0=42, lon0=4, dlat=0.02, dlon=0.02))
+    d = series.point_series(store, "icon-ch2", "2026111606", 45.95, 7.0)
+    assert (d["lat"], d["lon"]) == (45.95, 7.0) and d["vars"]["tp"]["values"] == [170.0]
+    tiles = series.build_tiles(store, "icon-ch2", "2026111606")
+    t = tiles[series.tile_of(store.bbox, 45.95, 7.0)]
+    assert t["dstep"] == 0.05
+    per = round(series.TILE / 0.05)
+    gy, gx = round((45.95 - BOX.lat_min) / 0.05), round((7.0 - BOX.lon_min) / 0.05)
+    assert t["vars"]["tp"]["values"][(gy % per) * t["nx"] + (gx % per)] == 1700  # decimi di mm
 
 
 def test_carta_sinottica_area_propria_senza_mediana(client):

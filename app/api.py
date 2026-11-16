@@ -59,7 +59,9 @@ def meta(request: Request):
             "thunderforest_key": os.environ.get("THUNDERFOREST_KEY", "").strip(),
             # token pubblico Mapbox (sfondi Streets/Outdoors, se c'è): limitarlo ai domini del sito nel pannello Mapbox
             "mapbox_token": os.environ.get("MAPBOX_TOKEN", "").strip(),
-            "series": {"dstep": series_mod.DSTEP, "tile": series_mod.TILE},
+            # passo della griglia delle serie: 0,1° (globali) o 0,05° (alta risoluzione) per modello
+            "series": {"dstep": series_mod.DSTEP, "tile": series_mod.TILE,
+                       "dsteps": {m: series_mod.dstep_for(m) for m in MODELS}},
             # ensemble di GFS ed ECMWF per gli spaghetti delle località nella carta sinottica ({modello: ...})
             "ensemble": ensemble.info(store),
             "models": [m.as_dict() for m in MODELS.values()],

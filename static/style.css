@@ -953,6 +953,35 @@ input[type="range"] {
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }
+/* mappa in arrivo: linea che scorre sul bordo alto della barra dell'ora (vedi setLoading in app.js) */
+body.field-loading .badge::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 14px;
+  right: 14px;
+  height: 2px;
+  border-radius: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent) no-repeat;
+  background-size: 40% 100%;
+  animation: field-loading 0.9s linear infinite;
+  pointer-events: none;
+}
+@keyframes field-loading {
+  from {
+    background-position: -60% 0;
+  }
+  to {
+    background-position: 160% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.field-loading .badge::after {
+    animation: none;
+    background: var(--accent);
+    opacity: 0.6;
+  }
+}
 .spinner[hidden] {
   display: none;
 }
@@ -3127,4 +3156,131 @@ body.synoptic-mode .iso-lbl span {
 }
 .ch-ens-halo {
   stroke: var(--bg);
+}
+
+/* telefono in orizzontale: solo la mappa e una mini barra ‹ data › in basso a destra (vedi applyLandscape in app.js) */
+body.landscape-view .panel,
+body.landscape-view .badge,
+body.landscape-view .legend,
+body.landscape-view .leaflet-control-zoom,
+body.landscape-view .wm-mapbox-controls .mapboxgl-ctrl-group {
+  display: none !important;
+}
+.lv-nav {
+  display: none;
+}
+body.landscape-view .lv-nav {
+  touch-action: manipulation;
+  position: fixed;
+  /* lo spazio riservato ai lati (tacca, angoli arrotondati) è largo ~60px: in basso ne basta meno */
+  left: max(10px, calc(env(safe-area-inset-left) - 34px));
+  right: max(10px, calc(env(safe-area-inset-right) - 34px));
+  bottom: calc(8px + env(safe-area-inset-bottom));
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none; /* fra i pulsanti la mappa resta toccabile */
+}
+/* « ‹ a sinistra e › » a destra, vicini fra loro; pulsanti tondi separati */
+.lv-side {
+  display: flex;
+  gap: 10px;
+}
+.lv-nav button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px; /* area da toccare comoda (le linee guida chiedono almeno 44px) */
+  height: 46px;
+  touch-action: manipulation; /* tocchi rapidi: niente zoom della pagina col doppio tocco */
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--panel);
+  color: var(--accent);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.lv-nav .lv-time {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--fg);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: var(--shadow);
+}
+/* carta a 500 hPa: niente località sulla mappa (gli spaghetti si aprono dai punti delle altre mappe) */
+body.synoptic-mode .pt {
+  display: none;
+}
+/* località in orizzontale: si vedono numeri e valori, ma non si toccano (niente riquadro né grafici) */
+body.landscape-view .pt {
+  pointer-events: none;
+}
+/* il logo Mapbox (obbligatorio) sopra i pulsanti in basso a sinistra */
+body.landscape-view .wm-mapbox-logo {
+  margin-bottom: calc(52px + env(safe-area-inset-bottom)) !important;
+}
+
+/* carta a 500 hPa: inquadratura fissa, niente proporzioni, zoom o suggerimento sul trascinamento */
+.share-fixed #share-ratio,
+.share-fixed .share-hint,
+.share-fixed .share-zoom {
+  display: none !important;
+}
+.share-fixed #share-canvas {
+  cursor: default;
+}
+
+/* finestra di condivisione aperta mentre la mappa sotto si prepara (carta a 500 hPa) */
+.share-preparing #share-canvas {
+  visibility: hidden;
+}
+.share-preparing .share-actions,
+.share-preparing #share-send,
+.share-preparing #share-download {
+  pointer-events: none;
+  opacity: 0.5;
+}
+.share-preparing::after {
+  content: "Preparazione dell'immagine…";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  translate: -50% -50%;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/* avviso nel grafico: totale del punto di griglia molto diverso da quello della mappa (vedi chartPointWarning) */
+.chart-warn {
+  grid-column: 1 / -1; /* nell'intestazione del grafico: da bordo a bordo */
+  margin-top: 8px;
+  margin-right: 19px; /* finisce dove finisce la X di chiusura (non dove finisce il suo pulsante) */
+  padding: 5px 10px;
+  max-width: 100%;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, #f59f00 55%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, #f59f00 12%, transparent);
+  color: var(--fg);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.chart-warn[hidden] {
+  display: none;
+}
+.chart-warn summary {
+  cursor: pointer;
+  font-weight: 600;
+  white-space: nowrap; /* una riga sola anche su telefono */
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chart-warn p {
+  margin: 4px 0 0;
 }
