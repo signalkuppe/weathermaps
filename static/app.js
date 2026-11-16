@@ -7482,6 +7482,46 @@
     });
   }
 
+  // ---------- segnalazione degli errori (Sentry): solo se c'è il DSN (meta.sentry_dsn, variabile SENTRY_DSN). Niente
+  // dati personali: né indirizzo IP (sendDefaultPii: false) né la parte dopo # dell'indirizzo, che contiene
+  // coordinate e nomi delle località; niente tracciamento delle prestazioni né registrazione delle sessioni.
+  const SENTRY_SRC = "https://browser.sentry-cdn.com/11.12.0/bundle.min.js"; // solo errori (niente tracing né replay)
+  const SENTRY_SRI = "sha384-fpjRzLWxkdRneAxDGo5pt5gKsjCWYV5ksPD+S1lx80QHBhs6Oe58hf8sKUKubCES";
+  function setupSentry(dsn) {
+    if (!dsn) return;
+    const noHash = (u) => (typeof u === "string" ? u.split("#")[0] : u);
+    const el = document.createElement("script");
+    el.src = SENTRY_SRC;
+    el.integrity = SENTRY_SRI;
+    el.crossOrigin = "anonymous";
+    el.onload = () => {
+      window.Sentry?.init({
+        dsn,
+        release: meta.version || undefined,
+        environment: STATIC ? "production" : "local",
+        sendDefaultPii: false,
+        // nessun IP: Sentry non lo ricava dalla connessione e quindi nemmeno la posizione (paese, città)
+        initialScope: { user: { ip_address: null } },
+        tracesSampleRate: 0,
+        // rumore dei browser, non errori dell'app
+        ignoreErrors: ["ResizeObserver loop", "AbortError", "The operation was aborted"],
+        beforeSend(event) {
+          if (event.request?.url) event.request.url = noHash(event.request.url);
+          if (event.request?.headers?.Referer) delete event.request.headers.Referer;
+          return event;
+        },
+        beforeBreadcrumb(b) {
+          if (b.category === "navigation") {
+            b.data = { from: noHash(b.data?.from), to: noHash(b.data?.to) };
+          }
+          if (b.data?.url) b.data.url = noHash(b.data.url);
+          return b;
+        },
+      });
+    };
+    document.head.append(el);
+  }
+
   // ---------- avvio
   /** Mapbox GL: caricato senza bloccare l'avvio della pagina, mentre si scaricano
    *  meta e corse. Se non arrivano entro 8 s si parte con gli sfondi di riserva. */
@@ -7524,6 +7564,7 @@
     startView = toBounds(meta.initial_view || meta.bbox);
     applyArea(); // area della mappa o, se la grandezza scelta è la carta sinottica, la sua
     await mapboxLib; // scaricata ed eseguita mentre arrivavano meta e corse
+    setupSentry(meta.sentry_dsn);
     setupMapbox(meta.mapbox_token); // dopo la prima vista: Leaflet aggiunge i livelli solo a mappa posizionata
     applyLandscape(); // telefono già in orizzontale all'apertura
     map.on("resize", () => {

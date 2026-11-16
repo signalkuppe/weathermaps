@@ -53,6 +53,7 @@ def build_javascript(out_path: Path) -> None:
             str(ROOT / "scripts" / "static_entry.js"),
             "--bundle",
             "--minify",
+            "--sourcemap",  # app.js.map accanto: Sentry ci ricava le righe originali degli errori (codice già pubblico)
             "--platform=browser",
             "--format=iife",
             "--legal-comments=none",

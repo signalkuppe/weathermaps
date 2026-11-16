@@ -27,6 +27,7 @@ jobs:
       SCHEDULER_ENABLED: "0"
       THUNDERFOREST_KEY: ${{ secrets.THUNDERFOREST_KEY }} # sfondo "Rilievo" (chiave pubblica, finisce nella pagina)
       MAPBOX_TOKEN: ${{ secrets.MAPBOX_TOKEN }} # sfondi Mapbox (token pubblico pk., finisce nella pagina)
+      SENTRY_DSN: ${{ secrets.SENTRY_DSN }} # errori del browser su Sentry (DSN pubblico, finisce nella pagina; vuoto = spento)
     steps:
       - uses: actions/checkout@v7
         with:

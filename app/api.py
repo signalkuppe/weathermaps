@@ -59,6 +59,8 @@ def meta(request: Request):
             "thunderforest_key": os.environ.get("THUNDERFOREST_KEY", "").strip(),
             # token pubblico Mapbox (sfondi Streets/Outdoors, se c'è): limitarlo ai domini del sito nel pannello Mapbox
             "mapbox_token": os.environ.get("MAPBOX_TOKEN", "").strip(),
+            # segnalazione degli errori del browser (Sentry): vuoto = disattivata. Il DSN è pubblico per natura
+            "sentry_dsn": os.environ.get("SENTRY_DSN", "").strip(),
             # passo della griglia delle serie: 0,1° (globali) o 0,05° (alta risoluzione) per modello
             "series": {"dstep": series_mod.DSTEP, "tile": series_mod.TILE,
                        "dsteps": {m: series_mod.dstep_for(m) for m in MODELS}},
