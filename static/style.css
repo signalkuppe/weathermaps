@@ -244,8 +244,8 @@ body.share-wide .wm-native-map {
   max-width: none;
   max-height: none;
   margin: 0;
-  padding: max(8px, env(safe-area-inset-top)) 16px
-    max(12px, env(safe-area-inset-bottom));
+  padding: max(8px, calc(env(safe-area-inset-top) * 1.4)) 16px
+    max(12px, env(safe-area-inset-bottom)); /* ×1.4: fuori dalla sfumatura di iOS sotto l'orologio */
   border: 0;
   border-radius: 0;
   background: var(--bg);
@@ -2715,7 +2715,9 @@ body.radar-mode .badge-radar .badge-btn:hover {
    dell'asse; a destra il grafico (padding più i 14 px interni dell'SVG, CHART_R in app.js) */
 .chart-dialog {
   --cm: 40px;
-  padding: max(var(--cm), env(safe-area-inset-top)) calc(var(--cm) - 14px)
+  /* app dalla schermata Home: sotto l'orologio iOS sfuma il contenuto per ~25px oltre la barra di stato, quindi
+     ×1.4 (nel browser la barra vale 0 e resta --cm) */
+  padding: max(var(--cm), calc(env(safe-area-inset-top) * 1.4)) calc(var(--cm) - 14px)
     max(var(--cm), env(safe-area-inset-bottom)) var(--cm);
   gap: 26px;
 }
