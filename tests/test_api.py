@@ -393,7 +393,7 @@ def test_meta_t850_detail_height_hidden(client):
 
 def test_series_point_and_tiles(tmp_path):
     """Meteogramma: serie in un punto (API) e riquadri del sito statico con gli stessi valori."""
-    from app import series
+    from app import packed, series
     store = Store(data_dir=tmp_path, bbox=BOX)
     for s in (3, 6, 9):
         store.save("gfs", "2026110900", "tp", s,
@@ -402,36 +402,58 @@ def test_series_point_and_tiles(tmp_path):
     with TestClient(app) as c:
         d = c.get("/api/series", params={"model": "gfs", "run": "2026110900", "lat": 45.5, "lon": 9.2}).json()
         assert d["vars"]["tp"] == {"steps": [3, 6, 9], "values": [3.0, 6.0, 9.0]}
-        meta_series = c.get("/api/meta").json()["series"]
-        assert (meta_series["dstep"], meta_series["tile"]) == (series.DSTEP, series.TILE)
-        assert meta_series["dsteps"]["gfs"] == 0.1 and meta_series["dsteps"]["icon-ch2"] == 0.05
+        assert (d["lat"], d["lon"]) == (45.5, 9.25)  # la cella a 0,25° più vicina, come il tooltip della mappa
+        assert c.get("/api/meta").json()["series"]  # senza, il popup non mostra Grafico e Multimodel
         assert c.get("/api/series", params={"model": "gfs", "run": "2026110100", "lat": 45, "lon": 9}).status_code == 404
-    tiles = series.build_tiles(store, "gfs", "2026110900")
-    t = tiles[series.tile_of(store.bbox, 45.5, 9.2)]
-    per = round(series.TILE / series.DSTEP)
-    gy, gx = round((45.5 - BOX.lat_min) / series.DSTEP), round((9.2 - BOX.lon_min) / series.DSTEP)
-    cell = (gy % per) * t["nx"] + (gx % per)
+        fuori = c.get("/api/series", params={"model": "gfs", "run": "2026110900", "lat": 30, "lon": 9}).json()
+        assert fuori["vars"] == {}
+    grids, tiles = series.build_tiles(store, "gfs", "2026110900")
+    grid = grids["native"]
+    assert grid["block"] == 8 and (grid["ny"], grid["nx"]) == (29, 53)
+    iy, ix = series.cell_of(grid, 45.5, 9.2)
+    t = packed.unpack(packed.pack(tiles[("native", iy // 8, ix // 8)]))  # come lo legge il browser
+    cell = (iy % 8) * t["nx"] + (ix % 8)
     v = t["vars"]["tp"]
     assert [x / v["scale"] for x in v["values"][cell * 3:(cell + 1) * 3]] == [3.0, 6.0, 9.0]
 
 
-def test_serie_alta_risoluzione_cella_piu_vicina(tmp_path):
-    """Modelli a 1-2 km: griglia delle serie a 0,05° e valore della cella più vicina (come il tooltip), senza la
-    media con le celle intorno che in montagna abbassava i picchi di neve."""
+def test_serie_nella_cella_della_mappa(tmp_path):
+    """Modelli a 1-2 km: la serie è la cella del modello sotto il punto, la stessa della mappa (in montagna una
+    griglia diversa a pochi km dava valori diversi dal tooltip). Riquadri di 32 celle; quelli fuori dal dominio
+    non si scrivono."""
     from app import series
     store = Store(data_dir=tmp_path, bbox=BOX)
-    vals = np.zeros((351, 651), np.float32)  # 0.02° su 42-49 N, 4-17 E
-    iy, ix = round((45.95 - 42) / 0.02), round((7.0 - 4) / 0.02)
+    vals = np.full((351, 465), np.nan, np.float32)  # come ICON-CH2: 0,02° × 0,028°
+    vals[:200, :300] = 0.0
+    iy, ix = round((45.95 - 42) / 0.02), round((7.0 - 4) / 0.028)
     vals[iy, ix] = 170.0  # un solo picco nella cella del punto
-    store.save("icon-ch2", "2026111606", "tp", 3, Field(values=vals, lat0=42, lon0=4, dlat=0.02, dlon=0.02))
+    store.save("icon-ch2", "2026111606", "tp", 3, Field(values=vals, lat0=42, lon0=4, dlat=0.02, dlon=0.028))
+    with TestClient(create_app(store=store, start_scheduler=False)) as c:
+        f = c.get("/api/field", params={"model": "icon-ch2", "run": "2026111606", "step": 3}).json()
+    g = f["grid"]
+    on_map = f["values"][round((45.95 - g["lat0"]) / g["dlat"]) * g["nx"] + round((7.0 - g["lon0"]) / g["dlon"])]
     d = series.point_series(store, "icon-ch2", "2026111606", 45.95, 7.0)
-    assert (d["lat"], d["lon"]) == (45.95, 7.0) and d["vars"]["tp"]["values"] == [170.0]
-    tiles = series.build_tiles(store, "icon-ch2", "2026111606")
-    t = tiles[series.tile_of(store.bbox, 45.95, 7.0)]
-    assert t["dstep"] == 0.05
-    per = round(series.TILE / 0.05)
-    gy, gx = round((45.95 - BOX.lat_min) / 0.05), round((7.0 - BOX.lon_min) / 0.05)
-    assert t["vars"]["tp"]["values"][(gy % per) * t["nx"] + (gx % per)] == 1700  # decimi di mm
+    assert d["vars"]["tp"]["values"] == [170.0] == [on_map]
+    grids, tiles = series.build_tiles(store, "icon-ch2", "2026111606")
+    assert grids["native"]["block"] == 32
+    t = tiles[("native", iy // 32, ix // 32)]
+    assert t["vars"]["tp"]["values"][(iy % 32) * t["nx"] + (ix % 32)] == 1700  # decimi di mm
+    assert ("native", 350 // 32, 464 // 32) not in tiles  # angolo senza dati
+
+
+def test_serie_temperatura_su_griglia_regolare(tmp_path):
+    """Temperatura, zero termico e vento: griglia regolare a 0,05° (alta risoluzione), la pioggia su quella del
+    modello. Nel punto la API dà tutte e due."""
+    from app import series
+    store = Store(data_dir=tmp_path, bbox=BOX)
+    g = dict(lat0=42, lon0=4, dlat=0.02, dlon=0.028)
+    store.save("icon-ch2", "2026111606", "tp", 3, Field(values=np.full((351, 465), 2.0, np.float32), **g))
+    store.save("icon-ch2", "2026111606", "t850", 3, Field(values=np.full((351, 465), -4.0, np.float32), **g))
+    grids, tiles = series.build_tiles(store, "icon-ch2", "2026111606")
+    assert grids["smooth"]["dlat"] == 0.05 and grids["smooth"]["block"] == 40
+    assert set(tiles[("smooth", 0, 0)]["vars"]) == {"t850"} and set(tiles[("native", 0, 0)]["vars"]) == {"tp"}
+    d = series.point_series(store, "icon-ch2", "2026111606", 45.95, 7.0)
+    assert d["vars"]["tp"]["values"] == [2.0] and d["vars"]["t850"]["values"] == [-4.0]
 
 
 def test_carta_sinottica_area_propria_senza_mediana(client):

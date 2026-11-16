@@ -9,7 +9,9 @@ Produce in OUT_DIR:
   data/runs.json                     come /api/runs + istante di generazione
   data/field/{model}/{var}/{run}/{step}.bin    campo "totale" (o "valore") come /api/field, in formato compatto:
                                                valori in interi a 16 bit (app/packed.py), circa 1/3 del JSON
-  data/series/{model}/{run}/{riga}_{colonna}.json   meteogrammi in riquadri di 2°×2° (app/series.py)
+  data/series/{model}/{run}/{griglia}/{riga}_{colonna}.bin   meteogrammi in riquadri, formato compatto: pioggia e
+                                               neve sulla griglia del modello ("native"), il resto su una griglia
+                                               regolare ("smooth"); le griglie sono in runs.json (app/series.py)
   data/ensemble/{model}/{run}/{riga}_{colonna}.json  spaghetti degli ensemble GFS ed ECMWF, un punto (app/ensemble.py)
   data/soundings/index.json, {stazione}/{AAAAMMGGHH}.json  radiosondaggi osservati (app/soundings.py)
 
@@ -114,8 +116,6 @@ def main(out_dir: Path) -> int:
         meta = client.get("/api/meta").json()
         size += write_json(out_dir / "data" / "meta.json", meta)
         runs = client.get("/api/runs").json()
-        runs_out = {"generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "models": runs}
-        size += write_json(out_dir / "data" / "runs.json", runs_out)
         # componenti del vento e campi dei dettagli: non hanno file propri (vedi sopra)
         comp = {vec[c]: vec for vec in variables.VECTORS for c in ("u", "v")}
         detail_of = {d["var"]: v.id for v in variables.REGISTRY.values() for d in (v.details or [])}
@@ -160,22 +160,28 @@ def main(out_dir: Path) -> int:
         nens = 0
         for model, iy, ix, body in ensemble.all_points(store):
             size += write_json(out_dir / "data" / "ensemble" / model / body["run"] / f"{iy}_{ix}.json", body)
+            nens += 1
         # radiosondaggi osservati: indice delle stazioni e un file per lancio (vedi app/soundings.py)
         size += write_json(out_dir / "data" / "soundings" / "index.json", soundings.index(store))
         for st in soundings.index(store):
             for key in st["times"][:1]:  # nella pagina si vede solo l'ultimo lancio
                 size += write_json(out_dir / "data" / "soundings" / st["id"] / f"{key}.json",
                                    soundings.load(store, st["id"], key))
-            nens += 1
-        # meteogrammi: serie temporali su una griglia di 0,1° in riquadri di 2°×2° (vedi app/series.py)
+        # meteogrammi: serie nelle celle della griglia del modello, in riquadri (vedi app/series.py); la griglia
+        # di ogni corsa va in runs.json, per trovare riquadro e cella di una località
         nser = 0
         for model, items in runs.items():
             for item in items:
                 if item.get("incoming"):
                     continue
-                for (ty, tx), body in series.build_tiles(store, model, item["run"]).items():
-                    size += write_json(out_dir / "data" / "series" / model / item["run"] / f"{ty}_{tx}.json", body)
+                grids, tiles = series.build_tiles(store, model, item["run"])
+                if grids:
+                    item["series"] = grids
+                for (name, ty, tx), body in tiles.items():
+                    size += write_bin(out_dir / "data" / "series" / model / item["run"] / name / f"{ty}_{tx}.bin", body)
                     nser += 1
+        runs_out = {"generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "models": runs}
+        size += write_json(out_dir / "data" / "runs.json", runs_out)
     print(f"Sito statico in {out_dir}: {files} campi, {nser} riquadri di serie, {nens} punti dell'ensemble, "
           f"{size / 1e6:.1f} MB di dati")
     return 0

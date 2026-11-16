@@ -61,9 +61,8 @@ def meta(request: Request):
             "mapbox_token": os.environ.get("MAPBOX_TOKEN", "").strip(),
             # segnalazione degli errori del browser (Sentry): vuoto = disattivata. Il DSN è pubblico per natura
             "sentry_dsn": os.environ.get("SENTRY_DSN", "").strip(),
-            # passo della griglia delle serie: 0,1° (globali) o 0,05° (alta risoluzione) per modello
-            "series": {"dstep": series_mod.DSTEP, "tile": series_mod.TILE,
-                       "dsteps": {m: series_mod.dstep_for(m) for m in MODELS}},
+            # meteogrammi disponibili (pulsanti Grafico e Multimodel); le griglie delle serie sono in runs.json
+            "series": {"layers": ["native", "smooth"]},
             # ensemble di GFS ed ECMWF per gli spaghetti delle località nella carta sinottica ({modello: ...})
             "ensemble": ensemble.info(store),
             "models": [m.as_dict() for m in MODELS.values()],

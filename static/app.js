@@ -5049,7 +5049,9 @@
   const CHART_R = 30; // dentro l'SVG, a destra: la scala dell'accumulo della pioggia e l'ultima ora sull'asse
   chartUi.close.addEventListener("click", () => chartUi.dialog.close());
 
-  /** Serie nel punto: dal server (api/series) o, nel sito statico, dal riquadro di 2°×2° che lo contiene. */
+  /** Serie nel punto: dal server (api/series) o, nel sito statico, dai riquadri che lo contengono (app/series.py):
+   *  pioggia e neve dalla cella del modello più vicina, la stessa che legge il tooltip della mappa (valueAt), il
+   *  resto da una griglia regolare. */
   async function getSeries(model, run, lat, lon) {
     if (!STATIC) {
       const r = await fetch(
@@ -5058,31 +5060,34 @@
       if (!r.ok) throw new Error(r.statusText);
       return r.json();
     }
-    const { tile } = meta.series;
-    const dstep = meta.series.dsteps?.[model] ?? meta.series.dstep; // 0,05° per i modelli ad alta risoluzione
-    const b = meta.bbox;
-    const per = Math.round(tile / dstep);
-    const gy = Math.round((lat - b.lat_min) / dstep),
-      gx = Math.round((lon - b.lon_min) / dstep);
-    const ty = Math.floor(gy / per),
-      tx = Math.floor(gx / per);
-    const r = await fetch(`data/series/${model}/${run}/${ty}_${tx}.json`);
-    if (!r.ok) throw new Error("serie non disponibile per questo punto");
-    const t = await r.json();
-    const iy = Math.min(t.ny - 1, gy - ty * per),
-      ix = Math.min(t.nx - 1, gx - tx * per);
-    const cell = iy * t.nx + ix;
-    const vars = {};
-    for (const [k, v] of Object.entries(t.vars)) {
-      const n = v.steps.length;
-      vars[k] = {
-        steps: v.steps,
-        values: v.values
-          .slice(cell * n, (cell + 1) * n)
-          .map((x) => (x == null ? null : x / v.scale)),
-      };
-    }
-    return { lat: t.lat0 + iy * dstep, lon: t.lon0 + ix * dstep, vars };
+    const grids = (runs[model] || []).find((e) => e.run === run)?.series; // griglie della corsa, da runs.json
+    if (!grids) throw new Error("serie non disponibile per questa corsa");
+    const out = { lat, lon, vars: {} };
+    await Promise.all(
+      Object.entries(grids).map(async ([name, g]) => {
+        const iy = Math.round((lat - g.lat0) / g.dlat),
+          ix = Math.round((lon - g.lon0) / g.dlon);
+        if (iy < 0 || ix < 0 || iy >= g.ny || ix >= g.nx) return; // fuori dal dominio del modello
+        const ty = Math.floor(iy / g.block),
+          tx = Math.floor(ix / g.block);
+        const r = await fetch(`data/series/${model}/${run}/${name}/${ty}_${tx}.bin`);
+        if (r.status === 404) return; // riquadro tutto fuori dal dominio: non c'è
+        if (!r.ok) throw new Error("serie non disponibile per questo punto");
+        const t = unpackField(await r.arrayBuffer());
+        const cell = (iy - ty * g.block) * t.nx + (ix - tx * g.block);
+        for (const [k, v] of Object.entries(t.vars)) {
+          const n = v.steps.length;
+          out.vars[k] = {
+            steps: v.steps,
+            values: v.values
+              .slice(cell * n, (cell + 1) * n)
+              .map((x) => (x == null ? null : x / v.scale)),
+          };
+        }
+        if (name === "native") [out.lat, out.lon] = [g.lat0 + iy * g.dlat, g.lon0 + ix * g.dlon];
+      }),
+    );
+    return out;
   }
 
   /** Climatologia della T850 (scripts/make_climate.py): per ogni ora del grafico la media 1991-2020 di quel giorno
@@ -6084,7 +6089,7 @@
           out = [...(first != null && real[k][0] > 0 ? [[0, first]] : []), ...real.filter(([h]) => h >= 0)];
         }
         const mean = m.id === "mean";
-        return { id: m.id, label: mean ? "Media" : shortLabel(m.id), mean, color: mean ? null : MULTI_COLORS[m.id] || "#adb5bd", pts: out, run: m.run };
+        return { id: m.id, label: mean ? "Mediana" : shortLabel(m.id), mean, color: mean ? null : MULTI_COLORS[m.id] || "#adb5bd", pts: out, run: m.run };
       })
       .filter((l) => l.pts.length > 1);
     chartData = { multi: v, lines, t0: T0, model: "mean", run: ok[0].run, from: 0, until: 384 };
