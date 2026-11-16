@@ -1171,6 +1171,7 @@
       "chartStep",
       "chartFrom",
       "chartEns",
+      "chartMulti",
     ])
       if (previous.has(key)) p.set(key, previous.get(key));
     for (const k of ["model", "var", "step", "mode", "opacity"])
@@ -3694,10 +3695,11 @@
 
   // il clic su una località apre sempre lo stesso riquadro con i valori (anche sulla carta a 500 hPa); da lì il grafico
   // nel tempo e, se il modello scelto ha l'ensemble (GFS, ECMWF), gli spaghetti
-  // telefono in orizzontale: solo la mappa a tutto schermo, niente località, riquadri, menu o tooltip al tocco
+  // telefono in orizzontale: località e menu del punto si toccano come in verticale (per aprire i grafici; se si
+  // vedono male si ruota il telefono); niente tooltip del valore al tocco
   const landscapeView = () => document.body.classList.contains("landscape-view");
   function openPlacePop(idx) {
-    if (landscapeView() || synoptic()) return; // sulla carta a 500 hPa le località non si mostrano
+    if (synoptic()) return; // sulla carta a 500 hPa le località non si mostrano
     if (state.extra !== "none") return; // con radar o satellite il riquadro dei valori del modello non serve
     popIdx = idx;
     ui.probe.hidden = true;
@@ -3807,12 +3809,18 @@
           (meta.ensemble?.[state.model]
             ? '<button type="button" class="pt-pop-chart pt-pop-ens" title="Spaghetti dell\'ensemble">Ens</button>'
             : "") +
+          (meta.series
+            ? '<button type="button" class="pt-pop-chart pt-pop-multi" title="Precipitazione e temperatura a 850 hPa di tutti i modelli">Multimodel</button>'
+            : "") +
           "</div>"
         : "") +
       `<i class="pt-pop-arrow"></i>`;
     pop.querySelector(".pt-pop-close").addEventListener("click", closePlacePop);
     pop
-      .querySelector(".pt-pop-chart:not(.pt-pop-ens)")
+      .querySelector(".pt-pop-multi")
+      ?.addEventListener("click", () => openChart(p, { multi: "tp" }));
+    pop
+      .querySelector(".pt-pop-chart:not(.pt-pop-ens):not(.pt-pop-multi)")
       ?.addEventListener("click", () => openChart(p));
     pop
       .querySelector(".pt-pop-ens")
@@ -5008,6 +5016,7 @@
     title: $("chart-title"),
     details: $("chart-details"),
     warn: $("chart-warn"),
+    multi: $("chart-multi"),
     model: $("chart-model"),
     close: $("chart-close"),
   };
@@ -5139,6 +5148,8 @@
     else params.delete("chartRun");
     if (chartContext.ensemble) params.set("chartEns", "1");
     else params.delete("chartEns");
+    if (chartContext.multi) params.set("chartMulti", chartContext.multi);
+    else params.delete("chartMulti");
     if (push)
       history.pushState(
         { ...history.state, weatherChart: true },
@@ -5189,6 +5200,7 @@
         until,
         pushHistory: false,
         ensemble: params.get("chartEns") === "1" && !!meta.ensemble?.[model],
+        multi: ["tp", "t850"].includes(params.get("chartMulti")) ? params.get("chartMulti") : null,
       },
     );
   }
@@ -5204,9 +5216,21 @@
       until = state.step,
       pushHistory = true,
       ensemble = false, // spaghetti dell'ensemble GFS (carta sinottica) al posto del meteogramma
+      multi = null, // "tp" (cumulata) o "t850": tutti i modelli e la media a confronto
     } = {},
   ) {
     chartUi.title.textContent = p.name;
+    // modelli a confronto: niente scelta del modello, al suo posto Precipitazione / T 850 hPa
+    chartUi.model.hidden = !!multi;
+    chartUi.multi.hidden = !multi;
+    if (multi) {
+      chartContext = { place: p, model: "mean", run: null, from: 0, until: 384, multi };
+      writeChartHash(pushHistory && !chartUi.dialog.open);
+      if (!chartUi.dialog.open) chartUi.dialog.showModal();
+      chartUi.dialog.focus();
+      await loadChart("mean");
+      return;
+    }
     if (ensemble)
       // spaghetti: solo i modelli con l'ensemble (GFS, ECMWF)
       fillModelSelect(meta.models.filter((m) => meta.ensemble?.[m.id]), model, chartUi.model);
@@ -5272,6 +5296,7 @@
   }
   async function loadChart(model, selectedRun) {
     if (!chartContext) return;
+    if (chartContext.multi) return loadMulti();
     const run = chartContext.ensemble
       ? meta.ensemble?.[model]?.run // spaghetti: l'ultima corsa completa dell'ensemble del modello
       : selectedRun || (runs[model] || []).find((entry) => !entry.incoming)?.run;
@@ -5350,6 +5375,12 @@
       chartUi.body.replaceChildren(message);
     }
   }
+  chartUi.multi.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-v]");
+    if (!b || !chartContext?.multi || b.dataset.v === chartContext.multi) return;
+    chartContext.multi = b.dataset.v;
+    loadMulti();
+  });
   chartUi.model.addEventListener("change", () =>
     loadChart(chartUi.model.value),
   );
@@ -5397,7 +5428,7 @@
   const chartCss = (c) =>
     [
       // le classi della pagina non valgono dentro un'immagine: stessi stili e colori
-      `.ch-title{font:650 12.5px system-ui,sans-serif;fill:${c.fg}}.ch-note{font-weight:400;font-size:11.5px;fill:${c.muted}}`,
+      `.ch-title{font:650 12.5px system-ui,sans-serif;fill:${c.fg}}.ch-note{font-weight:400;font-size:11.5px;fill:${c.muted}}.ch-leg{font:400 11.5px system-ui,sans-serif;fill:${c.muted}}.ch-leg tspan{font-weight:650;fill:${c.fg}}`,
       `.ch-tick{font:11px system-ui,sans-serif;fill:${c.muted}}.ch-grid{stroke:${c.line};stroke-width:1}`,
       `.ch-day{stroke:${c.line};stroke-width:1;stroke-dasharray:3 3}`,
       `.ch-zero{stroke:${c.muted};stroke-width:1}text{font-variant-numeric:tabular-nums}`,
@@ -5409,8 +5440,8 @@
   async function makeChartFile() {
     const { model, run } = chartData;
     const title = chartUi.title.textContent;
-    const subtitle = chartData.ensemble
-      ? chartUi.details.textContent // dice già "Ensemble GFS/ECMWF"
+    const subtitle = chartData.ensemble || chartData.multi
+      ? chartUi.details.textContent // dice già "Ensemble GFS/ECMWF" o "Modelli a confronto"
       : `${meta.models.find((entry) => entry.id === model)?.label || model} · ${chartUi.details.textContent}`;
     // immagine verticale 4:5 (2160 × 2700 px): formato pieno su Instagram, intera nelle chat; i pannelli si allungano.
     // Si disegna su 600 × 750 punti ingranditi 3,6 volte: testi e linee in proporzione come nella pagina sul telefono
@@ -5805,13 +5836,32 @@
             };
       return { markup: svg.join(""), W, H, pinBox };
     }
+    const rowsHtml = (st) => {
+      const tb = valueTable(steps.indexOf(st));
+      if (!tb) return "";
+      // una riga per grafico, "Ufficiale 3.7 °C  Media 2.3 °C": le celle dei valori hanno tutte la stessa larghezza
+      const label = ({ t, col }) => `<span class="h"${col ? ` style="color:${col}"` : ""}>${t}</span>`;
+      return (
+        `<div class="ens-vals" style="grid-template-columns:${tb.head.map(() => "auto 1fr").join(" ")}">` +
+        tb.rows.map((r) => r.map((v, k) => label(tb.head[k]) + `<b>${v}</b>`).join("")).join("") +
+        "</div>"
+      );
+    };
+    const headOf = (st) => `${fmtLocal(new Date(t0 + st * 3600e3))} · +${st}h`;
+    mountTimeChart({ svg, W, H, L, pw, x0, x1, steps, X, HEAD, yBot, rowsHtml, headOf, pin,
+      label: "Spaghetti dell'ensemble" });
+  }
+
+  /** Interazioni comuni dei grafici "nel tempo" a un pannello (spaghetti, modelli a confronto): tooltip al passaggio,
+   *  ora fissata col clic destro o la pressione prolungata (scheda con Condividi · Scarica · ✕). */
+  function mountTimeChart({ svg, W, H, L, pw, x0, x1, steps, X, HEAD, yBot, rowsHtml, headOf, label, pin }) {
     svg.push(
       `<line class="ch-cursor" id="ch-cursor" x1="0" x2="0" y1="${HEAD + 2}" y2="${yBot}" visibility="hidden"/>`,
       `<line class="ch-cursor pinned" id="ch-pinline" x1="0" x2="0" y1="${HEAD + 2}" y2="${yBot}" visibility="hidden"/>`,
     );
     svg.push(`<rect id="ch-hit" x="${L}" y="0" width="${pw}" height="${yBot}" fill="transparent"/>`);
     chartUi.body.innerHTML =
-      `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="Spaghetti dell'ensemble">${svg.join("")}</svg>` +
+      `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="${label}">${svg.join("")}</svg>` +
       '<div class="chart-tip" hidden></div>';
     const svgEl = chartUi.body.querySelector("svg"),
       tip = chartUi.body.querySelector(".chart-tip"),
@@ -5825,17 +5875,6 @@
       for (let k = 1; k < steps.length; k++) if (Math.abs(steps[k] - h) < Math.abs(steps[i] - h)) i = k;
       return steps[i];
     };
-    const rowsHtml = (st) => {
-      const tb = valueTable(steps.indexOf(st));
-      if (!tb) return "";
-      // una riga per grafico, "Ufficiale 3.7 °C  Media 2.3 °C": le celle dei valori hanno tutte la stessa larghezza
-      const label = ({ t, col }) => `<span class="h"${col ? ` style="color:${col}"` : ""}>${t}</span>`;
-      return (
-        `<div class="ens-vals" style="grid-template-columns:${tb.head.map(() => "auto 1fr").join(" ")}">` +
-        tb.rows.map((r) => r.map((v, k) => label(tb.head[k]) + `<b>${v}</b>`).join("")).join("") +
-        "</div>"
-      );
-    };
     // tooltip di lettura (scuro) o scheda dell'ora fissata (chiara, con Condividi · Scarica · ✕)
     const showAt = (st, clientX, clientY, pinned = false) => {
       cursor.setAttribute("x1", X(st));
@@ -5843,7 +5882,7 @@
       cursor.setAttribute("visibility", pinned ? "hidden" : "visible");
       tip.classList.toggle("pinned", pinned);
       tip.innerHTML =
-        `<div class="t">${fmtLocal(new Date(t0 + st * 3600e3))} · +${st}h</div>` +
+        `<div class="t">${headOf(st)}</div>` +
         rowsHtml(st) +
         (pinned
           ? `<div class="chart-tip-actions"><button type="button" data-act="share">Condividi</button>` +
@@ -5946,10 +5985,205 @@
     clearChartPin = unpin;
     renderPin(); // ridisegno (finestra ridimensionata): l'ora fissata resta
     if (pin != null) showPinTip();
+    }
+
+  // ---------- modelli a confronto: la precipitazione cumulata o la temperatura a 850 hPa di tutti i modelli e della
+  // media nella località, dalle serie dei meteogrammi. Le corse partono a ore diverse: il grafico parte dall'inizio della
+  // corsa più recente e la pioggia si somma da lì, così le linee partono insieme da 0 (come su Wetterzentrale).
+  const MULTI_COLORS = {
+    gfs: "#51cf66",
+    ecmwf: "#20c997",
+    "icon-d2": "#fab005",
+    "icon-2i": "#fd7e14",
+    "icon-ch1": "#f06595",
+    "icon-ch2": "#cc5de8",
+    arome: "#4dabf7",
+    wrf: "#ff6b6b",
+    // la media: spessa, nel colore del testo (come la media degli spaghetti)
+  };
+  async function loadMulti() {
+    const request = chartContext;
+    const v = request.multi;
+    for (const b of chartUi.multi.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.v === v));
+    chartUi.details.textContent = `Modelli a confronto · ${v === "t850" ? "temperatura a 850 hPa" : "precipitazione cumulata"}`;
+    chartUi.warn.hidden = true;
+    chartUi.body.innerHTML = '<div class="chart-empty">Caricamento…</div>';
+    chartData = null;
+    chartPin = null;
+    $("chart-readout").hidden = true;
+    writeChartHash();
+    const { lat, lon } = request.place;
+    const models = meta.models; // anche la media
+    const got = await Promise.all(
+      models.map(async (m) => {
+        const r = (runs[m.id] || []).find((x) => !x.incoming && x.variables?.[v]);
+        if (!r) return null;
+        try {
+          const sv = (await getSeries(m.id, r.run, lat, lon)).vars?.[v];
+          return sv ? { id: m.id, run: r.run, sv } : null;
+        } catch {
+          return null;
+        }
+      }),
+    );
+    if (chartContext !== request || !chartUi.dialog.open) return;
+    const ok = got.filter(Boolean);
+    if (!ok.length) {
+      chartUi.body.innerHTML = '<div class="chart-empty">Nessun modello ha dati in questo punto.</div>';
+      return;
+    }
+    const T0 = Math.max(...ok.map((m) => runDate(m.run).getTime()));
+    // ogni modello: cumulata dalla sua partenza (0 all'inizio della corsa), riportata a 0 all'istante comune T0
+    const lines = ok
+      .map((m) => {
+        const start = runDate(m.run).getTime();
+        const pts = [[(start - T0) / 3600e3, 0]];
+        m.sv.steps.forEach((st, i) => {
+          if (m.sv.values[i] != null) pts.push([(start + st * 3600e3 - T0) / 3600e3, m.sv.values[i]]);
+        });
+        const at = (h) => {
+          for (let i = 1; i < pts.length; i++)
+            if (pts[i][0] >= h) {
+              const [ha, va] = pts[i - 1],
+                [hb, vb] = pts[i];
+              return va + ((vb - va) * (h - ha)) / (hb - ha || 1);
+            }
+          return null;
+        };
+        let out;
+        if (v === "tp") {
+          const base = at(0) ?? 0; // pioggia: somma dall'istante comune
+          out = [[0, 0], ...pts.filter(([h]) => h > 0).map(([h, x]) => [h, Math.max(0, x - base)])];
+        } else {
+          // temperatura: i valori veri dall'istante comune in poi (il punto a 0 dell'inizio corsa vale solo per la
+          // pioggia); all'istante comune il valore interpolato fra le due uscite vicine, se c'è
+          const real = pts.slice(1);
+          const k = real.findIndex(([h]) => h >= 0);
+          const first =
+            k > 0 ? real[k - 1][1] + ((real[k][1] - real[k - 1][1]) * (0 - real[k - 1][0])) / (real[k][0] - real[k - 1][0] || 1) : null;
+          out = [...(first != null && real[k][0] > 0 ? [[0, first]] : []), ...real.filter(([h]) => h >= 0)];
+        }
+        const mean = m.id === "mean";
+        return { id: m.id, label: mean ? "Media" : shortLabel(m.id), mean, color: mean ? null : MULTI_COLORS[m.id] || "#adb5bd", pts: out, run: m.run };
+      })
+      .filter((l) => l.pts.length > 1);
+    chartData = { multi: v, lines, t0: T0, model: "mean", run: ok[0].run, from: 0, until: 384 };
+    drawChart();
+  }
+
+  function drawMulti(exportW, exportH) {
+    const { lines, t0, multi } = chartData;
+    const temp = multi === "t850";
+    const unit = temp ? "°C" : "mm";
+    const W = exportW || Math.max(280, chartUi.body.clientWidth);
+    const R = exportW ? CHART_R : 14,
+      HEAD = 30,
+      AXIS = 34;
+    const steps = [...new Set(lines.flatMap((l) => l.pts.map(([h]) => h)))].sort((a, b) => a - b);
+    const x0 = 0,
+      x1 = steps[steps.length - 1];
+    const valueAt = (l, h) => {
+      const p = l.pts;
+      if (h > p[p.length - 1][0] + 1e-6) return null; // oltre la fine del modello
+      for (let i = 1; i < p.length; i++)
+        if (p[i][0] >= h) return p[i - 1][1] + ((p[i][1] - p[i - 1][1]) * (h - p[i - 1][0])) / (p[i][0] - p[i - 1][0] || 1);
+      return p[0][1];
+    };
+    const fmt = (x) => (x == null ? "—" : x.toFixed(1).replace("-", "−"));
+    const vals = lines.flatMap((l) => l.pts.map(([, x]) => x));
+    let lo = temp ? Math.min(0, ...vals) : 0;
+    const hi = Math.max(temp ? 0 : 2, ...vals);
+    const ticks = niceTicks(lo, hi, 4);
+    lo = Math.min(lo, ticks[0]);
+    const top = HEAD,
+      tickText = (t) => (t % 1 ? t.toFixed(1) : String(t)).replace("-", "−");
+    const L = Math.ceil(Math.max(...ticks.map((t) => tickText(t).length)) * 6.6) + 5,
+      pw = W - L - R;
+    // legenda sotto l'asse: colore e nome, a più colonne
+    const per = Math.max(2, Math.floor((pw + L) / 150)), // ~150 px per voce ("ICON-CH2 12.5 mm")
+      legRows = Math.ceil(lines.length / per),
+      LEG = 14 + legRows * 18;
+    const fitH = exportH || (chartUi.body.clientHeight > 320 ? chartUi.body.clientHeight - 12 : null);
+    const PH = Math.max(140, (fitH || 380) - HEAD - AXIS - LEG);
+    const bot = top + PH,
+      hiT = Math.max(hi, ticks[ticks.length - 1]);
+    const X = (h) => L + ((h - x0) / (x1 - x0 || 1)) * pw;
+    const Y = (y) => bot - ((y - lo) / (hiT - lo || 1)) * PH;
+    const svg = [
+      `<text class="ch-title" x="0" y="${top - 14}">${temp ? "Temperatura 850 hPa" : "Precipitazione"} <tspan class="ch-note">(${temp ? unit : `${unit}, cumulata`})</tspan></text>`,
+    ];
+    if (temp && lo < 0) svg.push(`<line class="ch-zero" x1="${L}" x2="${L + pw}" y1="${Y(0)}" y2="${Y(0)}"/>`);
+    for (const t of ticks) {
+      svg.push(`<line class="ch-grid" x1="${L}" x2="${L + pw}" y1="${Y(t)}" y2="${Y(t)}"/>`);
+      svg.push(`<text class="ch-tick" x="${L - 4}" y="${Y(t) + 3.5}" text-anchor="end">${tickText(t)}</text>`);
+    }
+    const yBot = bot;
+    const hourOf = (h) =>
+      +new Date(t0 + h * 3600e3).toLocaleString("it-IT", { timeZone: "Europe/Rome", hour: "2-digit", hour12: false });
+    const perDay = pw / ((x1 - x0) / 24);
+    const labelEvery = perDay >= 34 ? 1 : perDay >= 17 ? 2 : 4;
+    let nDay = 0;
+    for (let h = 1; h <= x1; h++) {
+      if (hourOf(h) % 24 !== 0) continue;
+      svg.push(`<line class="ch-day" x1="${X(h)}" x2="${X(h)}" y1="${HEAD + 2}" y2="${yBot}"/>`);
+      if (nDay++ % labelEvery) continue;
+      const d = new Date(t0 + h * 3600e3).toLocaleDateString("it-IT", {
+        timeZone: "Europe/Rome",
+        ...(perDay >= 52 ? { weekday: "short", day: "numeric" } : { day: "numeric" }),
+      });
+      svg.push(`<text class="ch-tick" x="${X(h)}" y="${yBot + 16}" text-anchor="middle" font-weight="600">${d}</text>`);
+    }
+    // la media per ultima, sopra le altre, spessa nel colore del testo
+    for (const l of [...lines.filter((x) => !x.mean), ...lines.filter((x) => x.mean)])
+      svg.push(
+        `<path ${l.mean ? 'class="ch-ens-mean" ' : ""}d="${l.pts.map(([h, x], i) => `${i ? "L" : "M"}${X(h).toFixed(1)},${Y(x).toFixed(1)}`).join("")}" fill="none"${l.mean ? "" : ` stroke="${l.color}"`} stroke-width="${l.mean ? (exportW ? 2.4 : 3) * (temp ? 0.8 : 1) : (exportW ? 1.6 : 2) * (temp ? 0.6 : 1)}" stroke-linejoin="round" stroke-linecap="round"/>`,
+      );
+    // legenda: con la pioggia dal totale più alto al più basso (col totale a fine corsa), con la temperatura i nomi
+    const sorted = temp ? lines : [...lines].sort((a, b) => b.pts.at(-1)[1] - a.pts.at(-1)[1]);
+    const colW = (pw + L) / per;
+    sorted.forEach((l, i) => {
+      const x = (i % per) * colW,
+        y = yBot + AXIS + 4 + Math.floor(i / per) * 18;
+      svg.push(
+        `<line ${l.mean ? 'class="ch-ens-mean" ' : `stroke="${l.color}" `}x1="${x}" x2="${x + 14}" y1="${y}" y2="${y}" stroke-width="3" stroke-linecap="round"/>`,
+        // ch-leg: font proprio (nell'immagine un testo senza la classe del titolo resterebbe con il font di sistema serif)
+        `<text class="ch-leg" x="${x + 19}" y="${y + 4}"><tspan>${l.label}</tspan>${temp ? "" : ` ${fmt(l.pts.at(-1)[1])} ${unit}`}</text>`,
+      );
+    });
+    const H = yBot + AXIS + LEG;
+    // valori a un'ora: ogni modello, dal più alto, per tooltip, scheda dell'ora fissata e immagine
+    const rowsAt = (h) =>
+      lines
+        .map((l) => ({ l, v: valueAt(l, h) }))
+        .filter((r) => r.v != null)
+        .sort((a, b) => b.v - a.v);
+    const rowsHtml = (h) =>
+      `<div class="ens-vals" style="grid-template-columns:auto 1fr">` +
+      rowsAt(h)
+        .map(({ l, v }) => `<span class="h"${l.mean ? "" : ` style="color:${l.color}"`}>${l.label}</span><b>${fmt(v)} ${unit}</b>`)
+        .join("") +
+      "</div>";
+    const headOf = (h) => fmtLocal(new Date(t0 + h * 3600e3));
+    const pin = chartPin != null && steps.includes(chartPin) ? chartPin : null;
+    if (exportW) {
+      if (pin != null) svg.push(`<line class="ch-pin" x1="${X(pin)}" x2="${X(pin)}" y1="${HEAD + 2}" y2="${yBot}"/>`);
+      const pinBox =
+        pin == null
+          ? null
+          : {
+              x: X(pin),
+              right: X(x1),
+              head: headOf(pin),
+              rows: rowsAt(pin).map(({ l, v }) => [[`${l.label} `, false, l.color || undefined], [`${fmt(v)} ${unit}`, true]]),
+            };
+      return { markup: svg.join(""), W, H, pinBox };
+    }
+    mountTimeChart({ svg, W, H, L, pw, x0, x1, steps, X, HEAD, yBot, rowsHtml, headOf, pin, label: "Modelli a confronto" });
   }
 
   function drawChart(exportW, exportH) {
     if (chartData.ensemble) return drawEnsemble(exportW, exportH);
+    if (chartData.multi) return drawMulti(exportW, exportH);
     const { series, run, from, until } = chartData;
     // Il grafico usa lo stesso intervallo della mappa. Fuori dalla modalità intervallo `from` è 0, come prima.
     const V = Object.fromEntries(
@@ -6289,7 +6523,7 @@
         // fiocco sopra ogni colonna con neve (\uFE0E: simbolo di testo, non l'emoji colorata)
         for (const f of flakes)
           svg.push(
-            `<text x="${f.x.toFixed(1)}" y="${f.y.toFixed(1)}" text-anchor="middle" font-size="10" fill="${SNOW_BAR}">\u2744\uFE0E</text>`,
+            `<text x="${f.x.toFixed(1)}" y="${f.y.toFixed(1)}" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="${SNOW_BAR}">\u2744\uFE0E</text>`,
           );
         if (accLine) svg.push(accLine);
       } else {
@@ -6794,7 +7028,7 @@
   window.visualViewport?.addEventListener("resize", placeMapMenu);
   window.visualViewport?.addEventListener("scroll", placeMapMenu);
   function openMapMenu(ll) {
-    if (synoptic() || landscapeView()) return; // carta sinottica: niente menu del punto
+    if (synoptic()) return; // carta sinottica: niente menu del punto
     closePlacePop();
     probeLL = null;
     ui.probe.hidden = true;

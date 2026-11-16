@@ -2487,6 +2487,14 @@ body.radar-mode .badge-radar .badge-btn:hover {
   font-weight: 650;
   fill: var(--fg);
 }
+.chart-body .ch-leg {
+  font: 400 11.5px system-ui, sans-serif;
+  fill: var(--muted);
+}
+.chart-body .ch-leg tspan {
+  font-weight: 650;
+  fill: var(--fg);
+}
 .chart-body .ch-note {
   font-size: 11.5px;
   fill: var(--muted);
@@ -3219,10 +3227,6 @@ body.landscape-view .lv-nav {
 body.synoptic-mode .pt {
   display: none;
 }
-/* località in orizzontale: si vedono numeri e valori, ma non si toccano (niente riquadro né grafici) */
-body.landscape-view .pt {
-  pointer-events: none;
-}
 /* il logo Mapbox (obbligatorio) sopra i pulsanti in basso a sinistra */
 body.landscape-view .wm-mapbox-logo {
   margin-bottom: calc(52px + env(safe-area-inset-bottom)) !important;
@@ -3285,4 +3289,12 @@ body.landscape-view .wm-mapbox-logo {
 }
 .chart-warn p {
   margin: 4px 0 0;
+}
+
+/* modelli a confronto: al posto della scelta del modello, Precipitazione / Neve */
+.chart-sub [hidden] {
+  display: none !important;
+}
+.chart-multi {
+  display: inline-flex;
 }

@@ -360,6 +360,13 @@
               rel="noopener"
               >signalkuppe</a
             >
+            ·
+            <a
+              href="https://github.com/signalkuppe/weathermaps/issues/new"
+              target="_blank"
+              rel="noopener"
+              >Segnala un bug</a
+            >
           </p>
           <button id="privacy-open" class="privacy-open" type="button">
             Informativa privacy
@@ -835,6 +842,11 @@
             >
               <button><selectedcontent></selectedcontent></button>
             </select>
+            <!-- modelli a confronto: precipitazione cumulata o temperatura a 850 hPa di tutti i modelli e della media -->
+            <div id="chart-multi" class="seg chart-multi" hidden>
+              <button type="button" data-v="tp">Precipitazione</button>
+              <button type="button" data-v="t850">T 850 hPa</button>
+            </div>
             <span id="chart-details"></span>
           </div>
         </div>
