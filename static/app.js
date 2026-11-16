@@ -4,6 +4,23 @@
   "use strict";
 
   const $ = (id) => document.getElementById(id);
+
+  // App dalla schermata Home in verticale (iOS 26): la pagina parte sotto l'orologio ma iOS la accorcia lo stesso
+  // dell'altezza della barra di stato (es. 812 px su 874), e in fondo resta una fascia vuota. Qui la pagina prende
+  // tutta l'altezza dello schermo (--app-h, vedi html/body in style.css). In orizzontale e nel browser non serve.
+  // Registrato prima di Leaflet e Mapbox: al ridimensionamento la misura nuova è già pronta quando ricalcolano.
+  function fixAppHeight() {
+    const app =
+      window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true;
+    const full = Math.max(screen.width, screen.height);
+    const portrait = innerHeight > innerWidth;
+    const root = document.documentElement.style;
+    if (app && portrait && innerHeight < full) root.setProperty("--app-h", `${full}px`);
+    else root.removeProperty("--app-h");
+  }
+  fixAppHeight();
+  window.addEventListener("resize", fixAppHeight);
+
   const ui = {
     model: $("model"),
     varSel: $("var"),
@@ -31,6 +48,7 @@
     probe: $("probe"),
     panel: $("panel"),
     collapse: $("collapse"),
+    appReload: $("app-reload"),
     badge: $("badge"),
     badgeText: $("badge-text"),
     mPlay: $("m-play"),
@@ -71,8 +89,12 @@
     model: "gfs",
     var: "t850",
     run: null,
-    step: null,
-    startStep: null,
+    step: null, // ora mostrata (con le cumulate: dentro il range)
+    // cumulate: range dello slider (fisso finché non lo sposti, all'apertura tutta la corsa) e tipo di cumulata
+    // ("total" = dall'inizio del range, "hours" = le ultime `hours` ore). `mode` ne discende (vedi syncMode)
+    rangeFrom: null,
+    rangeTo: null,
+    cum: "total",
     mode: null,
     opacity: 0.7,
     crisp: false,
@@ -116,10 +138,10 @@
           else to = Math.min(values.length - 1, from + 1);
           slider.value([from, to]);
         }
-        state.startStep = values[from];
-        state.step = values[to];
-        state.hours = state.step - state.startStep;
-        state.mode = state.startStep === 0 ? "total" : "interval";
+        state.rangeFrom = values[from];
+        state.rangeTo = values[to];
+        state.step = state.rangeTo; // si mostra la fine del range
+        syncMode();
         ui.step.value = steps().indexOf(state.step);
         togglePlay(false);
         updateModeSelection();
@@ -859,15 +881,39 @@
     for (const x of meta.steps) if (x <= target && x > best) best = x;
     return best;
   }
+  /** Inizio della cumulata mostrata all'ora `s`: l'inizio del range (Totale) o le ultime ore scelte, mai prima del
+   *  range. Tutto il resto (dati, legenda, grafici) legge da qui. */
   function intervalPrev(s = state.step, hours = state.hours) {
-    if (
-      s === state.step &&
-      Number.isFinite(state.startStep) &&
-      state.startStep >= 0 &&
-      state.startStep < s
-    )
-      return state.startStep;
-    return presetPrev(s, hours);
+    if (state.cum === "hours") return presetPrev(s, hours); // le ultime ore, ovunque nella corsa
+    return state.rangeFrom ?? 0;
+  }
+  // cumulate: con Totale lo slider a due maniglie sceglie il periodo; con le ore fisse una maniglia sola che scatta
+  // di `hours` ore lungo tutta la corsa (il periodo resta memorizzato per quando si torna al Totale)
+  const presetMode = () => rangeMode() && state.cum === "hours";
+  const dualMode = () => rangeMode() && state.cum !== "hours";
+  /** Ore su cui si muovono slider a una maniglia, frecce e play: con le ore fisse una ogni `hours` ore della corsa. */
+  function slideSteps() {
+    if (!presetMode()) return steps();
+    const avail = [...availableSteps()];
+    return rangeFrames(0, avail.length ? Math.max(...avail) : steps().at(-1));
+  }
+  /** Modo dei dati dalla scelta: "total" se la cumulata parte dall'inizio della corsa, altrimenti "interval". */
+  function syncMode() {
+    if (!rangeMode()) return;
+    state.mode = intervalPrev() === 0 ? "total" : "interval";
+  }
+  /** Ore fra `from` e `to`: ogni passo con Totale (il play dentro il periodo); con le ore fisse una ogni `hours` ore
+   *  (le ultime `hours` ore ciascuna). */
+  function rangeFrames(from = state.rangeFrom ?? 0, to = state.rangeTo ?? state.step) {
+    const avail = availableSteps();
+    const inside = steps().filter((x) => x > from && x <= to && avail.has(x));
+    if (state.cum !== "hours") return inside;
+    const frames = [];
+    for (let target = from + state.hours; target <= to; target += state.hours) {
+      const x = [...inside].reverse().find((y) => y <= target); // passo più vicino (oltre +144h ogni 6 ore)
+      if (x != null && x !== frames.at(-1)) frames.push(x);
+    }
+    return frames.length ? frames : inside.slice(-1);
   }
   // durata effettiva della cumulata al passo mostrato: sempre scritta, mai "intervallo" e basta
   const intervalHours = (s = state.step) => s - intervalPrev(s);
@@ -892,7 +938,7 @@
       playbackSelection &&
       (!rangeMode() ||
         playbackSelection.step !== state.step ||
-        playbackSelection.from !== intervalPrev() ||
+        playbackSelection.from !== state.rangeFrom ||
         playbackSelection.model !== state.model ||
         playbackSelection.variable !== state.var ||
         playbackSelection.run !== state.run)
@@ -901,8 +947,9 @@
       playbackSelection = null;
     }
     const values = intervalSteps();
-    const from = Math.max(0, values.indexOf(playbackSelection?.from ?? intervalPrev()));
-    const to = Math.max(from + 1, values.indexOf(playbackSelection?.to ?? state.step));
+    // lo slider mostra il range (fisso), non la cumulata dell'ora mostrata
+    const from = Math.max(0, values.indexOf(playbackSelection?.from ?? state.rangeFrom ?? intervalPrev()));
+    const to = Math.max(from + 1, values.indexOf(playbackSelection?.to ?? state.rangeTo ?? state.step));
     const position = (step) => {
       const fraction = values.indexOf(step) / (values.length - 1);
       return `calc(${fraction * 100}% + var(--interval-thumb-size) * ${0.5 - fraction})`;
@@ -1027,7 +1074,6 @@
       if (typeof d.model === "string") state.model = d.model;
       if (typeof d.var === "string") state.var = d.var;
       if (Number.isFinite(d.step)) state.step = d.step;
-      if (Number.isFinite(d.startStep)) state.startStep = d.startStep;
       if (typeof d.mode === "string") state.mode = d.mode;
       if (INTERVALS.includes(d.hours)) state.hours = d.hours;
       if (typeof d.base === "string") state.base = d.base;
@@ -1053,7 +1099,6 @@
           model: state.model,
           var: state.var,
           step: state.step,
-          startStep: state.startStep,
           mode: state.mode,
           hours: state.hours,
           base: state.base,
@@ -1074,12 +1119,19 @@
   function readHash() {
     const p = new URLSearchParams(location.hash.slice(1));
     for (const k of ["model", "var", "mode"]) if (p.get(k)) state[k] = p.get(k);
-    if (INTERVALS.includes(+p.get("ore"))) {
-      state.hours = +p.get("ore");
-      if (!p.has("from")) state.startStep = null;
+    // cumulate: range (from, to) e tipo (ore = 3/6/12/24, senza = Totale). I link vecchi (from + step, senza to)
+    // diventano un range col Totale; "ore" da solo (link ancora più vecchi) è il pulsante delle ore su tutta la corsa
+    const ore = +p.get("ore");
+    state.cum = INTERVALS.includes(ore) ? "hours" : "total";
+    if (state.cum === "hours") state.hours = ore;
+    if (p.has("to") && Number.isFinite(+p.get("to"))) {
+      state.rangeFrom = Number.isFinite(+p.get("from")) ? +p.get("from") : 0;
+      state.rangeTo = +p.get("to");
+    } else if (p.has("from") && Number.isFinite(+p.get("from")) && p.get("step")) {
+      state.rangeFrom = +p.get("from");
+      state.rangeTo = +p.get("step");
+      state.cum = "total";
     }
-    if (p.has("from") && Number.isFinite(+p.get("from")))
-      state.startStep = +p.get("from");
     // i parametri "corsa"/"run" dei link vecchi si ignorano: si mostra sempre l'ultima corsa completa
     if (p.get("step")) state.step = +p.get("step");
     if (p.get("opacity"))
@@ -1102,7 +1154,11 @@
       if (previous.has(key)) p.set(key, previous.get(key));
     for (const k of ["model", "var", "step", "mode", "opacity"])
       if (state[k] != null) p.set(k, state[k]);
-    if (state.mode === "interval") p.set("from", intervalPrev());
+    if (rangeMode() && state.rangeTo != null) {
+      p.set("from", state.rangeFrom ?? 0);
+      p.set("to", state.rangeTo);
+      if (state.cum === "hours") p.set("ore", state.hours);
+    }
     if (state.crisp) p.set("crisp", "1");
     if (!state.iso) p.set("iso", "0");
     history.replaceState(history.state, "", "#" + p.toString());
@@ -1208,20 +1264,20 @@
         b.dataset.mode = m;
         if (h) b.dataset.hours = h;
         if (h)
-          b.title = `Cumulata nelle ${h} ore che finiscono all'ora mostrata`;
-        else if (m === "total") b.title = "Cumulata dall'inizio della corsa";
-        b.setAttribute(
-          "aria-pressed",
-          String(m === state.mode && (h == null || h === state.hours)),
-        );
+          b.title = `Le ${h} ore che finiscono all'ora mostrata (il play va avanti di ${h} ore)`;
+        else if (m === "total") b.title = "Cumulata dall'inizio dell'intervallo";
+        b.setAttribute("aria-pressed", String(modePressed(m, h)));
         b.addEventListener("click", () => {
-          state.mode = m;
-          if (m === "total") {
-            state.startStep = 0;
-          } else if (h) {
-            state.hours = h;
-            state.startStep = presetPrev(state.step, h);
-          }
+          if (rangeMode()) {
+            // il range resta quello scelto: cambia solo il tipo di cumulata; si mostra la fine del range
+            togglePlay(false);
+            state.cum = h ? "hours" : "total";
+            if (h) {
+              // ore fisse: si riparte sempre dal primo intervallo della corsa (il periodo del Totale resta memorizzato)
+              state.hours = h;
+              state.step = slideSteps()[0] ?? state.step;
+            } else state.step = state.rangeTo ?? state.step;
+          } else state.mode = m;
           setupModes();
           setupSteps();
           update();
@@ -1230,20 +1286,20 @@
       }),
     );
     ui.modeRow.hidden = v.modes.length < 2;
-    document.body.classList.toggle("range-mode", rangeMode());
+    // slider a due maniglie solo col Totale; con le ore fisse quello a una maniglia (vedi slideSteps)
+    document.body.classList.toggle("range-mode", dualMode());
     updateModeSelection();
   }
 
+  // pulsante acceso: con le cumulate il tipo scelto (Totale o le ore), altrimenti il modo
+  function modePressed(m, h) {
+    if (!rangeMode()) return m === state.mode;
+    return h ? state.cum === "hours" && h === state.hours : state.cum !== "hours";
+  }
   function updateModeSelection() {
     for (const button of ui.mode.querySelectorAll("button")) {
       const hours = button.dataset.hours ? +button.dataset.hours : null;
-      button.setAttribute(
-        "aria-pressed",
-        String(
-          button.dataset.mode === state.mode &&
-            (hours == null || hours === intervalHours()),
-        ),
-      );
+      button.setAttribute("aria-pressed", String(modePressed(button.dataset.mode, hours)));
     }
   }
 
@@ -1403,15 +1459,27 @@
       const avail = [...availableSteps()];
       state.step = avail.includes(24) ? 24 : (avail[0] ?? s[0]);
     }
-    ui.step.value = s.indexOf(state.step);
-    const interval = intervalSteps();
-    if (state.mode === "total") state.startStep = 0;
-    else if (
-      !interval.includes(state.startStep) ||
-      state.startStep >= state.step
-    )
-      state.startStep = presetPrev(state.step);
-    state.hours = state.step - state.startStep;
+    if (rangeMode()) {
+      // range: all'apertura (o se non vale più, es. orizzonte diverso) tutta la corsa disponibile
+      const interval = intervalSteps();
+      const avail = [...availableSteps()];
+      const last = avail.length ? Math.max(...avail) : s[s.length - 1];
+      let fresh = false;
+      if (!s.includes(state.rangeTo) || state.rangeTo > last) {
+        state.rangeTo = last;
+        fresh = true;
+      }
+      if (!interval.includes(state.rangeFrom) || state.rangeFrom >= state.rangeTo) state.rangeFrom = 0;
+      if (presetMode()) {
+        // ore fisse: l'ora mostrata deve essere uno degli scatti della maniglia
+        const frames = slideSteps();
+        if (!frames.includes(state.step))
+          state.step = [...frames].reverse().find((x) => x <= state.step) ?? frames[0] ?? state.step;
+      } else if (fresh || !(state.step > state.rangeFrom && state.step <= state.rangeTo)) state.step = state.rangeTo;
+      syncMode();
+    }
+    ui.step.max = slideSteps().length - 1;
+    ui.step.value = slideSteps().indexOf(state.step);
     syncIntervalSliders();
     updateModeSelection();
   }
@@ -3031,8 +3099,9 @@
     }
     const runText = `<strong>${state.run.slice(8, 10)}z</strong> ${state.run.slice(6, 8)}/${state.run.slice(4, 6)}`;
     syncIntervalSliders();
-    const rangeStart = playbackSelection?.from ?? intervalPrev(s);
-    const rangeEnd = playbackSelection?.to ?? s;
+    // la cumulata dell'immagine mostrata (anche durante il play: con le ore scelte le ultime ore, non tutto il range)
+    const rangeStart = intervalPrev(s);
+    const rangeEnd = s;
     const rangeLabel = rangeStart === 0
       ? `+${rangeEnd} ore`
       : `Da +${rangeStart}h a +${rangeEnd}h · ${rangeEnd - rangeStart}h`;
@@ -3054,8 +3123,8 @@
       `<span class="badge-m badge-m-time"><b>${mobileTime}</b>${mobileRange}</span>` +
       `<span class="badge-m badge-m-model">${shortLabel(state.model)} ${cycle(state.run)}</span>`;
     const mStep = $("m-step"); // slider della barra su mobile, allineato a quello del pannello
-    mStep.max = steps().length - 1;
-    mStep.value = steps().indexOf(s);
+    mStep.max = slideSteps().length - 1;
+    mStep.value = slideSteps().indexOf(s);
     for (const r of [mStep, ui.step])
       r.style.setProperty("--pct", `${(100 * +r.value) / (+r.max || 1)}%`); // parte percorsa
     // cumulate (intervallo o totale): date nella riga sopra, passi e durata nella barra in basso e in legenda;
@@ -3595,15 +3664,9 @@
   const POP_MARGIN = 8; // distanza minima dai bordi della finestra
   const POP_GAP = 16; // distanza dal centro del cerchio alla punta della freccia
 
+  // il clic su una località apre sempre lo stesso riquadro con i valori (anche sulla carta a 500 hPa); da lì il grafico
+  // nel tempo e, se il modello scelto ha l'ensemble (GFS, ECMWF), gli spaghetti
   function openPlacePop(idx) {
-    // carta sinottica: la località apre solo gli spaghetti, dell'ensemble del modello scelto (GFS o ECMWF; con la
-    // mediana quello di GFS); nel grafico si passa all'altro
-    if (synoptic()) {
-      const ens = meta.ensemble || {};
-      const model = ens[state.model] ? state.model : ens.gfs ? "gfs" : Object.keys(ens)[0];
-      if (model) openChart(places[idx], { ensemble: true, model });
-      return;
-    }
     if (state.extra !== "none") return; // con radar o satellite il riquadro dei valori del modello non serve
     popIdx = idx;
     ui.probe.hidden = true;
@@ -3704,14 +3767,25 @@
         )
         .join("") + // senza valore la riga non c'è
       (foot ? `<div class="pt-pop-foot">${esc(foot)}</div>` : "") +
-      (meta.series && state.run
-        ? '<button type="button" class="pt-pop-chart">Grafico nel tempo</button>'
+      // pulsanti affiancati: grafico nel tempo e, se il modello ha l'ensemble, gli spaghetti
+      (meta.series && state.run || meta.ensemble?.[state.model]
+        ? '<div class="pt-pop-btns">' +
+          (meta.series && state.run
+            ? '<button type="button" class="pt-pop-chart" title="Grafico nel tempo">Grafico</button>'
+            : "") +
+          (meta.ensemble?.[state.model]
+            ? '<button type="button" class="pt-pop-chart pt-pop-ens" title="Spaghetti dell\'ensemble">Ens</button>'
+            : "") +
+          "</div>"
         : "") +
       `<i class="pt-pop-arrow"></i>`;
     pop.querySelector(".pt-pop-close").addEventListener("click", closePlacePop);
     pop
-      .querySelector(".pt-pop-chart")
+      .querySelector(".pt-pop-chart:not(.pt-pop-ens)")
       ?.addEventListener("click", () => openChart(p));
+    pop
+      .querySelector(".pt-pop-ens")
+      ?.addEventListener("click", () => openChart(p, { ensemble: true, model: state.model }));
     pop.hidden = false;
     markPoppedPoint();
     placePlacePop();
@@ -4867,6 +4941,8 @@
   // margine uguale su tutti i lati (come --cm in style.css): a sinistra coincide con lo spazio dei numeri dell'asse,
   // così titolo della finestra e titoli dei grafici partono alla stessa distanza dal bordo che i grafici hanno a destra
   const CHART_AXIS = 40; // spazio dei numeri dell'asse dentro l'SVG, a sinistra del grafico
+  const CLIM_RED = "#ef4444"; // climatologia negli spaghetti
+  const SNOW_BAR = "#a78bfa"; // parte di neve delle barre della precipitazione nei meteogrammi
   const OFFICIAL = "#22c55e"; // verde della corsa ufficiale (controllo) negli spaghetti
   const CHART_R = 30; // dentro l'SVG, a destra: la scala dell'accumulo della pioggia e l'ultima ora sull'asse
   chartUi.close.addEventListener("click", () => chartUi.dialog.close());
@@ -4904,6 +4980,49 @@
       };
     }
     return { lat: t.lat0 + iy * dstep, lon: t.lon0 + ix * dstep, vars };
+  }
+
+  /** Climatologia della T850 (scripts/make_climate.py): per ogni ora del grafico la media 1991-2020 di quel giorno
+   *  dell'anno e di quell'ora (00/06/12/18 UTC) nel punto (interpolata fra i nodi a 2.5°). Null se il file manca: il grafico si disegna lo stesso. */
+  let climFile = null;
+  async function climT850(lat, lon, t0, steps) {
+    climFile ??= fetch("clim-t850.json")
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null);
+    const c = await climFile;
+    if (!c?.hours) return null; // file mancante o di un formato diverso: grafico senza climatologia
+    const fy = Math.min(Math.max((lat - c.lat0) / c.dlat, 0), c.ny - 1),
+      fx = Math.min(Math.max((lon - c.lon0) / c.dlon, 0), c.nx - 1);
+    const y0 = Math.min(Math.floor(fy), c.ny - 2),
+      x0 = Math.min(Math.floor(fx), c.nx - 2),
+      wy = fy - y0,
+      wx = fx - x0;
+    const at = (day, slot) => {
+      const g = c.t850[day][slot];
+      return (
+        g[y0][x0] * (1 - wy) * (1 - wx) +
+        g[y0][x0 + 1] * (1 - wy) * wx +
+        g[y0 + 1][x0] * wy * (1 - wx) +
+        g[y0 + 1][x0 + 1] * wy * wx
+      );
+    };
+    // giorno dell'anno (0..364) e ora sinottica (0..3 = 00/06/12/18 UTC) di un istante
+    const slotOf = (ms) => {
+      const d = new Date(ms);
+      const jan1 = Date.UTC(d.getUTCFullYear(), 0, 1);
+      let day = Math.floor((ms - jan1) / 864e5);
+      const leap = new Date(Date.UTC(d.getUTCFullYear(), 1, 29)).getUTCMonth() === 1;
+      if (leap && day >= 59) day -= 1; // il 29 febbraio vale come il 28 (la climatologia ha 365 giorni)
+      return [Math.min(day, 364), Math.floor(d.getUTCHours() / 6)];
+    };
+    // fra due ore sinottiche si interpola (i passi degli spaghetti sono già ogni 6 ore, quindi di solito è esatto)
+    return steps.map((s) => {
+      const ms = t0 + s * 3600e3,
+        base = Math.floor(ms / 216e5) * 216e5,
+        w = (ms - base) / 216e5;
+      const a = at(...slotOf(base));
+      return w ? a * (1 - w) + at(...slotOf(base + 216e5)) * w : a;
+    });
   }
 
   /** Spaghetti dell'ensemble di un modello nel punto più vicino: dal server o, nel sito statico, dal file del punto. */
@@ -5046,8 +5165,9 @@
       try {
         if (!run) throw new Error("nessuna corsa disponibile");
         const ens = await getEnsemble(model, request.place.lat, request.place.lon);
+        const clim = await climT850(ens.lat, ens.lon, runDate(run).getTime(), ens.steps);
         if (chartContext !== request || !chartUi.dialog.open) return;
-        chartData = { ensemble: ens, model, run, from: 0, until: 384 };
+        chartData = { ensemble: ens, clim, model, run, from: 0, until: 384 };
         drawChart();
       } catch (e) {
         if (chartContext !== request || !chartUi.dialog.open) return;
@@ -5408,7 +5528,7 @@
       });
     const ctl = E.control ? E.members.indexOf(E.control) : -1; // l'ensemble ECMWF dei dati aperti non ha il controllo
     const panels = [
-      { title: "Temperatura 850 hPa", unit: "°C", rows: E.t850, dec: 1, zero: true, ph: 170 },
+      { title: "Temperatura 850 hPa", unit: "°C", rows: E.t850, dec: 1, zero: true, ph: 170, clim: chartData.clim },
       { title: "Pioggia", unit: "mm in 6 ore", rows: E.tp, dec: 1, min: 2, floor0: true, ph: 110 },
     ];
     // altezza: quella dell'immagine o, nella finestra, tutta quella disponibile (i pannelli si allungano)
@@ -5423,7 +5543,7 @@
     const tickText = (t) => fmt(t, Math.abs(t) < 10 && t % 1 ? 1 : 0);
     for (const p of panels) {
       p.mean = mean(p.rows);
-      const vals = p.rows.flat().filter((x) => x != null);
+      const vals = [...p.rows.flat(), ...(p.clim || [])].filter((x) => x != null);
       let lo = p.floor0 ? 0 : Math.min(...vals),
         hi = Math.max(p.min ?? -Infinity, ...vals);
       if (p.zero) {
@@ -5477,6 +5597,11 @@
           `<path d="${path(row)}" fill="none" stroke="hsl(${hue} 70% 50%)" stroke-width="0.8" stroke-opacity="0.6" stroke-linejoin="round"/>`,
         );
       });
+      // climatologia 1991-2020 del giorno e dell'ora: rossa continua, più spessa dei membri
+      if (p.clim)
+        svg.push(
+          `<path d="${path(p.clim)}" fill="none" stroke="${CLIM_RED}" stroke-width="${exportW ? 1.6 : 2}" stroke-linejoin="round" stroke-linecap="round"/>`,
+        );
       svg.push(
         `<path class="ch-ens-mean" d="${path(p.mean)}" fill="none" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>`,
       );
@@ -5711,8 +5836,8 @@
     );
     const t0 = runDate(run).getTime();
     const W = exportW || Math.max(280, chartUi.body.clientWidth);
-    const L = CHART_AXIS,
-      R = CHART_R,
+    const R = CHART_R;
+    let L = CHART_AXIS, // si stringe sui numeri dell'asse, vedi sotto
       pw = W - L - R;
     let PH = 78;
     const HEAD = 30,
@@ -5727,7 +5852,9 @@
         '<div class="chart-empty">Nessun dato in questo punto.</div>';
       return;
     }
-    const x0 = from > 0 ? from : Math.min(0, steps[0]),
+    // l'asse parte dal primo valore (+3h: l'istante 0 dei modelli non si scarica), così le linee partono dal bordo;
+    // la pioggia delle prime ore (colonna 0-3h) resta nel totale e nell'accumulo
+    const x0 = from > 0 ? from : steps[0],
       x1 = steps[steps.length - 1];
     const X = (h) => L + ((h - x0) / (x1 - x0 || 1)) * pw;
     const fmt = (x, d) => (x == null ? "—" : x.toFixed(d).replace("-", "−"));
@@ -5764,7 +5891,18 @@
     const panels = [];
     if (V.tp) {
       const at = new Map(rawRain.steps.map((x, i) => [x, rawRain.values[i]]));
-      const data = intervals(V.tp).map((d) => {
+      // neve (cm, 10:1 = mm d'acqua) dei modelli che la danno: per ogni barra la parte caduta come neve
+      const rawSnow = series.vars.sf;
+      const snowAt = new Map((rawSnow?.steps || []).map((x, i) => [x, rawSnow.values[i]]));
+      const snowBase = from > 0 ? (series.vars.sf?.values[series.vars.sf.steps.indexOf(from)] ?? null) : 0;
+      const withSnow = (d) => {
+        if (!V.sf) return d;
+        const cur = snowAt.get(d.b),
+          prev = d.a > 0 ? snowAt.get(d.a) : 0;
+        const snow = cur == null || prev == null || d.y == null ? null : Math.min(d.y, Math.max(0, cur - prev));
+        return { ...d, snow, snowCum: cur == null || snowBase == null ? null : Math.max(0, cur - snowBase) };
+      };
+      const data = intervals(V.tp).map(withSnow).map((d) => {
         if (!rainHours || d.b - d.a >= rainHours || d.cum == null) return d;
         const a = V.tp.steps.filter((x) => x <= d.b - rainHours).pop() ?? 0; // come intervalPrev nella mappa
         const prev = a ? at.get(a) : 0;
@@ -5774,8 +5912,11 @@
           winH: d.b - a,
         };
       });
+      // con neve prevista il pannello diventa "Precipitazione" e la parte di neve delle barre è viola
+      const snowTot = [...data].reverse().find((d) => d.snowCum != null)?.snowCum;
+      const snowy = data.some((d) => d.snow >= 0.05);
       panels.push({
-        title: "Pioggia",
+        title: snowy ? "Precipitazione" : "Pioggia",
         unit: "mm",
         kind: "bar",
         color: "#2f7fd8",
@@ -5783,9 +5924,13 @@
         dec: 1,
         min: 1,
         cum: data.map((d) => ({ x: d.b, y: d.cum })),
+        snowCum: snowy ? data.map((d) => ({ x: d.b, y: d.snowCum })) : null, // area viola dentro l'accumulo
         cumLabel: from > 0 ? "periodo" : "tot",
-        note: `${from > 0 ? "periodo" : "totale"} ${fmt([...data].reverse().find((d) => d.cum != null)?.cum, 1)} mm · linea: accumulo`,
-        tip: (d) => `Pioggia +${d.b - d.a}h`,
+        // "tot. 15.2 mm (12.3 cm)": tra parentesi la neve, se c'è
+        note:
+          `${from > 0 ? "periodo" : "tot."} ${fmt([...data].reverse().find((d) => d.cum != null)?.cum, 1)} mm` +
+          (snowy ? ` (${fmt(snowTot, 1)} cm)` : ""),
+        tip: (d) => `+${d.b - d.a}h`, // solo la durata della colonna: la grandezza si capisce dai mm
       });
     }
     if (V.t850)
@@ -5844,9 +5989,11 @@
             ? (d.win != null
                 ? ` · in ${d.winH}h ${b(fmt(d.win, p.dec))} ${p.unit}`
                 : "") +
-              ` · ${p.cumLabel || "tot"} ${b(fmt(d.cum, p.dec))} ${p.unit}`
+              ` · ${p.cumLabel || "tot"} ${b(fmt(d.cum, p.dec))} ${p.unit}` +
+              (d.snowCum >= 0.05 ? ` (${b(fmt(d.snowCum, 1))} cm)` : "")
             : ""; // cumulata della mappa (se scelta) e totale dall'inizio
-      return `${b(fmt(d.y, p.dec))} ${p.unit}${span && p.kind === "bar" ? ` in ${d.b - d.a}h` : ""}${extra}`;
+      const snow = p.kind === "bar" && d.snow >= 0.05 ? ` (${b(fmt(d.snow, 1))} cm)` : ""; // neve, come nel titolo
+      return `${b(fmt(d.y, p.dec))} ${p.unit}${span && p.kind === "bar" ? ` in ${d.b - d.a}h` : ""}${snow}${extra}`;
     };
     const pin =
       exportW && chartPin != null && steps.includes(chartPin) ? chartPin : null;
@@ -5874,9 +6021,9 @@
       if (hh === 0) days.push(h);
       else if (hh % every === 0) hours.push([h, hh]);
     }
-    panels.forEach((p, i) => {
-      const top = i * (HEAD + PH + GAP) + HEAD,
-        bot = top + PH;
+    // scala di ogni pannello (estremi e numeri dell'asse), prima di disegnare: serve la larghezza dei numeri
+    const tickText = (t) => fmt(t, Math.abs(t) < 10 && t % 1 ? 1 : 0);
+    for (const p of panels) {
       const vals = p.data.map((d) => d.y).filter((y) => y != null);
       let lo = p.kind === "bar" ? 0 : Math.min(...vals),
         hi = Math.max(p.min ?? -Infinity, ...vals);
@@ -5891,8 +6038,19 @@
       }
       if (p.min != null && p.kind === "line") lo = Math.max(0, lo);
       const ticks = niceTicks(lo, hi);
-      lo = Math.min(lo, ticks[0]);
-      hi = Math.max(hi, ticks[ticks.length - 1]);
+      p.scale = { ticks, lo: Math.min(lo, ticks[0]), hi: Math.max(hi, ticks[ticks.length - 1]) };
+    }
+    // il grafico parte subito dopo il numero più largo dell'asse a sinistra (11-11.5 px, ~6.6 px per cifra): più largo
+    // soprattutto su telefono
+    if (panels.length) {
+      const chars = Math.max(...panels.flatMap((p) => p.scale.ticks.map((t) => tickText(t).length)));
+      L = Math.ceil(chars * 6.6) + 5;
+      pw = W - L - R;
+    }
+    panels.forEach((p, i) => {
+      const top = i * (HEAD + PH + GAP) + HEAD,
+        bot = top + PH;
+      const { ticks, lo, hi } = p.scale;
       const Y = (y) => bot - ((y - lo) / (hi - lo || 1)) * PH;
       p.Y = Y;
       p.top = top;
@@ -5906,7 +6064,7 @@
           `<line class="ch-grid" x1="${L}" x2="${L + pw}" y1="${Y(t)}" y2="${Y(t)}"/>`,
         );
         svg.push(
-          `<text class="ch-tick" x="${L - 6}" y="${Y(t) + 3.5}" text-anchor="end">${fmt(t, Math.abs(t) < 10 && t % 1 ? 1 : 0)}</text>`,
+          `<text class="ch-tick" x="${L - 4}" y="${Y(t) + 3.5}" text-anchor="end">${tickText(t)}</text>`,
         );
       }
       if (p.zero && lo < 0 && hi > 0)
@@ -5935,21 +6093,49 @@
           svg.push(
             `<path class="ch-acc-area" d="${path}L${lastX.toFixed(1)},${bot}Z" stroke="none"/>`,
           );
+          if (p.snowCum) {
+            // neve accumulata (cm, 10:1 = mm d'acqua: stessa scala) come area viola sotto quella della precipitazione
+            let sp = `M${X(x0).toFixed(1)},${bot}`,
+              sx = X(x0);
+            for (const d of p.snowCum)
+              if (d.y != null) {
+                sx = X(d.x);
+                sp += `L${sx.toFixed(1)},${Yc(d.y).toFixed(1)}`;
+              }
+            svg.push(
+              `<path d="${sp}L${sx.toFixed(1)},${bot}Z" fill="${SNOW_BAR}" fill-opacity="0.22" stroke="none"/>`,
+              `<path d="${sp.replace(/^M[^L]*L/, "M")}" fill="none" stroke="${SNOW_BAR}" stroke-opacity="0.8" stroke-width="1" stroke-linejoin="round"/>`,
+            );
+          }
           accLine = `<path class="ch-acc" d="${path}" fill="none" stroke-width="1.25" stroke-linejoin="round" stroke-linecap="round"/>`;
           for (const t of cticks)
             svg.push(
               `<text class="ch-tick ch-acc-tick" x="${L + pw + 5}" y="${Yc(t) + 3.5}">${fmt(t, 0)}</text>`,
             );
         }
+        const flakes = []; // colonne con neve: fiocco sopra
         for (const d of p.data) {
-          if (d.y == null || d.y < 0.05) continue;
-          const xa = X(d.a) + 1,
+          if (d.y == null || d.y < 0.05 || d.b <= x0) continue; // colonna prima dell'inizio dell'asse
+          const xa = X(Math.max(d.a, x0)) + 1,
             xb = X(d.b) - 1,
             y = Y(d.y);
           svg.push(
             `<rect x="${xa}" y="${y}" width="${Math.max(1, xb - xa)}" height="${Math.max(0, bot - y)}" rx="1.5" fill="${p.color}"${pin != null && pin > d.a && pin <= d.b ? ' class="ch-pin-bar"' : ""}/>`,
           );
+          // neve: la parte alta della barra, in viola (quanta della precipitazione cade come neve)
+          if (d.snow >= 0.05) {
+            const ys = y + (bot - y) * (d.snow / d.y);
+            svg.push(
+              `<rect x="${xa}" y="${y}" width="${Math.max(1, xb - xa)}" height="${Math.max(0, ys - y)}" rx="1.5" fill="${SNOW_BAR}"/>`,
+            );
+            flakes.push({ x: (xa + xb) / 2, y: y - 3, cm: d.snow });
+          }
         }
+        // fiocco sopra ogni colonna con neve (\uFE0E: simbolo di testo, non l'emoji colorata)
+        for (const f of flakes)
+          svg.push(
+            `<text x="${f.x.toFixed(1)}" y="${f.y.toFixed(1)}" text-anchor="middle" font-size="10" fill="${SNOW_BAR}">\u2744\uFE0E</text>`,
+          );
         if (accLine) svg.push(accLine);
       } else {
         let path = "",
@@ -6073,11 +6259,7 @@
         .map((p) => {
           const d = valueAt(p, st);
           if (!d) return "";
-          // pioggia: solo l'accumulo dall'inizio (totale, o del periodo scelto sulla mappa)
-          if (p.kind === "bar")
-            return d.cum == null
-              ? ""
-              : `<div>Pioggia ${p.cumLabel === "periodo" ? "nel periodo" : "totale"} <b>${fmt(d.cum, p.dec)}</b> ${p.unit}</div>`;
+          // stesse righe del riquadro dell'ora fissata nell'immagine (anche la pioggia: colonna e totale)
           return `<div>${p.tip(d)} ${valueText(p, d, (x) => `<b>${x}</b>`, false)}</div>`;
         })
         .join("");
@@ -6641,20 +6823,23 @@
 
   // ---------- eventi
   function setStepKeepingInterval(step) {
-    if (state.mode === "interval") {
-      const values = intervalSteps();
-      const oldFrom = values.indexOf(intervalPrev());
-      const oldTo = values.indexOf(state.step);
-      const newTo = values.indexOf(step);
-      const width = Math.max(1, oldTo - oldFrom);
-      state.startStep = values[Math.max(0, newTo - width)];
-      state.hours = step - state.startStep;
-    }
     state.step = step;
+    syncMode(); // con le cumulate il range resta fisso, cambia solo l'ora mostrata
   }
 
   function goStep(delta) {
-    const s = steps();
+    const s = slideSteps();
+    if (dualMode()) {
+      // dentro il range, come il play: un passo con Totale, le ore scelte con i pulsanti
+      const frames = rangeFrames();
+      if (!frames.length) return;
+      const k = frames.indexOf(state.step);
+      const next = k < 0 ? (delta > 0 ? 0 : frames.length - 1) : (k + delta + frames.length) % frames.length;
+      setStepKeepingInterval(frames[next]);
+      ui.step.value = s.indexOf(state.step);
+      update();
+      return;
+    }
     let i = s.indexOf(state.step) + delta;
     if (i < 0) i = s.length - 1;
     if (i >= s.length) i = 0;
@@ -6678,11 +6863,10 @@
     const on = force ?? !playTimer;
     if (on && !playTimer) {
       stopProgressAnimation();
-      const rangeStart = state.mode === "interval" ? intervalPrev() : 0;
-      const rangeEnd = playbackSelection?.to ?? state.step;
-      const playbackRange = rangeMode()
-        ? rangePlaybackSteps(steps(), availableSteps(), rangeStart, rangeEnd)
-        : null;
+      // cumulate: dentro il range fisso; con Totale l'accumulo cresce, con le ore scelte un'immagine ogni tot ore
+      const rangeStart = state.rangeFrom ?? 0;
+      const rangeEnd = state.rangeTo ?? state.step;
+      const playbackRange = dualMode() ? rangeFrames(rangeStart, rangeEnd) : null;
       if (playbackRange && playbackRange.length < 2) return;
       if (playbackRange) {
         playbackSelection = {
@@ -6694,9 +6878,8 @@
           variable: state.var,
           run: state.run,
         };
-        state.startStep = rangeStart;
         state.step = playbackRange[0];
-        state.hours = state.step - rangeStart;
+        syncMode();
         ui.step.value = steps().indexOf(state.step);
         update();
         for (const slider of intervalSliders) {
@@ -6712,7 +6895,7 @@
       ui.mPlay.innerHTML = M_PAUSE;
       ui.mPlay.setAttribute("aria-label", "Ferma animazione");
       playTimer = setInterval(() => {
-        const s = steps();
+        const s = slideSteps(); // con le ore fisse uno scatto ogni `hours` ore
         let i = s.indexOf(state.step);
         if (playbackRange) {
           const rangeIndex = playbackRange.indexOf(state.step);
@@ -6723,9 +6906,7 @@
           state.step = playbackRange[rangeIndex + 1];
           playbackSelection.step = state.step;
           playbackSelection.progress = (rangeIndex + 1) / (playbackRange.length - 1);
-          state.startStep = rangeStart;
-          state.hours = state.step - rangeStart;
-          state.mode = rangeStart === 0 ? "total" : "interval";
+          syncMode();
           i = s.indexOf(state.step);
         } else {
           const avail = availableSteps();
@@ -6752,7 +6933,8 @@
   }
 
   ui.step.addEventListener("input", () => {
-    state.step = steps()[+ui.step.value];
+    state.step = slideSteps()[+ui.step.value];
+    syncMode();
     update();
   });
   ui.prev?.addEventListener("click", () => goStep(-1));
@@ -6771,13 +6953,21 @@
   $("m-step").addEventListener("input", (e) => {
     togglePlay(false);
     ui.step.value = e.target.value;
-    state.step = steps()[+e.target.value];
+    state.step = slideSteps()[+e.target.value];
+    syncMode();
     update();
   });
   // «: torna al primo passo disponibile della corsa
   $("m-first").addEventListener("click", () => {
     togglePlay(false);
-    const s = steps();
+    const s = slideSteps();
+    if (dualMode()) {
+      const frames = rangeFrames();
+      if (frames.length) setStepKeepingInterval(frames[0]);
+      ui.step.value = s.indexOf(state.step);
+      update();
+      return;
+    }
     const avail = availableSteps();
     const i = Math.max(
       0,
@@ -7032,7 +7222,7 @@
     const syn = synoptic();
     document.body.classList.toggle("synoptic-mode", syn);
     closeMapMenu(); // le voci del menu cambiano fra le due aree
-    if (syn) closePlacePop();
+    closePlacePop(); // cambia l'area: la mappa si sposta e il riquadro resterebbe appeso nel vuoto
     ui.probe.hidden = true;
     probeLL = null;
     areaBox = toBounds(a);
@@ -7046,6 +7236,36 @@
     glBase?.setMaxBounds(glBounds(a));
     glSynopticBase();
     styleBorders();
+  }
+
+  // la pagina non deve scorrere (vedi html, body in style.css): se il browser la sposta comunque (tastiera, mappa più
+  // larga durante la condivisione), si rimette in cima
+  // larga durante la condivisione), si rimette in cima. Non mentre si scrive: iOS sposta la pagina per mostrare il
+  // campo sopra la tastiera
+  window.addEventListener("scroll", () => {
+    if (document.activeElement?.matches?.("input, textarea")) return;
+    if (window.scrollX || window.scrollY) window.scrollTo(0, 0);
+  });
+
+  // ---------- app dalla schermata Home: non c'è la barra del browser, quindi niente ricarica e niente "tira giù per
+  // aggiornare". Un tasto accanto a quello del pannello ricarica la pagina (corse e passi nuovi).
+  const standalone =
+    window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true;
+  if (standalone) {
+    ui.appReload.hidden = false;
+    ui.appReload.addEventListener("click", () => location.reload());
+    // riaprendo l'app iOS mostra la pagina rimasta in memoria, con le corse di allora: a ogni ritorno in primo piano
+    // si ricarica (la vista resta: modello, grandezza e ora stanno nell'indirizzo). Non se è aperta una finestra
+    // (condivisione, grafico): tornando dall'app in cui si è condiviso l'immagine si perderebbe quello che si faceva.
+    let wasHidden = false;
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        wasHidden = true;
+        return;
+      }
+      if (wasHidden && !document.querySelector("dialog[open]")) location.reload();
+      wasHidden = false;
+    });
   }
 
   // ---------- avvio

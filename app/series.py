@@ -20,7 +20,7 @@ from .store import Store
 DSTEP = 0.1  # passo della griglia delle serie, gradi
 TILE = 2.0  # lato dei riquadri, gradi
 # grandezze del meteogramma e fattore per salvarle come interi (valore = intero / fattore)
-SCALE = {"tp": 10, "t850": 10, "hzero": 0.1, "u10": 1, "v10": 1}
+SCALE = {"tp": 10, "sf": 10, "t850": 10, "hzero": 0.1, "u10": 1, "v10": 1}  # sf: neve (cm), colora le barre della pioggia
 
 
 def grid(bbox: BBox) -> tuple[np.ndarray, np.ndarray]:

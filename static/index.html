@@ -3,7 +3,11 @@
   <head>
     <meta charset="utf-8" />
     <meta name="color-scheme" content="dark" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- viewport-fit=cover: aperta dalla schermata Home la mappa va anche sotto la barra di stato (trasparente); i
+         riquadri si spostano di env(safe-area-inset-*) in style.css -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Weathermaps</title>
     <!-- logo "Cella" (static/icons): favicon, icona della home del telefono e manifest per aggiungerla come app -->
     <link rel="icon" href="icons/favicon.svg" type="image/svg+xml" />
@@ -69,6 +73,7 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body class="is-starting" aria-busy="true">
+    <div class="status-bar-bg" aria-hidden="true"></div>
     <div
       id="startup-loader"
       class="startup-loader"
@@ -104,6 +109,30 @@
           ></span>
         </h1>
         <div class="head-actions">
+          <!-- solo nell'app aperta dalla schermata Home (niente barra del browser per ricaricare): vedi app.js -->
+          <button
+            id="app-reload"
+            class="icon-btn"
+            type="button"
+            aria-label="Ricarica"
+            title="Ricarica"
+            hidden
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+              <path d="M21 3v6h-6" />
+            </svg>
+          </button>
           <button
             id="collapse"
             class="icon-btn"

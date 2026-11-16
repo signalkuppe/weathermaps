@@ -22,8 +22,11 @@ html,
 body {
   /* cifre tutte della stessa larghezza: i numeri che cambiano (ora durante il play, valori) non spostano il resto */
   font-variant-numeric: tabular-nums;
-  height: 100%;
+  height: var(--app-h, 100%); /* --app-h: app dalla schermata Home su iPhone, vedi fixAppHeight in app.js */
   margin: 0;
+}
+body {
+  position: relative; /* mappa e riquadri si misurano sul body (alto --app-h), non sulla finestra */
 }
 /* niente zoom col doppio tocco (Safari iOS ingrandiva la pagina toccando › due volte in fretta): i tocchi
    ravvicinati diventano clic normali. Il pizzico per ingrandire la pagina resta; la mappa ha il suo zoom. */
@@ -39,6 +42,13 @@ label {
 }
 html {
   background: var(--bg);
+}
+/* la pagina non scorre mai (scorrono solo pannelli e finestre): su iPhone uno scorrimento anche piccolo del documento
+   fa sparire le barre di Safari, sposta tutto sotto l'orologio e lascia una fascia vuota in fondo */
+html,
+body {
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 body {
   background: var(--bg);
@@ -118,14 +128,14 @@ body.share-wide .wm-native-map {
 
 .panel {
   position: absolute;
-  top: 12px;
+  top: calc(12px + env(safe-area-inset-top)); /* sotto la barra di stato nell'app dalla schermata Home */
   left: 12px;
   z-index: 1000;
   width: 300px;
   max-width: calc(100vw - 24px);
   /* mai oltre il bordo dello schermo: una sezione aperta alla volta e località con altezza massima, quindi il
      pannello non scorre (solo su schermi molto bassi, vedi .panel-body) */
-  max-height: calc(100dvh - 24px);
+  max-height: calc(var(--app-h, 100dvh) - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   background: var(--panel);
@@ -230,7 +240,7 @@ body.share-wide .wm-native-map {
 /* modale a schermo intero: riquadro 1200×630 (og:image) da ritagliare con trascinamento e zoom */
 .share-dialog {
   width: 100vw;
-  height: 100dvh;
+  height: var(--app-h, 100dvh);
   max-width: none;
   max-height: none;
   margin: 0;
@@ -854,7 +864,7 @@ input[type="range"] {
 
 .badge {
   position: absolute;
-  top: 12px;
+  top: calc(12px + env(safe-area-inset-top));
   left: 50%;
   transform: translateX(-50%);
   z-index: 1000;
@@ -1208,6 +1218,33 @@ body.range-mode .stepper .interval-step {
 .icon-btn:hover {
   border-color: var(--accent);
 }
+/* tasto con icona (ricarica dell'app): icona al centro, non sulla linea del testo */
+.icon-btn:has(svg) {
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+}
+.icon-btn svg {
+  display: block;
+}
+/* app dalla schermata Home in verticale: la mappa va sotto l'orologio e iOS ci mette sopra una sfumatura scura che si
+   sovrappone a mappa e pannello; al suo posto una fascia piena del colore della pagina (alta 0 nel browser) */
+.status-bar-bg {
+  display: none;
+}
+@media (orientation: portrait) {
+  .status-bar-bg {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: env(safe-area-inset-top);
+    background: var(--bg);
+    z-index: 1500;
+    pointer-events: none;
+  }
+}
 
 .status {
   color: var(--muted);
@@ -1511,7 +1548,7 @@ body.radar-mode .badge-radar .badge-btn:hover {
 .legend {
   position: absolute;
   right: 12px;
-  bottom: 28px;
+  bottom: calc(28px + env(safe-area-inset-bottom));
   z-index: 1000;
   background: var(--panel);
   border: 1px solid var(--line);
@@ -1941,12 +1978,13 @@ body.radar-mode .badge-radar .badge-btn:hover {
   }
   /* sopra la barra in basso (ora, legenda), alta circa 90px */
   .panel {
-    top: 8px;
+    /* sotto l'orologio nell'app dalla schermata Home, staccato anche dalla sfumatura che iOS mette sotto la barra */
+    top: max(8px, calc(env(safe-area-inset-top) + 16px));
     left: 8px;
     right: 8px;
     width: auto;
     max-width: none;
-    max-height: calc(100dvh - 108px); /* largo come la barra in basso */
+    max-height: calc(var(--app-h, 100dvh) - 108px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); /* largo come la barra in basso */
     background: var(--panel-solid);
   } /* pieno: titoli fissi e sfumature dello stesso colore del pannello */
   /* Safari iOS ingrandisce la pagina se un campo ha il testo sotto i 16px: ricerca, rinomina e menu a 16px */
@@ -1970,7 +2008,8 @@ body.radar-mode .badge-radar .badge-btn:hover {
   /* riga: ‹ istante › ▶ … modello corsa; sotto, a tutta larghezza, la legenda */
   .badge {
     top: auto;
-    bottom: 8px;
+    /* sopra la linea della Home nell'app, ma vicina al bordo: lo spazio riservato (34px) è più del necessario */
+    bottom: max(8px, calc(env(safe-area-inset-bottom) - 12px));
     left: 8px;
     right: 8px;
     transform: none;
@@ -2631,6 +2670,16 @@ body.radar-mode .badge-radar .badge-btn:hover {
 .pt-pop-chart:hover {
   background: rgba(255, 255, 255, 0.12);
 }
+/* pulsanti del riquadro della località, affiancati e larghi uguali */
+.pt-pop-btns {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.pt-pop-btns .pt-pop-chart {
+  flex: 1;
+  margin-top: 0;
+}
 
 /* finestra del grafico: margini più ampi della condivisione (titolo e grafico non incollati ai bordi) */
 /* margine uguale su tutti i lati (--cm), dal bordo al contenuto più esterno: a sinistra intestazione, titoli e numeri
@@ -2738,7 +2787,7 @@ body.no-data .wm-native-map canvas {
 @media (max-width: 600px),
   (orientation: portrait) and (pointer: coarse) and (max-width: 1100px) {
   .wm-mapbox-logo {
-    margin-bottom: var(--logo-bottom, 140px) !important;
+    margin-bottom: calc(var(--logo-bottom, 140px) + max(0px, env(safe-area-inset-bottom) - 12px)) !important;
     transition:
       margin 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
       opacity 0.2s ease;
@@ -2749,7 +2798,7 @@ body.no-data .wm-native-map canvas {
     pointer-events: none;
   }
   body.radar-mode .wm-mapbox-logo {
-    margin-bottom: 104px !important;
+    margin-bottom: calc(104px + max(0px, env(safe-area-inset-bottom) - 12px)) !important;
   } /* radar e satellite: la barra non cambia */
 }
 

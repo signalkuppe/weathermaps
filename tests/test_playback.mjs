@@ -65,15 +65,20 @@ test("playback keeps both range thumbs fixed while its progress advances", () =>
   let tick;
   const playback = vm.createContext({
     meta: {},
-    state: { mode: "interval", startStep: 3, step: 12, hours: 9 },
+    // range fisso da +3h a +12h, cumulata Totale: il play fa crescere l'accumulo dentro il range
+    state: { mode: "interval", rangeFrom: 3, rangeTo: 12, cum: "total", step: 12, hours: 9 },
     playTimer: null,
     playbackSelection: null,
     intervalSliders: [slider],
     intervalSteps: () => [0, 3, 6, 9, 12, 15],
     steps: () => [3, 6, 9, 12, 15],
     availableSteps: () => new Set([3, 6, 9, 12, 15]),
-    intervalPrev: () => playback.state.startStep,
+    intervalPrev: () => playback.state.rangeFrom,
     rangeMode: () => true,
+    rangeFrames: (from, to) => [3, 6, 9, 12, 15].filter((x) => x > from && x <= to),
+    syncMode() {},
+    dualMode: () => true, // Totale: slider a due maniglie
+    slideSteps: () => [3, 6, 9, 12, 15],
     ui: { play: button(), mPlay: button(), step: {} },
     setInterval(callback) { tick = callback; return 1; },
     clearInterval() { tick = null; },
@@ -157,6 +162,7 @@ test("time bars show the interval as dates, with the start", () => {
     intervalHours: () => 6,
     syncIntervalSliders() {},
     steps: () => [3, 6, 9, 12, 24],
+    slideSteps: () => [3, 6, 9, 12, 24],
     $: () => ({ style: { setProperty() {} } }),
   });
   // formattatori veri delle date (fmtDay … fmtShown) e renderTime
@@ -184,7 +190,8 @@ test("time bars show the interval as dates, with the start", () => {
   time.playbackSelection = { from: 0, to: 24 };
   vm.runInContext("renderTime();", time);
   assert.match(time.ui.badgeText.innerHTML, /badge-valid badge-d">ven 13 nov, 15:00 · \+9h<\/span>/);
-  assert.match(time.ui.badgeText.innerHTML, /badge-m-range">\+24 ore<\/span>/);
+  // durante il play la barra dice la cumulata dell'immagine mostrata (fino a +9h), non la fine del range
+  assert.match(time.ui.badgeText.innerHTML, /badge-m-range">\+9 ore<\/span>/);
   assert.doesNotMatch(time.ui.badgeText.innerHTML, /→/);
 
   // grandezza istantanea: niente intervallo, l'ora UTC sotto nel pannello
@@ -200,4 +207,27 @@ test("time bars show the interval as dates, with the start", () => {
   vm.runInContext("renderTime();", time);
   assert.equal(time.ui.valid.textContent, "");
   assert.match(time.ui.badgeText.innerHTML, /grandezza non disponibile/);
+});
+
+test("range frames: every step with the total, one image every chosen hours otherwise", () => {
+  const fnSource = source.slice(
+    source.indexOf("  function rangeFrames("),
+    source.indexOf("  // durata effettiva della cumulata al passo mostrato"),
+  );
+  // passi ogni 3 ore fino a +144h, poi ogni 6 ore
+  const all = [...Array.from({ length: 48 }, (_, i) => 3 * (i + 1)), 150, 156, 162, 168];
+  const ctx = vm.createContext({
+    state: { rangeFrom: 6, rangeTo: 30, cum: "total", hours: 6, step: 30 },
+    steps: () => all,
+    availableSteps: () => new Set(all),
+  });
+  vm.runInContext(`${fnSource}\nglobalThis.frames = rangeFrames;`, ctx);
+  // Totale: ogni passo dopo l'inizio del range, fino alla fine
+  assert.deepEqual([...ctx.frames()], [9, 12, 15, 18, 21, 24, 27, 30]);
+  // 6h dentro lo stesso range: 06-12, 12-18, 18-24, 24-30
+  ctx.state.cum = "hours";
+  assert.deepEqual([...ctx.frames()], [12, 18, 24, 30]);
+  // 3h oltre +144h (passi ogni 6 ore): una sola immagine per passo, senza doppioni
+  Object.assign(ctx.state, { rangeFrom: 138, rangeTo: 168, hours: 3 });
+  assert.deepEqual([...ctx.frames()], [141, 144, 150, 156, 162, 168]);
 });

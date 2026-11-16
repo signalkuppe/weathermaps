@@ -4,6 +4,7 @@ Produce in OUT_DIR:
   index.html, app.js, render.js, style.css   la pagina, in modalità statica
   borders.json                       contorni geografici (da scripts/make_borders.py)
   borders-synoptic.json              coste e stati della carta sinottica (make_borders.py --synoptic)
+  clim-t850.json                     climatologia T850 1991-2020 degli spaghetti (make_climate.py)
   data/meta.json                     come /api/meta
   data/runs.json                     come /api/runs + istante di generazione
   data/field/{model}/{var}/{run}/{step}.bin    campo "totale" (o "valore") come /api/field, in formato compatto:
@@ -83,7 +84,8 @@ def main(out_dir: Path) -> int:
     out_dir.mkdir(parents=True)
 
     # pagina: stessi file del server, marcati come statici
-    for name in ("render.js", "style.css", "borders.json", "borders-synoptic.json", "manifest.webmanifest"):
+    for name in ("render.js", "style.css", "borders.json", "borders-synoptic.json", "clim-t850.json",
+                 "manifest.webmanifest"):
         shutil.copy(ROOT / "static" / name, out_dir / name)
     build_javascript(out_dir / "app.js")
     shutil.copytree(ROOT / "static" / "icons", out_dir / "icons")  # logo: favicon e icone della home del telefono
