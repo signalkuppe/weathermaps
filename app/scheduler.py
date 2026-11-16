@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from . import ensemble
+from . import ensemble, soundings
 from .config import SCHEDULER_INTERVAL_MIN
 from .fetcher import SOURCES, update_model
 from .mean import build_mean
@@ -56,6 +56,17 @@ def start(store: Store) -> BackgroundScheduler:
             max_instances=1,
             coalesce=True,
         )
+    # radiosondaggi osservati (00 e 12 UTC, Università del Wyoming)
+    sched.add_job(
+        soundings.update,
+        "interval",
+        minutes=SCHEDULER_INTERVAL_MIN,
+        args=[store],
+        id="update-soundings",
+        next_run_time=first + timedelta(minutes=2),
+        max_instances=1,
+        coalesce=True,
+    )
     sched.start()
     log.info("Scheduler avviato: ogni %d minuti per %s", SCHEDULER_INTERVAL_MIN, list(SOURCES))
     return sched

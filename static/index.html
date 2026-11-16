@@ -338,7 +338,8 @@
         <details id="extra" class="points-box extra">
           <summary>Livelli extra</summary>
           <div class="settings-body">
-            <!-- uno alla volta: radar (mosaico nazionale, ogni 5 minuti) o satellite (nubi, Meteosat, ogni 10 minuti) -->
+            <!-- uno alla volta: radar (mosaico nazionale, ogni 5 minuti), satellite (nubi, Meteosat, ogni 10 minuti) o
+                 radiosondaggi (le stazioni sulla mappa, toccandole il diagramma Skew-T) -->
             <div class="seg" id="extra-seg"></div>
           </div>
         </details>
@@ -349,7 +350,7 @@
             ItaliaMeteo ICON-2I (CC-BY), WRF (CIMA, LaMMA) · DWD ICON-D2 ·
             Météo-France AROME (Licence Ouverte) · MeteoSvizzera ICON-CH1/CH2
             (CC-BY) · Radar: Protezione Civile / ItaliaMeteo (MeteoHub) ·
-            Satellite: EUMETSAT · Confini: Natural Earth
+            Satellite: EUMETSAT · Radiosondaggi: University of Wyoming · Confini: Natural Earth
           </p>
           <div id="attrib" class="attrib"></div>
           <p class="credits-data">
@@ -847,6 +848,8 @@
               <button type="button" data-v="tp">Precipitazione</button>
               <button type="button" data-v="t850">T 850 hPa</button>
             </div>
+            <!-- radiosondaggio: scelta del lancio (al posto del modello) -->
+            <select id="chart-sounding" class="chart-sounding" aria-label="Lancio" hidden></select>
             <span id="chart-details"></span>
           </div>
         </div>

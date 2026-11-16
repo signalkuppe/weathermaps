@@ -2839,6 +2839,11 @@ body.no-data .wm-native-map canvas {
   body.radar-mode .wm-mapbox-logo {
     margin-bottom: calc(104px + max(0px, env(safe-area-inset-bottom) - 12px)) !important;
   } /* radar e satellite: la barra non cambia */
+  /* radiosondaggi: niente barra né legenda in basso, il logo resta fisso nell'angolo */
+  body.snd-mode .wm-mapbox-logo {
+    margin-bottom: calc(8px + max(0px, env(safe-area-inset-bottom) - 12px)) !important;
+    transition: none;
+  }
 }
 
 .wm-native-map {
@@ -3297,4 +3302,93 @@ body.landscape-view .wm-mapbox-logo {
 }
 .chart-multi {
   display: inline-flex;
+}
+
+/* radiosondaggi: stazioni sulla mappa (pallone e nome) e scelta del lancio nel grafico */
+.snd-marker {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: max-content;
+  translate: -11px -11px;
+  cursor: pointer;
+}
+.snd-dot {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #1d2330;
+  color: #ffd43b;
+  box-shadow: 0 0 0 2px #fff;
+}
+.snd-name {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(29, 35, 48, 0.85);
+  color: #fff;
+  font: 600 11px system-ui, sans-serif;
+}
+.chart-sounding {
+  max-width: 14em;
+}
+
+/* modalità radiosondaggi (Livelli extra): via i livelli del modello, le località e la barra in alto; restano mappa e
+   stazioni (si torna al modello da Livelli extra → Off) */
+body.snd-mode .wm-overlay,
+body.snd-mode .leaflet-contours-pane,
+body.snd-mode .leaflet-contourLabels-pane,
+body.snd-mode .leaflet-arrows-pane,
+body.snd-mode .pt,
+body.snd-mode .legend,
+body.snd-mode .badge {
+  display: none !important;
+}
+.snd-missing .snd-dot {
+  background: #f59f00; /* stesso ambra dell'avviso */
+  color: #1d2330;
+  font: 800 13px system-ui, sans-serif;
+}
+.snd-missing .snd-name {
+  opacity: 0.8;
+}
+/* livelli extra: testo più piccolo e larghezze secondo l'etichetta, così "Radiosondaggi" non tocca i bordi */
+#extra-seg button {
+  flex: 1 1 auto;
+  font-size: 12px;
+  padding-left: 7px;
+  padding-right: 7px;
+}
+/* avviso (es. radiosondaggio non disponibile): stessi colori ambra dell'avviso nei grafici, ma pieno sulla mappa */
+.share-toast.warn {
+  border: 1px solid #f59f00;
+  background: color-mix(in srgb, #f59f00 22%, #1d2330);
+}
+
+/* radiosondaggio su desktop: pannello stretto a destra (il diagramma è alto e stretto), entra scorrendo da destra;
+   la mappa resta visibile a sinistra. Sul telefono resta a tutto schermo come gli altri grafici */
+@media (min-width: 701px) and (not ((orientation: portrait) and (pointer: coarse))) {
+  .chart-dialog.side-panel {
+    --cm: 28px;
+    width: min(640px, 100vw);
+    margin-left: auto;
+    box-shadow: -8px 0 30px rgba(0, 0, 0, 0.35);
+  }
+  .chart-dialog.side-panel[open] {
+    animation-name: side-in;
+  }
+  .chart-dialog.side-panel::backdrop {
+    background: rgba(0, 0, 0, 0.2);
+  }
+}
+@keyframes side-in {
+  from {
+    transform: translateX(100%);
+  }
+}
+/* sottotitolo del radiosondaggio: zero termico e base nubi in evidenza */
+.snd-ix {
+  color: var(--fg);
+  font-weight: 700;
 }

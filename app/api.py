@@ -8,7 +8,7 @@ import numpy as np
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
-from . import variables
+from . import soundings, variables
 from .config import STEPS, get_initial_view, get_version, prev_step
 from . import fetcher
 from . import mean as mean_mod
@@ -148,6 +148,21 @@ def ensemble_point(request: Request, model: str, lat: float, lon: float):
     if data is None:
         raise HTTPException(404, "Ensemble non disponibile")
     return JSONResponse(data, headers={"Cache-Control": "public, max-age=300"})
+
+
+@router.get("/soundings")
+def soundings_index(request: Request):
+    """Radiosondaggi osservati: stazioni e lanci disponibili (app/soundings.py)."""
+    return JSONResponse(soundings.index(_store(request)), headers={"Cache-Control": "public, max-age=300"})
+
+
+@router.get("/sounding")
+def sounding(request: Request, station: str, time: str):
+    """Un lancio: livelli [pressione, quota, temperatura, rugiada, direzione, velocità km/h]."""
+    data = soundings.load(_store(request), station, time)
+    if data is None:
+        raise HTTPException(404, "Radiosondaggio non disponibile")
+    return JSONResponse(data, headers={"Cache-Control": "public, max-age=3600"})
 
 
 @router.get("/field")

@@ -11,6 +11,7 @@ Produce in OUT_DIR:
                                                valori in interi a 16 bit (app/packed.py), circa 1/3 del JSON
   data/series/{model}/{run}/{riga}_{colonna}.json   meteogrammi in riquadri di 2°×2° (app/series.py)
   data/ensemble/{model}/{run}/{riga}_{colonna}.json  spaghetti degli ensemble GFS ed ECMWF, un punto (app/ensemble.py)
+  data/soundings/index.json, {stazione}/{AAAAMMGGHH}.json  radiosondaggi osservati (app/soundings.py)
 
 Per contenere il numero di file (GitHub Pages li sincronizza uno per uno, entro 10 minuti):
   - le due componenti del vento stanno in un solo file per passo: data/field/{model}/{vettore}/{run}/{step}.bin
@@ -36,7 +37,7 @@ sys.path.insert(0, str(ROOT))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import ensemble, packed, series, variables  # noqa: E402
+from app import ensemble, packed, series, soundings, variables  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.store import Store  # noqa: E402
 
@@ -159,6 +160,12 @@ def main(out_dir: Path) -> int:
         nens = 0
         for model, iy, ix, body in ensemble.all_points(store):
             size += write_json(out_dir / "data" / "ensemble" / model / body["run"] / f"{iy}_{ix}.json", body)
+        # radiosondaggi osservati: indice delle stazioni e un file per lancio (vedi app/soundings.py)
+        size += write_json(out_dir / "data" / "soundings" / "index.json", soundings.index(store))
+        for st in soundings.index(store):
+            for key in st["times"][:1]:  # nella pagina si vede solo l'ultimo lancio
+                size += write_json(out_dir / "data" / "soundings" / st["id"] / f"{key}.json",
+                                   soundings.load(store, st["id"], key))
             nens += 1
         # meteogrammi: serie temporali su una griglia di 0,1° in riquadri di 2°×2° (vedi app/series.py)
         nser = 0

@@ -1083,7 +1083,7 @@
       if (typeof d.crisp === "boolean") state.crisp = d.crisp;
       if (typeof d.iso === "boolean") state.iso = d.iso;
       if (current && BORDER_NAMES[d.borders]) state.borders = d.borders;
-      if (d.extra === "radar" || d.extra === "sat") state.extra = d.extra;
+      if (d.extra === "radar" || d.extra === "sat" || d.extra === "snd") state.extra = d.extra;
       else if (d.radar === true) state.extra = "radar"; // impostazione salvata dalla prima versione del radar
       if (current && Number.isFinite(d.bordersOpacity))
         state.bordersOpacity = Math.min(1, Math.max(0.1, d.bordersOpacity));
@@ -1172,6 +1172,7 @@
       "chartFrom",
       "chartEns",
       "chartMulti",
+      "chartSnd",
     ])
       if (previous.has(key)) p.set(key, previous.get(key));
     for (const k of ["model", "var", "step", "mode", "opacity"])
@@ -2186,7 +2187,7 @@
       getElement: () => null,
     };
   }
-  const EXTRA_NAMES = { none: "Nessuno", radar: "Radar", sat: "Satellite" };
+  const EXTRA_NAMES = { none: "Off", radar: "Radar", sat: "Sat", snd: "Radiosondaggi" };
   function setExtra(name, save = true) {
     clearInterval(radarTimer);
     stopRadarPlay();
@@ -2196,12 +2197,17 @@
     }
     radarFrames = [];
     radarIdx = -1;
-    state.extra = EXTRAS[name] && !synoptic() ? name : "none"; // radar e satellite solo sulla mappa normale
+    // radar, satellite e radiosondaggi solo sulla mappa normale
+    state.extra = (EXTRAS[name] || name === "snd") && !synoptic() ? name : "none";
     const cfg = extraCfg();
+    // radiosondaggi: via i colori del modello come col radar, restano la mappa e le stazioni (vedi renderSoundings)
+    const snd = state.extra === "snd";
+    document.body.classList.toggle("snd-mode", snd);
+    renderSoundings();
     // con un livello extra: spariscono colori, isolinee e frecce del modello (sarebbe illeggibile), legenda e barra in
     // alto passano al livello; il modello resta scelto e torna togliendolo
     document.body.classList.toggle("radar-mode", !!cfg);
-    if (glImgs.has("wm-model")) glPut("wm-model", { visible: !cfg }); // i colori del modello spariscono anche in Mapbox
+    if (glImgs.has("wm-model")) glPut("wm-model", { visible: !cfg && !snd }); // i colori del modello spariscono anche in Mapbox
     $("extra-name").textContent = cfg?.name || "";
     if (cfg) togglePlay(false);
     if (meta && state.var) {
@@ -4936,8 +4942,9 @@
     scaleCropAt(1.25);
   });
 
-  function toast(text) {
+  function toast(text, warn = false) {
     shareUi.toast.textContent = text;
+    shareUi.toast.classList.toggle("warn", warn); // avviso: colori di attenzione
     shareUi.toast.hidden = false;
     clearTimeout(toast.t);
     toast.t = setTimeout(() => {
@@ -5017,6 +5024,7 @@
     details: $("chart-details"),
     warn: $("chart-warn"),
     multi: $("chart-multi"),
+    sounding: $("chart-sounding"),
     model: $("chart-model"),
     close: $("chart-close"),
   };
@@ -5150,6 +5158,8 @@
     else params.delete("chartEns");
     if (chartContext.multi) params.set("chartMulti", chartContext.multi);
     else params.delete("chartMulti");
+    if (chartContext.sounding) params.set("chartSnd", `${chartContext.sounding.station}:${chartContext.sounding.time || ""}`);
+    else params.delete("chartSnd");
     if (push)
       history.pushState(
         { ...history.state, weatherChart: true },
@@ -5162,6 +5172,12 @@
   function restoreChartFromHash() {
     if (!meta) return;
     const params = new URLSearchParams(location.hash.slice(1));
+    if (params.get("chartSnd")) {
+      // radiosondaggio: stazione e lancio
+      const [station, time] = params.get("chartSnd").split(":");
+      openSounding(station, time || null, false);
+      return;
+    }
     const coordinates = params.get("chart")?.split(",");
     const [lat, lon] = coordinates?.map(Number) || [];
     if (
@@ -5223,6 +5239,8 @@
     // modelli a confronto: niente scelta del modello, al suo posto Precipitazione / T 850 hPa
     chartUi.model.hidden = !!multi;
     chartUi.multi.hidden = !multi;
+    chartUi.sounding.hidden = true;
+    chartUi.dialog.classList.remove("side-panel"); // i grafici del modello a tutto schermo
     if (multi) {
       chartContext = { place: p, model: "mean", run: null, from: 0, until: 384, multi };
       writeChartHash(pushHistory && !chartUi.dialog.open);
@@ -5279,9 +5297,8 @@
       );
     const u = current.units;
     const dec = v === "sf" ? 0 : 1;
-    // breve riga sempre visibile; la spiegazione si apre toccandola (su desktop è già aperta)
+    // breve riga sempre visibile; la spiegazione si apre toccandola (chiusa anche su desktop)
     const details = document.createElement("details");
-    details.open = !mobileMq.matches;
     const summary = document.createElement("summary");
     summary.textContent = "Perché leggo valori diversi dalla mappa?";
     const text = document.createElement("p");
@@ -5297,6 +5314,7 @@
   async function loadChart(model, selectedRun) {
     if (!chartContext) return;
     if (chartContext.multi) return loadMulti();
+    if (chartContext.sounding) return loadSounding();
     const run = chartContext.ensemble
       ? meta.ensemble?.[model]?.run // spaghetti: l'ultima corsa completa dell'ensemble del modello
       : selectedRun || (runs[model] || []).find((entry) => !entry.incoming)?.run;
@@ -5399,6 +5417,8 @@
         "chartStep",
         "chartFrom",
         "chartEns",
+        "chartMulti",
+        "chartSnd",
       ])
         params.delete(key);
       replaceHash("#" + params.toString());
@@ -5440,7 +5460,7 @@
   async function makeChartFile() {
     const { model, run } = chartData;
     const title = chartUi.title.textContent;
-    const subtitle = chartData.ensemble || chartData.multi
+    const subtitle = chartData.ensemble || chartData.multi || chartData.sounding
       ? chartUi.details.textContent // dice già "Ensemble GFS/ECMWF" o "Modelli a confronto"
       : `${meta.models.find((entry) => entry.id === model)?.label || model} · ${chartUi.details.textContent}`;
     // immagine verticale 4:5 (2160 × 2700 px): formato pieno su Instagram, intera nelle chat; i pannelli si allungano.
@@ -6181,9 +6201,311 @@
     mountTimeChart({ svg, W, H, L, pw, x0, x1, steps, X, HEAD, yBot, rowsHtml, headOf, pin, label: "Modelli a confronto" });
   }
 
+  // ---------- radiosondaggi osservati (Università del Wyoming, vedi app/soundings.py): le stazioni sulla mappa
+  // (Livelli extra, in alternativa a radar e satellite) e, toccandole, il diagramma Skew-T dell'ultimo lancio
+  // elenco delle stazioni con i lanci: si richiede dopo 15 minuti (pagina lasciata aperta, nuovi lanci) o se era fallito
+  let soundingIndex = null,
+    soundingIndexAt = 0;
+  async function getSoundingIndex() {
+    if (!soundingIndex || Date.now() - soundingIndexAt > 15 * 60e3) {
+      soundingIndexAt = Date.now();
+      soundingIndex = fetch(STATIC ? "data/soundings/index.json" : "api/soundings")
+        .then((r) => (r.ok ? r.json() : Promise.reject()))
+        .catch(() => {
+          soundingIndexAt = 0; // al prossimo tentativo si richiede
+          return [];
+        });
+    }
+    return soundingIndex;
+  }
+  async function getSounding(station, time) {
+    const r = await fetch(
+      STATIC ? `data/soundings/${station}/${time}.json` : `api/sounding?${new URLSearchParams({ station, time })}`,
+    );
+    if (!r.ok) throw new Error("radiosondaggio non disponibile");
+    return r.json();
+  }
+  map.createPane("soundings");
+  map.getPane("soundings").style.zIndex = 640; // sopra le località
+  const soundingLayer = L.layerGroup();
+  const BALLOON =
+    '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">' +
+    '<path d="M12 2a6 6 0 0 0-6 6c0 3.6 3.1 6.6 5 7.6V17h2v-1.4c1.9-1 5-4 5-7.6a6 6 0 0 0-6-6z"/>' +
+    '<path d="M11 18h2l-.5 4h-1z"/></svg>';
+  async function renderSoundings() {
+    const on = state.extra === "snd" && !synoptic();
+    const index = on ? await getSoundingIndex() : [];
+    soundingLayer.clearLayers(); // dopo l'attesa: due chiamate ravvicinate non raddoppiano le stazioni
+    if (!on || state.extra !== "snd" || synoptic()) {
+      soundingLayer.remove();
+      return;
+    }
+    soundingLayer.addTo(map);
+    for (const st of index) {
+      if (state.extra !== "snd") continue;
+      const short = st.name.replace(/ \(.*\)$/, "");
+      const ok = st.times.length > 0; // lancio non ancora scaricato: icona d'errore e avviso al tocco
+      const m = L.marker([st.lat, st.lon], {
+        pane: "soundings",
+        keyboard: false,
+        icon: L.divIcon({
+          className: ok ? "snd-marker" : "snd-marker snd-missing",
+          html: `<span class="snd-dot">${ok ? BALLOON : "!"}</span><span class="snd-name">${short}</span>`,
+          iconSize: null,
+        }),
+        title: ok ? `Radiosondaggio ${st.name}` : `${st.name}: radiosondaggio non ancora disponibile`,
+      }).addTo(soundingLayer);
+      // senza dati: un avviso che sparisce da solo (un fumetto sposterebbe la mappa vicino ai bordi)
+      m.on("click", () =>
+        ok ? openSounding(st.id) : toast(`${short}: radiosondaggio non ancora disponibile, riprova più tardi`, true),
+      );
+    }
+  }
+
+  async function openSounding(station, time = null, pushHistory = true) {
+    const st = (await getSoundingIndex()).find((x) => x.id === station);
+    if (!st || !st.times.length) return;
+    const t = st.times[0]; // sempre l'ultimo lancio disponibile
+    chartUi.dialog.classList.add("side-panel"); // su desktop pannello stretto che entra da destra
+    chartUi.title.textContent = st.name;
+    chartUi.model.hidden = true;
+    chartUi.multi.hidden = true;
+    chartUi.sounding.hidden = true;
+    chartContext = {
+      place: { name: st.name, lat: st.lat, lon: st.lon },
+      model: "sounding",
+      run: null,
+      from: 0,
+      until: 0,
+      sounding: { station, time: t },
+    };
+    writeChartHash(pushHistory && !chartUi.dialog.open);
+    if (!chartUi.dialog.open) chartUi.dialog.showModal();
+    chartUi.dialog.focus();
+    await loadSounding();
+  }
+  // pannello laterale: un clic fuori (sulla mappa velata) lo chiude
+  chartUi.dialog.addEventListener("click", (e) => {
+    if (e.target !== chartUi.dialog || !chartUi.dialog.classList.contains("side-panel")) return;
+    const r = chartUi.dialog.getBoundingClientRect();
+    if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) chartUi.dialog.close();
+  });
+  chartUi.sounding.addEventListener("change", () => {
+    if (!chartContext?.sounding) return;
+    chartContext.sounding.time = chartUi.sounding.value;
+    loadSounding();
+  });
+
+  async function loadSounding() {
+    const request = chartContext;
+    const { station, time } = request.sounding;
+    chartUi.details.textContent = "Radiosondaggio"; // poi ora del lancio, zero termico e base nubi (drawSkewT)
+    chartUi.warn.hidden = true;
+    chartUi.body.innerHTML = '<div class="chart-empty">Caricamento…</div>';
+    chartData = null;
+    chartPin = null;
+    $("chart-readout").hidden = true;
+    writeChartHash();
+    try {
+      const snd = await getSounding(station, time);
+      if (chartContext !== request || !chartUi.dialog.open) return;
+      chartData = { sounding: snd, model: "sounding", run: time };
+      drawChart();
+    } catch (e) {
+      if (chartContext !== request || !chartUi.dialog.open) return;
+      chartUi.body.innerHTML = `<div class="chart-empty">Grafico non disponibile: ${e.message}</div>`;
+    }
+  }
+
+  // ---------- diagramma Skew-T: pressione in scala logaritmica in verticale, isoterme inclinate di 45°; temperatura
+  // (rossa) e punto di rugiada (verde), adiabatiche secche, zero gradi evidenziato, vento a destra con le barbe
+  const DEW_GREEN = "#40c057";
+  const TEMP_RED = "#ff6b6b";
+  /** Indici dal profilo: zero termico (prima volta che la temperatura scende sotto 0 salendo) e base delle nubi da
+   *  sollevamento (LCL) della particella al suolo (formula di Espy, ~125 m per grado di differenza T - Td). */
+  function soundingIndices(levels) {
+    const lv = levels.filter((l) => l[1] != null && l[2] != null);
+    let zero = null;
+    for (let i = 1; i < lv.length; i++) {
+      const [, za, ta] = lv[i - 1],
+        [, zb, tb] = lv[i];
+      if (ta >= 0 && tb < 0) {
+        zero = za + ((zb - za) * ta) / (ta - tb || 1);
+        break;
+      }
+    }
+    if (zero == null && lv[0]?.[2] < 0) zero = lv[0][1]; // già sotto zero al suolo
+    const g = levels[0];
+    const lcl = g && g[2] != null && g[3] != null ? g[1] + 125 * (g[2] - g[3]) : null;
+    return { zero, lcl, ground: g?.[1] };
+  }
+  function drawSkewT(exportW, exportH) {
+    const snd = chartData.sounding;
+    const levels = snd.levels.filter((l) => l[0] >= 100);
+    const avail = exportW || Math.max(280, chartUi.body.clientWidth);
+    const HEAD = 12, // ora e indici sono nel sottotitolo sotto la località
+      L = 34,
+      R = 46; // a destra le barbe del vento
+    const fitH = exportH || (chartUi.body.clientHeight > 320 ? chartUi.body.clientHeight - 12 : null);
+    const PH = Math.max(260, Math.min((fitH || 560) - HEAD - 40, (avail - L - R) * 2.2)); // sotto: gradi e legenda (40)
+    // diagramma più o meno quadrato: su schermi larghi non si allarga oltre (resterebbero 200 °C di scala)
+    const pw = Math.min(avail - L - R, Math.round(PH * 0.85)),
+      W = exportW || L + pw + R;
+    const top = HEAD,
+      bot = top + PH;
+    const P0 = Math.max(1000, Math.ceil(levels[0][0] / 10) * 10 + 10),
+      P1 = 100;
+    const Y = (p) => bot - ((Math.log(P0) - Math.log(p)) / (Math.log(P0) - Math.log(P1))) * PH; // 1000 hPa in basso
+    // temperature: 80 °C sulla larghezza; dal suolo a 100 hPa le isoterme si spostano di 70 °C verso destra, così
+    // il profilo resta dentro su schermi stretti e alti come su quelli larghi. Al suolo la temperatura cade a ~60%
+    const degPx = pw / 80,
+      SKEW = 70;
+    const tGround = levels.find((l) => l[2] != null)?.[2] ?? 10;
+    const T0 = Math.floor((tGround - 48) / 10) * 10,
+      T1 = T0 + 80;
+    const X = (t, p) => L + (t - T0 + (SKEW * (bot - Y(p))) / PH) * degPx;
+    const svg = [
+      `<defs><clipPath id="skc"><rect x="${L}" y="${top}" width="${pw}" height="${PH}"/></clipPath></defs>`,
+    ];
+    const ix = soundingIndices(levels);
+    const km = (m) => (m == null ? "—" : `${Math.round(m / 10) * 10} m`);
+    const when = (() => {
+      const k = snd.time;
+      const d = new Date(Date.UTC(+k.slice(0, 4), +k.slice(4, 6) - 1, +k.slice(6, 8), +k.slice(8, 10)));
+      return `${k.slice(8, 10)} UTC ${d.toLocaleDateString("it-IT", { timeZone: "UTC", weekday: "short", day: "numeric", month: "short" })}`;
+    })();
+    // sottotitolo sotto la località (anche nell'immagine condivisa): ora del lancio, zero termico e base nubi
+    chartUi.details.innerHTML = `${when} · <b class="snd-ix">Zero termico ${km(ix.zero)}</b> · <b class="snd-ix">base nubi ${km(ix.lcl)}</b>`;
+    // griglia: livelli di pressione
+    for (const p of [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200, 150, 100]) {
+      if (p > P0) continue;
+      svg.push(`<line class="ch-grid" x1="${L}" x2="${L + pw}" y1="${Y(p)}" y2="${Y(p)}"/>`);
+      svg.push(`<text class="ch-tick" x="${L - 4}" y="${Y(p) + 3.5}" text-anchor="end">${p}</text>`);
+    }
+    const g = [`<g clip-path="url(#skc)">`];
+    // isoterme ogni 10 °C (lo zero più marcato) e adiabatiche secche ogni 10 K
+    for (let t = Math.floor((T0 - 100) / 10) * 10; t <= T1; t += 10)
+      g.push(
+        `<line x1="${X(t, P0)}" y1="${bot}" x2="${X(t, P1)}" y2="${top}" stroke="${t === 0 ? "#4dabf7" : "currentColor"}" stroke-opacity="${t === 0 ? 0.9 : 0.12}" stroke-width="${t === 0 ? 1.4 : 1}"/>`,
+      );
+    for (let th = -30; th <= 120; th += 10) {
+      let d = "";
+      for (let p = P0; p >= P1; p -= 25) {
+        const t = (th + 273.15) * (p / 1000) ** 0.2857 - 273.15;
+        d += `${d ? "L" : "M"}${X(t, p).toFixed(1)},${Y(p).toFixed(1)}`;
+      }
+      g.push(`<path d="${d}" fill="none" stroke="#fab005" stroke-opacity="0.18" stroke-dasharray="4 4"/>`);
+    }
+    const line = (k, color, w) => {
+      let d = "";
+      for (const l of levels) if (l[k] != null) d += `${d ? "L" : "M"}${X(l[k], l[0]).toFixed(1)},${Y(l[0]).toFixed(1)}`;
+      return `<path d="${d}" fill="none" stroke="${color}" stroke-width="${w}" stroke-linejoin="round" stroke-linecap="round"/>`;
+    };
+    g.push(line(3, DEW_GREEN, exportW ? 1.8 : 2.2), line(2, TEMP_RED, exportW ? 1.8 : 2.2));
+    g.push("</g>");
+    svg.push(...g);
+    // niente gradi sulle isoterme (troppo carico): le temperature si leggono nel tooltip, lo zero è in legenda
+    // vento: barbe a destra ai livelli principali (da dove viene; mezza barba 5 nodi, intera 10, triangolo 50)
+    const bx = L + pw + 24;
+
+    const near = (p) => levels.reduce((a, b) => (Math.abs(b[0] - p) < Math.abs(a[0] - p) ? b : a));
+    for (const p of [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200, 150, 100]) {
+      if (p > P0) continue;
+      const l = near(p);
+      if (Math.abs(l[0] - p) > p * 0.05 || l[4] == null || l[5] == null) continue;
+      const y = Y(l[0]),
+        kt = l[5] / 1.852,
+        a = (l[4] * Math.PI) / 180;
+      const ux = Math.sin(a),
+        uy = -Math.cos(a); // verso da cui arriva
+      const len = 20;
+      const ex = bx + ux * len,
+        ey = y + uy * len;
+      let path = `M${bx},${y}L${ex.toFixed(1)},${ey.toFixed(1)}`;
+      let rest = Math.round(kt / 5) * 5,
+        pos = 0;
+      const px = -uy,
+        py = ux; // perpendicolare
+      const at = (f) => [bx + ux * len * f, y + uy * len * f];
+      while (rest >= 50) {
+        const [x1, y1] = at(1 - pos),
+          [x2, y2] = at(1 - pos - 0.2);
+        path += `M${x1.toFixed(1)},${y1.toFixed(1)}L${(x1 + px * 8).toFixed(1)},${(y1 + py * 8).toFixed(1)}L${x2.toFixed(1)},${y2.toFixed(1)}`;
+        rest -= 50;
+        pos += 0.25;
+      }
+      while (rest >= 10) {
+        const [x1, y1] = at(1 - pos);
+        path += `M${x1.toFixed(1)},${y1.toFixed(1)}l${(px * 8 + ux * 3).toFixed(1)},${(py * 8 + uy * 3).toFixed(1)}`;
+        rest -= 10;
+        pos += 0.15;
+      }
+      if (rest >= 5) {
+        const [x1, y1] = at(1 - pos - (pos ? 0 : 0.12));
+        path += `M${x1.toFixed(1)},${y1.toFixed(1)}l${(px * 4 + ux * 1.5).toFixed(1)},${(py * 4 + uy * 1.5).toFixed(1)}`;
+      }
+      if (kt < 2.5) svg.push(`<circle cx="${bx}" cy="${y}" r="3" fill="none" stroke="currentColor" stroke-opacity="0.7"/>`);
+      else svg.push(`<path d="${path}" fill="none" stroke="currentColor" stroke-opacity="0.8" stroke-width="1.2" stroke-linejoin="round"/>`);
+    }
+    // legenda in fondo
+    const H = bot + 40;
+    svg.push(
+      `<line x1="${L}" x2="${L + 14}" y1="${H - 8}" y2="${H - 8}" stroke="${TEMP_RED}" stroke-width="3" stroke-linecap="round"/>`,
+      `<text class="ch-leg" x="${L + 19}" y="${H - 4}"><tspan>Temperatura</tspan></text>`,
+      `<line x1="${L + 120}" x2="${L + 134}" y1="${H - 8}" y2="${H - 8}" stroke="${DEW_GREEN}" stroke-width="3" stroke-linecap="round"/>`,
+      `<text class="ch-leg" x="${L + 139}" y="${H - 4}"><tspan>Punto di rugiada</tspan></text>`,
+      // l'isoterma di zero gradi (blu, inclinata come tutte le isoterme): dove la incrocia la rossa c'è lo zero termico
+      `<line x1="${L + 252}" x2="${L + 266}" y1="${H - 8}" y2="${H - 8}" stroke="#4dabf7" stroke-width="2" stroke-linecap="round"/>`,
+      `<text class="ch-leg" x="${L + 271}" y="${H - 4}"><tspan>0 °C</tspan></text>`,
+    );
+    if (exportW) return { markup: svg.join("").replace(/currentColor/g, "#c9ced6"), W, H, pinBox: null };
+    // tooltip: il livello più vicino alla quota del puntatore
+    chartUi.body.innerHTML =
+      `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="Radiosondaggio" style="color:var(--fg);max-width:${W}px;display:block">${svg.join("")}` +
+      `<line id="snd-cursor" x1="${L}" x2="${L + pw}" y1="0" y2="0" stroke="var(--fg)" stroke-opacity="0.5" visibility="hidden"/>` +
+      `<rect id="snd-hit" x="${L}" y="${top}" width="${pw + R}" height="${PH}" fill="transparent"/></svg>` +
+      '<div class="chart-tip" hidden></div>';
+    const svgEl = chartUi.body.querySelector("svg"),
+      tip = chartUi.body.querySelector(".chart-tip"),
+      cur = svgEl.querySelector("#snd-cursor"),
+      hit = svgEl.querySelector("#snd-hit");
+    const show = (ev) => {
+      const r = svgEl.getBoundingClientRect();
+      const y = (ev.clientY - r.top) * (H / r.height);
+      const l = levels.reduce((a, b) => (Math.abs(Y(b[0]) - y) < Math.abs(Y(a[0]) - y) ? b : a));
+      cur.setAttribute("y1", Y(l[0]));
+      cur.setAttribute("y2", Y(l[0]));
+      cur.setAttribute("visibility", "visible");
+      const f = (x, u, d = 1) => (x == null ? "—" : `${x.toFixed(d).replace("-", "−")} ${u}`);
+      const dir = l[4] == null ? "" : (dirName(-10 * Math.sin((l[4] * Math.PI) / 180), -10 * Math.cos((l[4] * Math.PI) / 180)) || "");
+      tip.innerHTML =
+        `<div class="t">${l[0]} hPa · ${f(l[1], "m", 0)}</div>` +
+        `<div class="ens-vals" style="grid-template-columns:auto 1fr">` +
+        `<span class="h" style="color:${TEMP_RED}">Temperatura</span><b>${f(l[2], "°C")}</b>` +
+        `<span class="h" style="color:${DEW_GREEN}">Rugiada</span><b>${f(l[3], "°C")}</b>` +
+        `<span class="h">Vento</span><b>${l[5] == null ? "—" : `${Math.round(l[5])} km/h${dir ? ` da ${dir}` : ""}`}</b></div>`;
+      tip.hidden = false;
+      const br = chartUi.body.getBoundingClientRect();
+      const cx = ev.clientX - br.left,
+        w = tip.offsetWidth;
+      tip.style.left = `${Math.min(Math.max(cx + 14 + w > br.width ? cx - 14 - w : cx + 14, 4), br.width - w - 4)}px`;
+      tip.style.top = `${Math.max(4, ev.clientY - br.top + chartUi.body.scrollTop - 20)}px`;
+    };
+    hit.addEventListener("pointermove", show);
+    hit.addEventListener("pointerdown", show);
+    hit.addEventListener("pointerleave", (ev) => {
+      if (ev.pointerType === "mouse") {
+        tip.hidden = true;
+        cur.setAttribute("visibility", "hidden");
+      }
+    });
+    clearChartPin = () => {};
+  }
+
   function drawChart(exportW, exportH) {
     if (chartData.ensemble) return drawEnsemble(exportW, exportH);
     if (chartData.multi) return drawMulti(exportW, exportH);
+    if (chartData.sounding) return drawSkewT(exportW, exportH);
     const { series, run, from, until } = chartData;
     // Il grafico usa lo stesso intervallo della mappa. Fuori dalla modalità intervallo `from` è 0, come prima.
     const V = Object.fromEntries(
@@ -7602,6 +7924,7 @@
     // cambio d'area (carta a 500 hPa e ritorno): via subito i colori e le linee dell'altra area, che nella vista nuova
     // comparirebbero per un attimo prima della mappa giusta (alla prima apertura non c'è ancora nulla)
     if (areaKey) clearOverlay();
+    if (areaKey && typeof renderSoundings === "function") queueMicrotask(renderSoundings); // niente stazioni a 500 hPa
     areaKey = key;
     const syn = synoptic();
     document.body.classList.toggle("synoptic-mode", syn);
@@ -7801,6 +8124,7 @@
     setupSentry(meta.sentry_dsn);
     setupMapbox(meta.mapbox_token); // dopo la prima vista: Leaflet aggiunge i livelli solo a mappa posizionata
     applyLandscape(); // telefono già in orizzontale all'apertura
+    renderSoundings(); // stazioni dei radiosondaggi, se accese
     map.on("resize", () => {
       updateMinZoom();
       if (map.getZoom() < map.getMinZoom())
