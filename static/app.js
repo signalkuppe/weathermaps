@@ -8,10 +8,14 @@
   // App dalla schermata Home in verticale (iOS 26): la pagina parte sotto l'orologio ma iOS la accorcia lo stesso
   // dell'altezza della barra di stato (es. 812 px su 874), e in fondo resta una fascia vuota. Qui la pagina prende
   // tutta l'altezza dello schermo (--app-h, vedi html/body in style.css). In orizzontale e nel browser non serve.
+  // Solo iOS: su Android lo schermo comprende anche barra di stato e barra di navigazione, che restano visibili, e
+  // la pagina più alta della finestra finiva con il fondo (pannello dei comandi) sotto la barra di navigazione.
   // Registrato prima di Leaflet e Mapbox: al ridimensionamento la misura nuova è già pronta quando ricalcolano.
+  const IOS =
+    /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   function fixAppHeight() {
     const app =
-      window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true;
+      IOS && (window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true);
     const full = Math.max(screen.width, screen.height);
     const portrait = innerHeight > innerWidth;
     const root = document.documentElement.style;
@@ -5879,6 +5883,22 @@
 
   /** Interazioni comuni dei grafici "nel tempo" a un pannello (spaghetti, modelli a confronto): tooltip al passaggio,
    *  ora fissata col clic destro o la pressione prolungata (scheda con Condividi · Scarica · ✕). */
+  /** Posizione verticale di un tooltip dei grafici dentro la parte visibile della finestra: vicino al fondo non deve
+   *  uscire, altrimenti la finestra si allunga e compare la barra di scorrimento. */
+  function tipTop(tip, top) {
+    const b = chartUi.body;
+    return `${Math.max(b.scrollTop + 4, Math.min(top, b.scrollTop + b.clientHeight - tip.offsetHeight - 4))}px`;
+  }
+  /** Col dito: un tocco fuori dal grafico (titoli, legenda) chiude il tooltip di lettura (non la scheda dell'ora
+   *  fissata, che ha la sua ✕). Proprietà e non listener: a ogni ridisegno il gestore precedente si sostituisce. */
+  function closeTipOutside(tip, hide, canClose = () => !tip.classList.contains("pinned")) {
+    chartUi.body.onpointerdown = (ev) => {
+      if (ev.pointerType === "mouse" || tip.hidden || !canClose()) return;
+      if (ev.target.closest?.("[id$='-hit'], .chart-tip")) return;
+      hide();
+    };
+  }
+
   function mountTimeChart({ svg, W, H, L, pw, x0, x1, steps, X, HEAD, yBot, rowsHtml, headOf, label, pin }) {
     svg.push(
       `<line class="ch-cursor" id="ch-cursor" x1="0" x2="0" y1="${HEAD + 2}" y2="${yBot}" visibility="hidden"/>`,
@@ -5919,7 +5939,7 @@
       const cx = clientX - br.left,
         w = tip.offsetWidth;
       tip.style.left = `${Math.min(Math.max(cx + 14 + w > br.width ? cx - 14 - w : cx + 14, 4), br.width - w - 4)}px`;
-      tip.style.top = `${Math.max(chartUi.body.scrollTop + 4, clientY - br.top + chartUi.body.scrollTop - 20)}px`;
+      tip.style.top = tipTop(tip, clientY - br.top + chartUi.body.scrollTop - 20);
     };
     const hide = () => {
       tip.hidden = true;
@@ -5966,9 +5986,12 @@
     hit.addEventListener("pointerdown", (ev) => {
       if (ev.pointerType === "mouse") return;
       const st = stepAt(ev.clientX);
-      touch = { x0: ev.clientX, moved: false, pinning: false };
-      touch.timer = setTimeout(() => {
-        touch.pinning = true;
+      if (touch) clearTimeout(touch.timer); // secondo dito: il timer del primo non deve scattare dopo
+      // il timer usa il suo oggetto: quando scatta `touch` può essere già stato azzerato o sostituito
+      const t = (touch = { x0: ev.clientX, moved: false, pinning: false });
+      t.timer = setTimeout(() => {
+        if (touch !== t) return;
+        t.pinning = true;
         navigator.vibrate?.(10);
         pinAt(st);
       }, PRESS_MS);
@@ -5998,6 +6021,7 @@
       clearTimeout(touch.timer);
       const tap = ev.type === "pointerup" && !touch.moved && !touch.pinning;
       if (tap && chartPin != null) unpin(); // tocco breve con un'ora fissata: la toglie
+      else if (tap && !tip.hidden) hide(); // tocco breve col tooltip aperto: lo chiude
       else if (tap) showAt(stepAt(ev.clientX), ev.clientX, ev.clientY);
       else if (ev.type === "pointercancel" && chartPin == null) hide();
       touch = null;
@@ -6007,6 +6031,7 @@
     hit.addEventListener("pointerleave", (ev) => {
       if (ev.pointerType === "mouse" && chartPin == null) hide();
     });
+    closeTipOutside(tip, hide);
     clearChartPin = unpin;
     renderPin(); // ridisegno (finestra ridimensionata): l'ora fissata resta
     if (pin != null) showPinTip();
@@ -6494,10 +6519,29 @@
       const cx = ev.clientX - br.left,
         w = tip.offsetWidth;
       tip.style.left = `${Math.min(Math.max(cx + 14 + w > br.width ? cx - 14 - w : cx + 14, 4), br.width - w - 4)}px`;
-      tip.style.top = `${Math.max(4, ev.clientY - br.top + chartUi.body.scrollTop - 20)}px`;
+      tip.style.top = tipTop(tip, ev.clientY - br.top + chartUi.body.scrollTop - 20);
     };
-    hit.addEventListener("pointermove", show);
-    hit.addEventListener("pointerdown", show);
+    // col dito: toccando si legge il livello, un tocco breve col tooltip già aperto lo chiude
+    let press = null;
+    hit.addEventListener("pointermove", (ev) => {
+      if (press && Math.hypot(ev.clientX - press.x, ev.clientY - press.y) > 8) press.moved = true;
+      show(ev);
+    });
+    hit.addEventListener("pointerdown", (ev) => {
+      press = ev.pointerType === "mouse" ? null : { x: ev.clientX, y: ev.clientY, open: !tip.hidden, moved: false };
+      show(ev);
+    });
+    hit.addEventListener("pointerup", () => {
+      if (press?.open && !press.moved) {
+        tip.hidden = true;
+        cur.setAttribute("visibility", "hidden");
+      }
+      press = null;
+    });
+    closeTipOutside(tip, () => {
+      tip.hidden = true;
+      cur.setAttribute("visibility", "hidden");
+    });
     hit.addEventListener("pointerleave", (ev) => {
       if (ev.pointerType === "mouse") {
         tip.hidden = true;
@@ -7004,9 +7048,7 @@
         ? `${Math.min(Math.max(cx - w / 2, 4), br.width - w - 4)}px`
         : `${Math.min(Math.max(cx + 14 + w > br.width ? cx - 14 - w : cx + 14, 4), br.width - w - 4)}px`;
       const y = clientY - br.top + chartUi.body.scrollTop;
-      tip.style.top = above
-        ? `${Math.max(chartUi.body.scrollTop + 4, y - h - 48)}px`
-        : `${Math.max(4, y - 20)}px`;
+      tip.style.top = tipTop(tip, above ? y - h - 48 : y - 20);
     };
     const hide = () => {
       tip.hidden = true;
@@ -7102,9 +7144,11 @@
     hit.addEventListener("pointerdown", (ev) => {
       const st = stepAt(ev.clientX);
       if (ev.pointerType !== "mouse" && touchUi) {
-        drag = { touch: true, x0: ev.clientX, moved: false, pinning: false };
-        drag.timer = setTimeout(() => {
-          drag.pinning = true;
+        if (drag?.timer) clearTimeout(drag.timer); // secondo dito (vedi il meteogramma)
+        const d = (drag = { touch: true, x0: ev.clientX, moved: false, pinning: false });
+        d.timer = setTimeout(() => {
+          if (drag !== d) return;
+          d.pinning = true;
           chartPin = st;
           renderPin();
           showPinTip();
@@ -7126,6 +7170,7 @@
         clearTimeout(drag.timer);
         const tap = ev.type === "pointerup" && !drag.moved && !drag.pinning;
         if (tap && chartPin != null) unpin(); // tocco breve con un'ora fissata: la toglie
+        else if (tap && !tip.hidden) hide(); // tocco breve col tooltip aperto: lo chiude
         else if (tap) showAt(stepAt(ev.clientX), ev.clientX, ev.clientY, true);
         else if (chartPin != null) showPinTip();
         else if (ev.type === "pointercancel") hide(); // il browser ha preso lo scorrimento verticale
@@ -7147,6 +7192,7 @@
     hit.addEventListener("contextmenu", (ev) => {
       if (touchUi) ev.preventDefault();
     });
+    closeTipOutside(tip, hide, () => chartPin == null); // il tocco breve apre la scheda, ma l'ora non è fissata
     clearChartPin = () => {
       chartPin = null;
       renderPin();
