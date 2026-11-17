@@ -1,8 +1,8 @@
-"""ItaliaMeteo ICON-2I (2.2 km) da MeteoHub, servizio "singola variabile" (nessuna autenticazione).
+"""ItaliaMeteo ICON-2I (2.2 km) from MeteoHub, "single variable" service (no authentication).
 
-Per ogni corsa e variabile c'è un unico file con tutti i passi orari (0..72h), ~85 MB.
-Invece di scaricarlo tutto si legge la lunghezza di ogni messaggio GRIB con piccole
-richieste a intervalli di byte, poi si scaricano solo i messaggi dei passi che servono.
+For each run and variable there is a single file with all hourly steps (0..72h), ~85 MB.
+Instead of downloading all of it, the length of each GRIB message is read with small
+byte-range requests, then only the messages of the needed steps are downloaded.
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ MODEL = ModelInfo(
 
 ROOT = "https://meteohub.agenziaitaliameteo.it/nwp/ICON-2I_SURFACE_PRESSURE_LEVELS"
 
-# offset e lunghezza dei messaggi per file (riempito alla prima richiesta di ogni file)
+# offset and length of the messages per file (filled on the first request for each file)
 _offsets: dict[str, list[tuple[int, int]]] = {}
 
 
@@ -55,7 +55,7 @@ def _range(client: httpx.Client, file_url: str, start: int, end: int) -> bytes:
 
 
 def message_offsets(client: httpx.Client, file_url: str) -> list[tuple[int, int]]:
-    """Elenco (offset, lunghezza) dei messaggi GRIB2, leggendo solo le intestazioni."""
+    """List of (offset, length) of the GRIB2 messages, reading only the headers."""
     if file_url in _offsets:
         return _offsets[file_url]
     head = client.head(file_url)
@@ -73,7 +73,7 @@ def message_offsets(client: httpx.Client, file_url: str) -> list[tuple[int, int]
         out.append((off, length))
         off += length
     _offsets[file_url] = out
-    log.info("ICON-2I: %d messaggi indicizzati in %s", len(out), file_url.rsplit("/", 1)[-1])
+    log.info("ICON-2I: %d messages indexed in %s", len(out), file_url.rsplit("/", 1)[-1])
     return out
 
 
@@ -82,7 +82,7 @@ def fetch(client: httpx.Client, run: datetime, step: int, variable: Variable, bb
     file_url = url(run, variable)
     offsets = message_offsets(client, file_url)
     wanted = f"0-{step}" if sel.step_range_prefix == "0-" else str(step)
-    # i passi sono orari a partire da 0: di norma il messaggio giusto è all'indice `step`
+    # steps are hourly from 0: normally the right message is at index `step`
     candidates = [step] + [i for i in range(len(offsets)) if i != step]
     for i in candidates:
         if i >= len(offsets):

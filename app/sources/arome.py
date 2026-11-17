@@ -1,12 +1,12 @@
-"""Météo-France AROME 0.025° (~2.5 km) dagli Open Data pubblicati su data.gouv.fr.
+"""Météo-France AROME 0.025° (~2.5 km) from the Open Data published on data.gouv.fr.
 
-I dati sono a "paquets": un file GRIB2 per gruppo di parametri e blocco di 6 ore
-(SP1 = superficie, con la pioggia, ~55 MB). Solo la pioggia: T 850 hPa è nel paquet IP1
-(~500 MB, ~840 messaggi), che richiederebbe ~10 minuti di lettura intestazioni per corsa.
-Come per MeteoHub si leggono solo le intestazioni dei messaggi con piccole richieste a
-intervalli di byte e si scaricano solo i messaggi dei passi necessari (~0,5 MB l'uno).
-La griglia EURW1S40 è regolare lat/lon (37.5–55.4°N, 12°W–16°E): basta ritagliarla.
-I dati validi però finiscono prima, su un bordo obliquo (~13°E a 42°N, ~14.5°E a 49°N): oltre è NaN.
+The data come in "paquets": one GRIB2 file per group of parameters and 6-hour block
+(SP1 = surface, with precipitation, ~55 MB). Precipitation only: T 850 hPa is in the IP1 package
+(~500 MB, ~840 messages), which would take ~10 minutes of header reading per run.
+As for MeteoHub, only the message headers are read with small byte-range
+requests and only the messages of the needed steps are downloaded (~0.5 MB each).
+The EURW1S40 grid is a regular lat/lon grid (37.5–55.4°N, 12°W–16°E): cropping is enough.
+Valid data end earlier though, on a slanted edge (~13°E at 42°N, ~14.5°E at 49°N): beyond it is NaN.
 """
 from __future__ import annotations
 
@@ -21,9 +21,9 @@ from . import ModelInfo, NotAvailable
 from .meteohub import MeteoHubSource
 
 ROOT = "https://meteofrance-pnt.s3.rbx.io.cloud.ovh.net/pnt"
-# blocchi di passi dei paquets: (prima ora, ultima ora)
+# step blocks of the packages: (first hour, last hour)
 BLOCKS = ((0, 6), (7, 12), (13, 18), (19, 24), (25, 30), (31, 36), (37, 42), (43, 48), (49, 51))
-INDEX_CACHE = 40  # file indicizzati tenuti in memoria (bastano per due corse)
+INDEX_CACHE = 40  # indexed files kept in memory (enough for two runs)
 
 
 def block(step: int) -> str:
@@ -35,7 +35,7 @@ def block(step: int) -> str:
 
 class AromeSource(MeteoHubSource):
     def url(self, run: datetime, variable: Variable, step: int = 0) -> str:  # type: ignore[override]
-        """Es. .../2026-11-10T03:00:00Z/arome/0025/SP1/arome__0025__SP1__07H12H__2026-11-10T03:00:00Z.grib2"""
+        """E.g. .../2026-11-10T03:00:00Z/arome/0025/SP1/arome__0025__SP1__07H12H__2026-11-10T03:00:00Z.grib2"""
         pkg = variable.selectors[self.MODEL.id].param
         ts = f"{run:%Y-%m-%dT%H}:00:00Z"
         return f"{ROOT}/{ts}/arome/0025/{pkg}/arome__0025__{pkg}__{block(step)}__{ts}.grib2"
@@ -43,7 +43,7 @@ class AromeSource(MeteoHubSource):
     def fetch(self, client: httpx.Client, run: datetime, step: int, variable: Variable, bbox: BBox) -> Field:
         sel = variable.selectors[self.MODEL.id]
         url = self.url(run, variable, step)
-        while len(self._index) > INDEX_CACHE:  # i più vecchi per primi
+        while len(self._index) > INDEX_CACHE:  # oldest first
             self._index.pop(next(iter(self._index)))
         accum = sel.step_range_prefix == "0-"
         level = float(sel.levelist) if sel.levelist else None

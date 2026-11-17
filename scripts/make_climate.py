@@ -1,13 +1,13 @@
-"""Climatologia della temperatura a 850 hPa per gli spaghetti degli ensemble (linea rossa): media 1991-2020 di ogni
-giorno dell'anno e di ogni ora sinottica (00, 06, 12, 18 UTC) sopra il Nord Italia, dalla rianalisi NCEP/NCAR (NOAA
-PSL, 2.5°, ogni 6 ore). Con le quattro ore la linea ha il ciclo del giorno, come gli spaghetti (e Wetterzentrale).
+"""Temperature climatology at 850 hPa for the ensemble spaghetti plots (red line): 1991-2020 mean of each day
+of the year and each synoptic hour (00, 06, 12, 18 UTC) over Northern Italy, from the NCEP/NCAR reanalysis (NOAA
+PSL, 2.5°, every 6 hours). With the four hours the line has the daily cycle, like the spaghetti (and Wetterzentrale).
 
-Si lancia una volta sola (la climatologia non cambia) e scrive static/clim-t850.json:
+It is run only once (the climatology does not change) and writes static/clim-t850.json:
     .venv/bin/python scripts/make_climate.py
 
-Per ogni anno si scarica via OPeNDAP solo il riquadro che serve (livello 850 hPa, 37.5-55 N, 0-20 E), in testo:
-niente librerie netCDF. Il 29 febbraio si salta; la media di ogni giorno e ora si smussa su ±15 giorni (circolare, ogni ora
-per conto suo), così la linea non ha i salti del rumore di 30 anni ma tiene il ciclo del giorno.
+For each year only the needed box is downloaded via OPeNDAP (850 hPa level, 37.5-55 N, 0-20 E), as text:
+no netCDF libraries. 29 February is skipped; the mean of each day and hour is smoothed over ±15 days (circular, each
+hour on its own), so the line has no jumps from 30 years of noise but keeps the daily cycle.
 """
 from __future__ import annotations
 
@@ -19,19 +19,19 @@ from pathlib import Path
 
 import numpy as np
 
-URL = "https://psl.noaa.gov/thredds/dodsC/Datasets/ncep.reanalysis/pressure/air.{year}.nc.ascii"  # ogni 6 ore
+URL = "https://psl.noaa.gov/thredds/dodsC/Datasets/ncep.reanalysis/pressure/air.{year}.nc.ascii"  # every 6 hours
 YEARS = range(1991, 2021)
-LEVEL = 2  # indice di 850 hPa in [1000, 925, 850, ...]
-LAT_I = (14, 21)  # 55 .. 37.5 N (la griglia va da nord a sud, passo 2.5)
+LEVEL = 2  # index of 850 hPa in [1000, 925, 850, ...]
+LAT_I = (14, 21)  # 55 .. 37.5 N (the grid goes from north to south, step 2.5)
 LON_I = (0, 8)  # 0 .. 20 E
-SMOOTH = 15  # giorni per lato della media mobile
+SMOOTH = 15  # days per side of the moving average
 OUT = Path(__file__).resolve().parent.parent / "static" / "clim-t850.json"
 
 
 def fetch_year(year: int) -> np.ndarray:
-    """(giorni, 4 ore, lat, lon) in °C, da nord a sud; 365 o 366 giorni."""
+    """(days, 4 hours, lat, lon) in °C, from north to south; 365 or 366 days."""
     days = 366 if (year % 4 == 0 and year % 100 != 0) or year % 400 == 0 else 365
-    last = days * 4 - 1  # ultimo istante (0-based), dal 1 gennaio 00 UTC ogni 6 ore
+    last = days * 4 - 1  # last time index (0-based), from 1 January 00 UTC every 6 hours
     q = f"air[0:1:{last}][{LEVEL}][{LAT_I[0]}:{LAT_I[1]}][{LON_I[0]}:{LON_I[1]}]"
     q = q.replace("[", "%5B").replace("]", "%5D")
     req = urllib.request.Request(URL.format(year=year) + "?" + q, headers={"User-Agent": "weathermaps-climate"})
@@ -56,14 +56,14 @@ def main() -> None:
     for year in YEARS:
         a = fetch_year(year)
         if a.shape[0] == 366:
-            a = np.delete(a, 59, axis=0)  # 29 febbraio
+            a = np.delete(a, 59, axis=0)  # 29 February
         total = a if total is None else total + a
         print(year, a.shape, f"{a.mean():.1f} °C", file=sys.stderr)
     mean = total / len(YEARS)
     k = np.ones(2 * SMOOTH + 1) / (2 * SMOOTH + 1)
-    ext = np.concatenate([mean[-SMOOTH:], mean, mean[:SMOOTH]])  # circolare: dicembre continua in gennaio
+    ext = np.concatenate([mean[-SMOOTH:], mean, mean[:SMOOTH]])  # circular: December continues into January
     smooth = np.apply_along_axis(lambda s: np.convolve(s, k, mode="valid"), 0, ext)
-    smooth = smooth[:, :, ::-1, :]  # righe da sud a nord, come le altre griglie del progetto
+    smooth = smooth[:, :, ::-1, :]  # rows from south to north, like the project's other grids
     out = {
         "source": "NCEP/NCAR Reanalysis 1 (NOAA PSL), media 1991-2020 ogni 6 ore, smussata ±15 giorni",
         "hours": [0, 6, 12, 18],  # UTC
@@ -73,11 +73,11 @@ def main() -> None:
         "dlon": 2.5,
         "ny": smooth.shape[2],
         "nx": smooth.shape[3],
-        # [giorno dell'anno 0..364, 1 gennaio = 0][ora 0/6/12/18 UTC][riga da sud][colonna da ovest], °C, un decimale
+        # [day of year 0..364, 1 January = 0][hour 0/6/12/18 UTC][row from the south][column from the west], °C, one decimal
         "t850": np.round(smooth, 1).tolist(),
     }
     OUT.write_text(json.dumps(out, separators=(",", ":")))
-    print(f"scritto {OUT} ({OUT.stat().st_size / 1024:.0f} kB)", file=sys.stderr)
+    print(f"written {OUT} ({OUT.stat().st_size / 1024:.0f} kB)", file=sys.stderr)
 
 
 if __name__ == "__main__":

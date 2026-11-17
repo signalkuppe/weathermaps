@@ -1,4 +1,4 @@
-"""Ensemble di GFS ed ECMWF (spaghetti delle località nella carta sinottica): indici, archivio, punti per la pagina."""
+"""GFS and ECMWF ensembles (place spaghetti plots on the synoptic chart): indexes, storage, points for the page."""
 import json
 from pathlib import Path
 
@@ -24,15 +24,15 @@ IDX = """1:0:d=2026111500:HGT:500 mb:12 hour fcst:ENS=+1
 """
 
 
-def test_indice_gefs_temperatura_e_pioggia_delle_ultime_6_ore():
-    assert ensemble.gefs_ranges(IDX, 12) == {"t850": (1000, 2499), "tp": (4000, 5199)}  # 6-12, non il totale 0-12
+def test_gefs_index_temperature_and_last_6h_precipitation():
+    assert ensemble.gefs_ranges(IDX, 12) == {"t850": (1000, 2499), "tp": (4000, 5199)}  # 6-12, not the 0-12 total
     with pytest.raises(LookupError):
         ensemble.gefs_ranges(IDX, 18)
 
 
-def test_indice_ens_e_blocchi_dei_membri():
+def test_ens_index_and_member_blocks():
     recs = []
-    for k in range(1, 51):  # t850 dei 50 membri uno dopo l'altro, la pioggia altrove (e in ordine sparso)
+    for k in range(1, 51):  # t850 of the 50 members one after the other, precipitation elsewhere (and out of order)
         recs.append({"type": "pf", "param": "t", "levelist": "850", "levtype": "pl", "number": str(k),
                      "_offset": 1000 + (k - 1) * 10, "_length": 10})
         recs.append({"type": "pf", "param": "tp", "levtype": "sfc", "number": str(k),
@@ -40,30 +40,30 @@ def test_indice_ens_e_blocchi_dei_membri():
     recs.append({"type": "pf", "param": "t", "levelist": "500", "levtype": "pl", "number": "1", "_offset": 5, "_length": 5})
     r = ensemble.ecens_records("\n".join(json.dumps(x) for x in recs), EC.members)
     assert r["t850"]["01"] == (1000, 10) and r["tp"]["50"] == (90000, 20)
-    assert ensemble._blocks(r["t850"]) == [(1000, 1499, list(EC.members))]  # una richiesta sola
+    assert ensemble._blocks(r["t850"]) == [(1000, 1499, list(EC.members))]  # a single request
     assert ensemble._blocks(r["tp"])[0] == (90000, 90999, list(reversed(EC.members)))
     with pytest.raises(LookupError):
         ensemble.ecens_records(json.dumps(recs[0]), EC.members)
 
 
 def _fill(store: Store, src, run: str = RUN, cumulative: bool = False):
-    """Corsa completa finta: 3×3 punti, valori che dicono membro e passo; pioggia 1 mm ogni 6 ore per membro."""
+    """Fake complete run: 3×3 points, values that tell member and step; precipitation 1 mm every 6 hours per member."""
     for k, m in enumerate(src.members):
         for j, s in enumerate(src.steps):
             for v, val in (("t850", k + s / 1000), ("tp", (j + 1.0) if cumulative else 1.0)):
                 vals = np.full((3, 3), val, np.float32)
-                vals[1, 2] += 100 if v == "t850" else 0  # il punto (riga 1, colonna 2) si riconosce
+                vals[1, 2] += 100 if v == "t850" else 0  # the point (row 1, column 2) is recognisable
                 store.save(src.store_id, run, f"{v}.{m}", s, Field(values=vals, lat0=45, lon0=9, dlat=0.5, dlon=0.5))
 
 
-def test_punto_piu_vicino_e_meta(tmp_path: Path):
+def test_nearest_point_and_meta(tmp_path: Path):
     store = Store(data_dir=tmp_path, bbox=BOX)
     assert ensemble.info(store) == {}
     _fill(store, GFS)
     assert ensemble.latest_complete(store, GFS) == RUN
     info = ensemble.info(store)
     assert list(info) == ["gfs"] and info["gfs"]["control"] == "c00" and len(info["gfs"]["members"]) == 31
-    d = ensemble.point_series(store, "gfs", 45.6, 9.9)  # più vicino a (45.5, 10.0): riga 1, colonna 2
+    d = ensemble.point_series(store, "gfs", 45.6, 9.9)  # nearest to (45.5, 10.0): row 1, column 2
     assert (d["lat"], d["lon"]) == (45.5, 10.0)
     assert len(d["t850"]) == 31 and len(d["t850"][0]) == 64
     assert d["t850"][3][0] == pytest.approx(103.0, abs=0.05) and d["tp"][5][10] == pytest.approx(1)
@@ -71,15 +71,15 @@ def test_punto_piu_vicino_e_meta(tmp_path: Path):
     assert len(pts) == 9 and pts[5][:3] == ("gfs", 1, 2)
 
 
-def test_pioggia_ecmwf_da_cumulata_a_6_ore(tmp_path: Path):
+def test_ecmwf_precipitation_from_accumulated_to_6h(tmp_path: Path):
     store = Store(data_dir=tmp_path, bbox=BOX)
     _fill(store, EC, cumulative=True)
     d = ensemble.point_series(store, "ecmwf", 45.5, 10)
     assert d["control"] is None and len(d["members"]) == 50 and d["steps"][-1] == 360
-    assert d["tp"][0][:3] == [1.0, 1.0, 1.0]  # cumulata 1, 2, 3 mm -> 1 mm ogni 6 ore
+    assert d["tp"][0][:3] == [1.0, 1.0, 1.0]  # accumulated 1, 2, 3 mm -> 1 mm every 6 hours
 
 
-def test_api_ensemble(tmp_path: Path):
+def test_ensemble_api(tmp_path: Path):
     store = Store(data_dir=tmp_path, bbox=BOX)
     with TestClient(create_app(store=store, start_scheduler=False)) as c:
         assert c.get("/api/meta").json()["ensemble"] == {}
@@ -91,7 +91,7 @@ def test_api_ensemble(tmp_path: Path):
         assert c.get("/api/ensemble", params={"model": "ecmwf", "lat": 45.5, "lon": 10}).status_code == 404
 
 
-def test_corsa_incompleta_non_si_mostra_e_la_vecchia_resta(tmp_path: Path):
+def test_incomplete_run_not_shown_and_old_one_kept(tmp_path: Path):
     store = Store(data_dir=tmp_path, bbox=BOX)
     _fill(store, GFS, "2026111412")
     store.save(GFS.store_id, RUN, "t850.c00", 6,

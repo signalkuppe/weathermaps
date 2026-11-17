@@ -1,7 +1,7 @@
-"""Registro delle grandezze meteo.
+"""Registry of the weather fields.
 
-Per aggiungere una grandezza basta aggiungere una `Variable` a `REGISTRY`:
-fetch, storage, API e frontend la trattano in modo generico.
+To add a field, just add a `Variable` to `REGISTRY`:
+fetching, storage, API and frontend handle it generically.
 """
 from __future__ import annotations
 
@@ -18,44 +18,44 @@ Kind = Literal["accum", "instant", "vector"]
 
 @dataclass(frozen=True)
 class GribSelector:
-    """Come trovare il campo in un modello.
+    """How to find the field in a model.
 
-    GFS (filtro NOMADS): `var` e `level` diventano `var_<var>=on` e `lev_<level>=on`.
-    ECMWF (file .index): `param` e `levtype` filtrano le righe dell'indice.
-    `short_name` e `step_range_prefix` scelgono il messaggio giusto nel GRIB decodificato.
+    GFS (NOMADS filter): `var` and `level` become `var_<var>=on` and `lev_<level>=on`.
+    ECMWF (.index file): `param` and `levtype` filter the index lines.
+    `short_name` and `step_range_prefix` pick the right message in the decoded GRIB.
     """
 
     var: str | None = None
     level: str | None = None
     param: str | None = None
-    levtype: str | None = None  # "sfc" (superficie) o "pl" (livelli di pressione)
-    levelist: str | None = None  # livello di pressione per levtype "pl", es. "850"
+    levtype: str | None = None  # "sfc" (surface) or "pl" (pressure levels)
+    levelist: str | None = None  # pressure level for levtype "pl", e.g. "850"
     short_name: str | None = None
     step_range_prefix: str | None = None
-    # codice WMO del parametro (disciplina, categoria, numero): per i file dove ecCodes non conosce il nome
+    # WMO code of the parameter (discipline, category, number): for files where ecCodes does not know the name
     code: tuple[int, int, int] | None = None
-    # pioggia distribuita a intervalli consecutivi (0-1h, 1-2h, ...) da sommare per avere il totale
+    # precipitation split into consecutive intervals (0-1h, 1-2h, ...) to be summed to get the total
     hourly_buckets: bool = False
-    # altri campi da scaricare e sommare a questo (es. neve ICON: di griglia + convettiva)
+    # other fields to download and add to this one (e.g. ICON snow: grid-scale + convective)
     plus: tuple["GribSelector", ...] = ()
-    # vento riferito alla griglia Lambert del modello (WRF): l'altra componente (`pair`) e la proiezione
-    # (LoV, Latin1, Latin2 in gradi) per ruotarlo verso il nord geografico; `component` è "u" o "v"
+    # wind relative to the model's Lambert grid (WRF): the other component (`pair`) and the projection
+    # (LoV, Latin1, Latin2 in degrees) to rotate it to geographic north; `component` is "u" or "v"
     pair: "GribSelector | None" = None
     lambert: tuple[float, float, float] | None = None
     component: str | None = None
-    # secondo ingrediente da scaricare insieme a questo campo (es. il punto di rugiada per il bulbo umido): i due
-    # campi grezzi passano a Variable.combine, che ne ricava quello da salvare
+    # second ingredient to download together with this field (e.g. the dew point for the wet bulb): the two
+    # raw fields go to Variable.combine, which derives the one to store
     dew: "GribSelector | None" = None
     pressure: "GribSelector | None" = None
 
 
 @dataclass(frozen=True)
 class ColorScale:
-    thresholds: list[float]  # limiti inferiori delle classi, crescenti
-    colors: list[str]  # stesso numero di thresholds, colore della classe [t_i, t_i+1)
+    thresholds: list[float]  # lower bounds of the classes, increasing
+    colors: list[str]  # same number as thresholds, colour of class [t_i, t_i+1)
     transparent_below: float | None = None
-    # sfumata: i colori sono punti di passaggio ai valori di `thresholds` e in mezzo si interpola (grandezze continue,
-    # i valori esatti li danno le linee); altrimenti fasce nette, una per classe (pioggia, neve)
+    # smooth: the colours are stops at the `thresholds` values and are interpolated in between (continuous fields,
+    # the lines give the exact values); otherwise sharp bands, one per class (precipitation, snow)
     continuous: bool = False
 
     def as_dict(self) -> dict:
@@ -73,28 +73,28 @@ class Variable:
     label: str
     units: str
     kind: Kind
-    selectors: dict[str, GribSelector]  # per modello: "gfs", "ecmwf"
-    convert: dict[str, Callable[[float], float]]  # per modello, unità GRIB -> presentazione
+    selectors: dict[str, GribSelector]  # per model: "gfs", "ecmwf"
+    convert: dict[str, Callable[[float], float]]  # per model, GRIB unit -> display
     scale: ColorScale
     decimals: int = 1
-    menu_label: str | None = None  # nome breve nella tendina "Grandezza" (sta su una riga); legenda e grafici usano label
+    menu_label: str | None = None  # short name in the "Grandezza" (field) dropdown (fits on one line); legend and charts use label
     steps: list[int] | None = None  # None = config.STEPS
     nonnegative: bool = False
-    rank: Literal["desc", "asc"] = "desc"  # classifica dei punti: desc = valore più alto primo
+    rank: Literal["desc", "asc"] = "desc"  # ranking of the points: desc = highest value first
     extra: dict = field(default_factory=dict)
-    # linee di livello disegnate sopra i colori: {"label": nome nelle impostazioni, "step": distanza fra le linee,
-    # "bold": [livelli in evidenza], "signed": etichette col segno "+"}
+    # contour lines drawn above the colours: {"label": name in the settings, "step": distance between lines,
+    # "bold": [highlighted levels], "signed": labels with the "+" sign}
     contours: dict | None = None
-    # componente di un vettore (vento): non compare nel menu, la pagina la usa attraverso una voce di VECTORS
+    # component of a vector (wind): not in the menu, the page uses it through an entry of VECTORS
     hidden: bool = False
-    # griglie più fini di 0,05°: si salva una cella su due per lato (un quarto dei dati), es. il vento
+    # grids finer than 0.05°: one cell out of two per side is stored (a quarter of the data), e.g. the wind
     half_res: bool = False
-    # altre grandezze (nascoste) mostrate nel riquadro della località: [{"var": id, "label": nome}]
+    # other (hidden) fields shown in the place popup: [{"var": id, "label": name}]
     details: list | None = None
-    # grandezze calcolate da due campi (selettore con `dew`): (campo, secondo campo) grezzi -> campo grezzo
+    # fields computed from two fields (selector with `dew`): (field, second field) raw -> raw field
     combine: Callable | None = None
-    # area propria, al posto di quella della mappa (BBOX): "lat_min,lat_max,lon_min,lon_max". Carta sinottica: niente
-    # località e grafici (mediana a 0,25°, vedi mean.py); la pagina passa a quest'area scegliendo la grandezza
+    # own area, instead of the map's (BBOX): "lat_min,lat_max,lon_min,lon_max". Synoptic chart: no
+    # places or charts (median at 0.25°, see mean.py); the page switches to this area when the field is chosen
     area: str | None = None
 
     @property
@@ -114,7 +114,7 @@ class Variable:
             "scale": self.scale.as_dict(),
             "contours": self.contours,
             "details": self.details,
-            # "mean" = mediana dei modelli, disponibile se la grandezza ha almeno due modelli
+            # "mean" = model median, available if the field has at least two models
             "models": sorted(self.selectors) + (["mean"] if len(self.selectors) > 1 else []),
             "area": _area_dict(self.area),
         }
@@ -139,9 +139,9 @@ def _k_to_c(x):
     return x - 273.15
 
 
-# Scala delle carte di pioggia LaMMA (MOLOCH): sopra i 20 mm soglie e colori dalla loro legenda, sotto ricostruiti
-# dai colori delle loro mappe (azzurri e blu, poi verdi); arriva oltre i 350 mm, utile per i totali di più giorni
-# sulle Alpi in caso di sbarramento
+# Scale of the LaMMA precipitation charts (MOLOCH): above 20 mm thresholds and colours from their legend, below
+# reconstructed from the colours of their maps (light blues and blues, then greens); it goes beyond 350 mm, useful
+# for multi-day totals on the Alps during orographic blocking
 PRECIP_SCALE = ColorScale(
     thresholds=[0.1, 1, 2, 4, 6, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 100, 125, 150, 175, 200, 250, 300, 350],
     colors=[
@@ -189,19 +189,19 @@ register(
         selectors={
             "gfs": GribSelector(var="APCP", level="surface", short_name="tp", step_range_prefix="0-"),
             "ecmwf": GribSelector(param="tp", levtype="sfc", short_name="tp", step_range_prefix="0-"),
-            # MeteoSvizzera: param = "forecast:variable" della STAC API
+            # MeteoSwiss: param = "forecast:variable" of the STAC API
             "icon-ch2": GribSelector(param="TOT_PREC", short_name="tp", step_range_prefix="0-"),
             "icon-ch1": GribSelector(param="TOT_PREC", short_name="tp", step_range_prefix="0-"),
-            # DWD: cartella/nome file (param), tipo di livello nel nome file
+            # DWD: folder/file name (param), level type in the file name
             "icon-d2": GribSelector(param="tot_prec", levtype="single-level", short_name="tp", step_range_prefix="0-"),
-            # ItaliaMeteo MeteoHub: cartella (param) e suffisso del file "{levtype}-{levelist}"
+            # ItaliaMeteo MeteoHub: folder (param) and file suffix "{levtype}-{levelist}"
             "icon-2i": GribSelector(param="TOT_PREC", levtype="surface", levelist="0", short_name="tp", step_range_prefix="0-"),
-            # MeteoHub, cartelle per nome ecCodes; si seleziona con il codice WMO della precipitazione totale (0,1,8)
+            # MeteoHub, folders named after ecCodes; selected by the WMO code of total precipitation (0,1,8)
             "wrf": GribSelector(param="tp", levtype="surface", levelist="0", code=(0, 1, 8), step_range_prefix="0-"),
-            # Météo-France: paquet (param) e codice WMO; (0,1,52) accumulato è la precipitazione totale (pioggia+neve+graupel)
+            # Météo-France: package (param) and WMO code; (0,1,52) accumulated is total precipitation (rain+snow+graupel)
             "arome": GribSelector(param="SP1", code=(0, 1, 52), step_range_prefix="0-"),
         },
-        # GFS APCP e ICON TOT_PREC sono in kg m-2 (= mm); ECMWF tp è in metri.
+        # GFS APCP and ICON TOT_PREC are in kg m-2 (= mm); ECMWF tp is in metres.
         convert={"gfs": _identity, "ecmwf": _m_to_mm, "icon-ch2": _identity, "icon-ch1": _identity,
                  "icon-d2": _identity, "icon-2i": _identity, "wrf": _identity, "arome": _identity},
         scale=PRECIP_SCALE,
@@ -211,10 +211,10 @@ register(
 )
 
 
-# Scala divergente per la temperatura: freddo viola/blu, 0 °C chiaro, caldo giallo/rosso.
-# La prima classe raccoglie anche i valori sotto la prima soglia.
+# Diverging temperature scale: cold violet/blue, 0 °C light, warm yellow/red.
+# The first class also collects values below the first threshold.
 T850_SCALE = ColorScale(
-    # punti di colore ogni 2 °C (le isoterme), sfumati in mezzo
+    # colour stops every 2 °C (the isotherms), blended in between
     thresholds=[-20, -18, -16, -14, -12, -10, -8, -6, -4, -2, 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20],
     colors=[
         "#3b0f70",  # < -18
@@ -260,14 +260,14 @@ register(
         convert={"gfs": _k_to_c, "ecmwf": _k_to_c, "icon-d2": _k_to_c, "icon-2i": _k_to_c, "wrf": _k_to_c},
         scale=T850_SCALE,
         decimals=1,
-        rank="asc",  # classifica: prima la temperatura più bassa
-        contours={"label": "Isoterme", "step": 2, "bold": [0], "signed": True},  # ogni 2 °C, lo zero più marcato
+        rank="asc",  # ranking: lowest temperature first
+        contours={"label": "Isoterme", "step": 2, "bold": [0], "signed": True},  # every 2 °C, zero highlighted
         details=[{"var": "z850", "label": "Altezza 850 hPa"}],
     )
 )
 
 
-# Temperatura e bulbo umido a 2 m: stessa scala, più ampia di quella a 850 hPa (fino a 40 °C).
+# Temperature and wet bulb at 2 m: same scale, wider than the 850 hPa one (up to 40 °C).
 T2M_SCALE = ColorScale(
     thresholds=list(range(-20, 42, 2)),
     colors=T850_SCALE.colors + [
@@ -285,7 +285,7 @@ T2M_SCALE = ColorScale(
     transparent_below=None,
     continuous=True,
 )
-# AROME escluso: temperatura e umidità a 2 m sono nei pacchetti SP1 da indicizzare messaggio per messaggio (come il vento)
+# AROME excluded: 2 m temperature and humidity are in the SP1 packages, to be indexed message by message (like the wind)
 T2M_SEL = {
     "gfs": GribSelector(var="TMP", level="2_m_above_ground", short_name="2t"),
     "ecmwf": GribSelector(param="2t", levtype="sfc", short_name="2t"),
@@ -317,19 +317,19 @@ SURFACE_PRESSURE_SEL = {
 
 
 def wet_bulb_k(t_k, td_k, p_hpa):
-    """Temperatura di bulbo umido (K) da temperatura e punto di rugiada (K): equazione psicrometrica risolta per
-    bisezione, e(Td) = es(Tw) - A·p·(T - Tw), con A = 6,46·10⁻⁴ /K e tensione di vapore di Magnus.
+    """Wet-bulb temperature (K) from temperature and dew point (K): psychrometric equation solved by
+    bisection, e(Td) = es(Tw) - A·p·(T - Tw), with A = 6.46·10⁻⁴ /K and Magnus vapour pressure.
 
-    p_hpa contiene la pressione locale al suolo in hPa, scalare o sulla stessa griglia delle temperature.
+    p_hpa holds the local surface pressure in hPa, scalar or on the same grid as the temperatures.
     """
     t = np.asarray(t_k, dtype=np.float64) - 273.15
     td = np.minimum(np.asarray(td_k, dtype=np.float64) - 273.15, t)
     pressure = np.asarray(p_hpa, dtype=np.float64)
     pressure = np.where(np.isfinite(pressure) & (pressure > 0), pressure, np.nan)
-    es = lambda x: 6.112 * np.exp(17.62 * x / (243.12 + x))  # noqa: E731 (hPa, sull'acqua)
+    es = lambda x: 6.112 * np.exp(17.62 * x / (243.12 + x))  # noqa: E731 (hPa, over water)
     e = es(td)
-    lo, hi = td.copy(), t.copy()  # il bulbo umido sta fra rugiada e temperatura
-    for _ in range(30):  # 30 dimezzamenti: precisione ben sotto il centesimo di grado
+    lo, hi = td.copy(), t.copy()  # the wet bulb lies between dew point and temperature
+    for _ in range(30):  # 30 halvings: precision well below a hundredth of a degree
         mid = (lo + hi) / 2
         f = es(mid) - 6.46e-4 * pressure * (t - mid) - e
         hi = np.where(f > 0, mid, hi)
@@ -346,10 +346,10 @@ def dewpoint_from_rh_k(t_k, rh_percent):
 
 
 def wet_bulb_zero_m(t_k, td_k, p_hpa, heights_m, surface_p_hpa, terrain_m):
-    """Primo attraversamento positivo→negativo salendo, interpolato in metri s.l.m.
+    """First positive→negative crossing going up, interpolated in metres above sea level.
 
-    L'asse iniziale contiene livelli dal basso verso l'alto, incluso il punto a 2 m.
-    Livelli sotterranei esclusi; dati mancanti interrompono il profilo senza estrapolazioni.
+    The first axis holds levels from bottom to top, including the 2 m point.
+    Underground levels are excluded; missing data interrupt the profile without extrapolation.
     """
     temperature, dewpoint, pressure, heights = np.broadcast_arrays(
         np.asarray(t_k, dtype=np.float64), np.asarray(td_k, dtype=np.float64),
@@ -400,7 +400,7 @@ register(
         label="WB 2m",
         units="°C",
         kind="instant",
-        # si scarica la temperatura con accanto il punto di rugiada; il bulbo umido si calcola subito
+        # the temperature is downloaded together with the dew point; the wet bulb is computed right away
         selectors={m: dataclasses.replace(sel, dew=TD2M_SEL[m], pressure=SURFACE_PRESSURE_SEL[m])
              for m, sel in T2M_SEL.items() if m in SURFACE_PRESSURE_SEL},
          convert={m: _k_to_c for m in SURFACE_PRESSURE_SEL},
@@ -408,13 +408,13 @@ register(
         scale=T2M_SCALE,
         decimals=1,
         rank="asc",
-        # sotto 0 °C di bulbo umido la neve arriva al suolo facilmente: lo zero marcato
+        # below 0 °C wet bulb snow easily reaches the ground: zero highlighted
         contours={"label": "Isolinee", "step": 1, "bold": [0], "signed": True},
     )
 )
 
-# Neve fresca in cm: i modelli danno l'acqua equivalente (kg/m² = mm), convertita col rapporto standard 10:1
-# (1 mm d'acqua = 1 cm di neve). È una stima: la neve umida si accumula meno, quella farinosa di più.
+# Fresh snow in cm: the models give the water equivalent (kg/m² = mm), converted with the standard 10:1 ratio
+# (1 mm of water = 1 cm of snow). It is an estimate: wet snow accumulates less, powder snow more.
 SNOW_SCALE = ColorScale(
     thresholds=[0.5, 1, 2, 5, 10, 20, 30, 50, 75, 100, 150],
     colors=[
@@ -435,11 +435,11 @@ SNOW_SCALE = ColorScale(
 
 
 def _mm_to_snow_cm(x):
-    return x  # 1 mm d'acqua = 1 cm di neve (10:1)
+    return x  # 1 mm of water = 1 cm of snow (10:1)
 
 
 def _m_to_snow_cm(x):
-    return x * 1000.0  # ECMWF: metri d'acqua -> mm -> cm
+    return x * 1000.0  # ECMWF: metres of water -> mm -> cm
 
 
 register(
@@ -450,14 +450,14 @@ register(
         kind="accum",
         selectors={
             "ecmwf": GribSelector(param="sf", levtype="sfc", step_range_prefix="0-"),
-            # ICON: neve di griglia + convettiva (ICON-CH ha la convezione risolta: solo quella di griglia)
+            # ICON: grid-scale + convective snow (ICON-CH resolves convection: grid-scale only)
             "icon-d2": GribSelector(param="snow_gsp", levtype="single-level", step_range_prefix="0-",
                                     plus=(GribSelector(param="snow_con", levtype="single-level", step_range_prefix="0-"),)),
             "icon-2i": GribSelector(param="SNOW_GSP", levtype="surface", levelist="0", step_range_prefix="0-",
                                     plus=(GribSelector(param="SNOW_CON", levtype="surface", levelist="0", step_range_prefix="0-"),)),
             "icon-ch2": GribSelector(param="SNOW_GSP", step_range_prefix="0-"),
             "icon-ch1": GribSelector(param="SNOW_GSP", step_range_prefix="0-"),
-            # Météo-France: neve accumulata nel paquet SP1
+            # Météo-France: accumulated snow in the SP1 package
             "arome": GribSelector(param="SP1", code=(0, 1, 66), step_range_prefix="0-"),
         },
         convert={"ecmwf": _m_to_snow_cm, "icon-d2": _mm_to_snow_cm, "icon-2i": _mm_to_snow_cm,
@@ -469,7 +469,7 @@ register(
 )
 
 
-# Zero termico: quota (m sul livello del mare) dell'isoterma 0 °C, dal viola (basso) al rosso (alto)
+# Freezing level: height (m above sea level) of the 0 °C isotherm, from violet (low) to red (high)
 HZERO_SCALE = ColorScale(
     thresholds=[0, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500],
     colors=[
@@ -490,7 +490,7 @@ HZERO_SCALE = ColorScale(
 
 
 def _hzero_m(x):
-    # valori fittizi dove l'isoterma non è definita (ICON usa numeri negativi): mancanti
+    # dummy values where the isotherm is undefined (ICON uses negative numbers): missing
     x = np.asarray(x, dtype=np.float64)
     return np.where(x < -100, np.nan, np.maximum(x, 0))
 
@@ -511,8 +511,8 @@ register(
         convert={m: _hzero_m for m in ("gfs", "icon-d2", "icon-2i", "icon-ch2", "icon-ch1")},
         scale=HZERO_SCALE,
         decimals=0,
-        rank="asc",  # classifica: prima lo zero termico più basso
-        contours={"label": "Isolinee", "step": 250, "bold": [1000, 2000, 3000, 4000]},  # ogni 250 m, marcate le migliaia
+        rank="asc",  # ranking: lowest freezing level first
+        contours={"label": "Isolinee", "step": 250, "bold": [1000, 2000, 3000, 4000]},  # every 250 m, thousands highlighted
     )
 )
 
@@ -533,10 +533,10 @@ register(
 )
 
 
-# Vento: si scaricano le due componenti (verso est `u` e verso nord `v`, in km/h) come grandezze nascoste; la pagina
-# ne ricava velocità (colori) e direzione (frecce). A metà risoluzione per stare nel limite di GitHub Pages.
-# La mediana dei modelli è fatta componente per componente, così le direzioni opposte si compensano.
-# AROME escluso: il vento è nei pacchetti SP1/IP1 da indicizzare messaggio per messaggio (~9 minuti per corsa a 700 hPa).
+# Wind: the two components (eastward `u` and northward `v`, in km/h) are downloaded as hidden fields; the page
+# derives speed (colours) and direction (arrows) from them. At half resolution to stay within the GitHub Pages limit.
+# The model median is taken component by component, so opposite directions cancel out.
+# AROME excluded: the wind is in the SP1/IP1 packages, to be indexed message by message (~9 minutes per run at 700 hPa).
 WIND_SCALE = ColorScale(
     thresholds=[0, 5, 10, 20, 30, 40, 50, 60, 80, 100, 120, 150],
     colors=[
@@ -556,7 +556,7 @@ WIND_SCALE = ColorScale(
     transparent_below=None,
     continuous=True,
 )
-WRF_LAMBERT = (11.0, 43.421665, 37.21344)  # LoV, Latin1, Latin2 della griglia WRF di ItaliaMeteo
+WRF_LAMBERT = (11.0, 43.421665, 37.21344)  # LoV, Latin1, Latin2 of the ItaliaMeteo WRF grid
 
 
 def _ms_to_kmh(x):
@@ -564,7 +564,7 @@ def _ms_to_kmh(x):
 
 
 def _wind_component(comp: str, level: str) -> Variable:
-    """Componente `comp` ("u" o "v") del vento a `level` ("10" = 10 m dal suolo, "700" = 700 hPa)."""
+    """Wind component `comp` ("u" or "v") at `level` ("10" = 10 m above ground, "700" = 700 hPa)."""
     u = comp == "u"
     if level == "10":
         sel = {
@@ -596,8 +596,8 @@ def _wind_component(comp: str, level: str) -> Variable:
     )
 
 
-# Altezza della superficie di 850 hPa (m), solo per il riquadro della località sulla mappa della T850.
-# ICON dà il geopotenziale (m²/s²): diviso per g; gli altri l'altezza geopotenziale (m).
+# Height of the 850 hPa surface (m), only for the place popup on the T850 map.
+# ICON gives the geopotential (m²/s²): divided by g; the others the geopotential height (m).
 G = 9.80665
 
 
@@ -621,12 +621,12 @@ register(
 )
 
 
-# Carta sinottica (Atlantico ed Europa, 0,25°): geopotenziale a 500 hPa a colori e pressione al livello del mare a
-# linee, come le classiche carte "Z500 e pressione al suolo". Grandezze nascoste: nel menu c'è la voce combinata.
+# Synoptic chart (Atlantic and Europe, 0.25°): 500 hPa geopotential in colour and sea-level pressure as
+# lines, like the classic "Z500 and surface pressure" charts. Hidden fields: the menu has the combined entry.
 SYNOPTIC_AREA = SYNOPTIC_BBOX
 
-# decametri geopotenziali, fasce di 4 dam: la scala delle carte "Géop. Z500" di Meteociel, dal viola delle saccature
-# fredde al nero degli anticicloni più caldi
+# geopotential decametres, 4 dam bands: the scale of Meteociel's "Géop. Z500" charts, from the violet of cold
+# troughs to the black of the warmest anticyclones
 Z500_SCALE = ColorScale(
     thresholds=list(range(492, 613, 4)),
     colors=[
@@ -681,7 +681,7 @@ register(
             "ecmwf": GribSelector(param="gh", levtype="pl", levelist="500", short_name="gh"),
         },
         convert={"gfs": _gpm_to_dam, "ecmwf": _gpm_to_dam},
-        # un decimale (1 m): ai decametri interi le fasce di 4 dam avrebbero i bordi sui bordi delle celle, a scalini
+        # one decimal (1 m): with whole decametres the 4 dam bands would have their edges on the cell edges, stepped
         scale=Z500_SCALE, decimals=1, rank="asc", hidden=True, area=SYNOPTIC_AREA,
     )
 )
@@ -702,30 +702,30 @@ for _lvl in ("10", "700"):
     for _c in ("u", "v"):
         register(_wind_component(_c, _lvl))
 
-# voci del menu per il vento: velocità a colori dalle due componenti, frecce per la direzione
+# menu entries for the wind: speed in colour from the two components, arrows for the direction
 VECTORS = [
     {"id": "wind10", "label": "Vento 10 m", "u": "u10", "v": "v10"},
     {"id": "wind700", "label": "Vento 700 hPa", "u": "u700", "v": "v700"},
 ]
 
 
-# Voci combinate del menu "Grandezza": i colori di una grandezza e, alla stessa ora, le linee di livello di un'altra
-# (contour_field) o le frecce di un vento (arrows, una voce di VECTORS). Non hanno dati propri (la pagina chiede i campi
-# delle grandezze che combinano), quindi niente download né spazio in più.
+# Combined entries of the "Grandezza" (field) menu: the colours of one field and, at the same time, the contour lines
+# of another (contour_field) or the arrows of a wind (arrows, an entry of VECTORS). They have no data of their own (the
+# page requests the fields they combine), so no extra downloads or space.
 COMBOS = [
     {
         "id": "tp_hzero",
         "label": "Precip. e zero termico",
-        "menu_label": "Precip. e zero term.",  # nella tendina
-        "after": "tp",  # posizione nel menu
-        "field": "tp",  # colori, legenda, località e modalità
-        "contour_field": "hzero",  # linee
+        "menu_label": "Precip. e zero term.",  # in the dropdown
+        "after": "tp",  # position in the menu
+        "field": "tp",  # colours, legend, places and modes
+        "contour_field": "hzero",  # lines
         "contours": {"label": "Zero termico", "units": "m", "step": 250, "bold": [1000, 2000, 3000, 4000]},
     },
     {
         "id": "z500_msl",
         "label": "Pressione - Geop. 500 hPa",
-        "menu_label": "Press. - Geop. 500",  # nella tendina
+        "menu_label": "Press. - Geop. 500",  # in the dropdown
         "after": "t850",
         "field": "z500",
         "contour_field": "msl",
@@ -734,23 +734,23 @@ COMBOS = [
     {
         "id": "tp_wind700",
         "label": "Precip. e vento 700 hPa",
-        "menu_label": "Precip. e vento 700",  # nella tendina
-        "after": "tp_hzero",  # posizione nel menu: dopo l'altra combinata della pioggia
+        "menu_label": "Precip. e vento 700",  # in the dropdown
+        "after": "tp_hzero",  # position in the menu: after the other precipitation combination
         "field": "tp",
-        "arrows": "wind700",  # frecce del vento a 700 hPa (direzione e, con la lunghezza, intensità)
+        "arrows": "wind700",  # 700 hPa wind arrows (direction and, with their length, strength)
     },
 ]
 
 
 def menu() -> list[dict]:
-    """Grandezze per /api/meta: quelle scaricate più le combinate, ognuna dopo la sua `after`."""
+    """Fields for /api/meta: the downloaded ones plus the combined ones, each after its `after`."""
     out = []
     for var in REGISTRY.values():
         if var.hidden:
             continue
         out.append(var.as_dict())
         after = [var.id]
-        while True:  # combinate dopo questa grandezza, e quelle dopo le combinate appena aggiunte
+        while True:  # combinations after this field, and those after the combinations just added
             added = [c for c in COMBOS if c["after"] in after and c["id"] not in {o["id"] for o in out}]
             if not added:
                 break

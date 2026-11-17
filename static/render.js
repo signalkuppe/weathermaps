@@ -1,12 +1,12 @@
-/* Disegno dei colori di un campo: da valori su griglia regolare a immagine in proiezione di Mercatore.
+/* Drawing the colours of a field: from values on a regular grid to an image in Mercator projection.
  *
- * Lo stesso file serve in due modi:
- *  - come Web Worker (new Worker("render.js")): riceve un lavoro, risponde con l'immagine PNG già codificata, così il
- *    calcolo (milioni di pixel per i modelli a 1-2 km) e la codifica non bloccano la pagina;
- *  - come script normale: definisce wmRenderPixels, usata dalla pagina dove i worker o OffscreenCanvas mancano.
+ * The same file is used in two ways:
+ *  - as a Web Worker (new Worker("render.js")): it receives a job and answers with the already encoded PNG image, so
+ *    the computation (millions of pixels for the 1-2 km models) and the encoding do not block the page;
+ *  - as a plain script: it defines wmRenderPixels, used by the page where workers or OffscreenCanvas are missing.
  *
- * Lavoro: { id, values: Float32Array (NaN = mancante), nx, ny, lat0, lon0, dlat, dlon, scale: { thresholds, colors,
- * transparent_below, continuous }, crisp, upscale, smooth (passate di media 3×3 prima dei colori) }.
+ * Job: { id, values: Float32Array (NaN = missing), nx, ny, lat0, lon0, dlat, dlon, scale: { thresholds, colors,
+ * transparent_below, continuous }, crisp, upscale, smooth (3×3 mean passes before the colours) }.
  */
 (function (root) {
   "use strict";
@@ -14,7 +14,7 @@
   const mercY = (lat) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
   const invMercY = (y) => ((2 * Math.atan(Math.exp(y)) - Math.PI / 2) * 180) / Math.PI;
 
-  /** Media mobile 3×3 sulle celle presenti, ripetuta `passes` volte (come `blurred` nella pagina). */
+  /** 3×3 moving average over the cells present, repeated `passes` times (like `blurred` in the page). */
   function blur(vals, nx, ny, passes) {
     let a = vals;
     for (let it = 0; it < passes; it++) {
@@ -41,8 +41,8 @@
     return a;
   }
 
-  /** Colore (pixel RGBA in un intero, ordine dei byte della macchina) per valore: fasce nette con ricerca binaria
-   *  sulle soglie, scale sfumate con una tabella di 2048 colori fra la prima e l'ultima soglia. 0 = trasparente. */
+  /** Colour (RGBA pixel in an integer, machine byte order) per value: sharp bands with a binary search on the
+   *  thresholds, smooth scales with a table of 2048 colours between the first and last threshold. 0 = transparent. */
   function colorFn(scale) {
     const little = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
     const pack = (r, g, b) => (little ? (255 << 24) | (b << 16) | (g << 8) | r : (r << 24) | (g << 16) | (b << 8) | 255) >>> 0;
@@ -71,7 +71,7 @@
     return (v) => {
       if (v !== v) return 0;
       if (hasBelow && v < below) return 0;
-      let a = 0, b = last; // ultima soglia <= v (la prima classe raccoglie anche i valori più bassi)
+      let a = 0, b = last; // last threshold <= v (the first class also collects the lowest values)
       while (a < b) {
         const m = (a + b + 1) >> 1;
         if (th[m] <= v) a = m; else b = m - 1;
@@ -80,8 +80,8 @@
     };
   }
 
-  /** Pixel dell'immagine: { W, H, pixels: Uint32Array }. Interpolazione bilineare dei valori (o cella più vicina con
-   *  `crisp`), poi colore; se una delle quattro celle manca si usa la più vicina, come faceva la pagina. */
+  /** Image pixels: { W, H, pixels: Uint32Array }. Bilinear interpolation of the values (or nearest cell with
+   *  `crisp`), then colour; if one of the four cells is missing the nearest is used, as the page used to do. */
   function wmRenderPixels(job) {
     const { nx, ny, lat0, lon0, dlat, dlon, crisp, upscale } = job;
     const vals = job.smooth > 0 ? blur(job.values, nx, ny, job.smooth) : job.values;
@@ -92,7 +92,7 @@
     const H = Math.max(1, Math.round((W * (yN - yS)) / (((east - west) * Math.PI) / 180)));
     const color = colorFn(job.scale);
     const pixels = new Uint32Array(W * H);
-    // colonne: indice della cella a sinistra e peso di quella a destra (uguali per tutte le righe)
+    // columns: index of the left cell and weight of the right one (the same for all rows)
     const cx0 = new Int32Array(W), cx1 = new Int32Array(W), ctx = new Float32Array(W), cxn = new Int32Array(W);
     for (let x = 0; x < W; x++) {
       const fx = Math.min(Math.max((west + ((x + 0.5) / W) * (east - west) - lon0) / dlon, 0), nx - 1);
@@ -114,7 +114,7 @@
         const a = vals[r0 + x0], b = vals[r0 + x1], c = vals[r1 + x0], d = vals[r1 + x1];
         const top = a * (1 - tx) + b * tx, bot = c * (1 - tx) + d * tx;
         const v = top * (1 - ty) + bot * ty;
-        pixels[o + x] = color(v === v ? v : vals[rn + cxn[x]]); // NaN: una delle quattro celle manca
+        pixels[o + x] = color(v === v ? v : vals[rn + cxn[x]]); // NaN: one of the four cells is missing
       }
     }
     return { W, H, pixels };
@@ -122,7 +122,7 @@
 
   root.wmRenderPixels = wmRenderPixels;
 
-  // come worker: un lavoro alla volta, risposta con il PNG (o con l'errore)
+  // as a worker: one job at a time, answered with the PNG (or with the error)
   if (typeof document === "undefined" && typeof root.postMessage === "function") {
     root.onmessage = async (e) => {
       const job = e.data;

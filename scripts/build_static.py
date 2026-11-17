@@ -1,28 +1,28 @@
-"""Genera il sito statico (per GitHub Pages) dai dati in DATA_DIR.
+"""Generates the static site (for GitHub Pages) from the data in DATA_DIR.
 
-Produce in OUT_DIR:
-  index.html, app.js, render.js, style.css   la pagina, in modalità statica
-  borders.json                       contorni geografici (da scripts/make_borders.py)
-  borders-synoptic.json              coste e stati della carta sinottica (make_borders.py --synoptic)
-  clim-t850.json                     climatologia T850 1991-2020 degli spaghetti (make_climate.py)
-  data/meta.json                     come /api/meta
-  data/runs.json                     come /api/runs + istante di generazione
-  data/field/{model}/{var}/{run}/{step}.bin    campo "totale" (o "valore") come /api/field, in formato compatto:
-                                               valori in interi a 16 bit (app/packed.py), circa 1/3 del JSON
-  data/series/{model}/{run}/{griglia}/{riga}_{colonna}.bin   meteogrammi in riquadri, formato compatto: pioggia e
-                                               neve sulla griglia del modello ("native"), il resto su una griglia
-                                               regolare ("smooth"); le griglie sono in runs.json (app/series.py)
-  data/ensemble/{model}/{run}/{riga}_{colonna}.json  spaghetti degli ensemble GFS ed ECMWF, un punto (app/ensemble.py)
-  data/soundings/index.json, {stazione}/{AAAAMMGGHH}.json  radiosondaggi osservati (app/soundings.py)
+Produces in OUT_DIR:
+  index.html, app.js, render.js, style.css   the page, in static mode
+  borders.json                       geographic outlines (from scripts/make_borders.py)
+  borders-synoptic.json              coastlines and countries of the synoptic chart (make_borders.py --synoptic)
+  clim-t850.json                     T850 1991-2020 climatology for the spaghetti plots (make_climate.py)
+  data/meta.json                     like /api/meta
+  data/runs.json                     like /api/runs + generation time
+  data/field/{model}/{var}/{run}/{step}.bin    "total" (or "value") field like /api/field, in compact format:
+                                               values as 16-bit integers (app/packed.py), about 1/3 of the JSON
+  data/series/{model}/{run}/{grid}/{row}_{column}.bin   meteograms in tiles, compact format: precipitation and
+                                               snow on the model grid ("native"), the rest on a regular grid
+                                               ("smooth"); the grids are in runs.json (app/series.py)
+  data/ensemble/{model}/{run}/{row}_{column}.json  GFS and ECMWF ensemble spaghetti, one point (app/ensemble.py)
+  data/soundings/index.json, {station}/{YYYYMMDDHH}.json  observed soundings (app/soundings.py)
 
-Per contenere il numero di file (GitHub Pages li sincronizza uno per uno, entro 10 minuti):
-  - le due componenti del vento stanno in un solo file per passo: data/field/{model}/{vettore}/{run}/{step}.bin
-    con "u" e "v" al posto di "values" (vettore = wind10, wind700);
-  - i campi dei dettagli (es. z850, quota di 850 hPa) stanno nel file della grandezza a cui appartengono (t850),
-    sotto "extra": {"z850": {grid, values, ...}}.
+To limit the number of files (GitHub Pages syncs them one by one, within 10 minutes):
+  - the two wind components are in a single file per step: data/field/{model}/{vector}/{run}/{step}.bin
+    with "u" and "v" instead of "values" (vector = wind10, wind700);
+  - detail fields (e.g. z850, height of 850 hPa) are in the file of the field they belong to (t850),
+    under "extra": {"z850": {grid, values, ...}}.
 
-La modalità Intervallo viene calcolata nel browser come differenza fra due totali.
-Uso:  python scripts/build_static.py [OUT_DIR]   (default: ./public)
+The Interval mode is computed in the browser as the difference between two totals.
+Usage:  python scripts/build_static.py [OUT_DIR]   (default: ./public)
 """
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ def build_javascript(out_path: Path) -> None:
             str(ROOT / "scripts" / "static_entry.js"),
             "--bundle",
             "--minify",
-            "--sourcemap",  # app.js.map accanto: Sentry ci ricava le righe originali degli errori (codice già pubblico)
+            "--sourcemap",  # app.js.map alongside: Sentry derives the original error lines from it (the code is public anyway)
             "--platform=browser",
             "--format=iife",
             "--legal-comments=none",
@@ -87,19 +87,19 @@ def main(out_dir: Path) -> int:
         shutil.rmtree(out_dir)
     out_dir.mkdir(parents=True)
 
-    # pagina: stessi file del server, marcati come statici
+    # page: same files as the server, marked as static
     for name in ("render.js", "style.css", "borders.json", "borders-synoptic.json", "clim-t850.json",
                  "manifest.webmanifest"):
         shutil.copy(ROOT / "static" / name, out_dir / name)
     build_javascript(out_dir / "app.js")
-    shutil.copytree(ROOT / "static" / "icons", out_dir / "icons")  # logo: favicon e icone della home del telefono
+    shutil.copytree(ROOT / "static" / "icons", out_dir / "icons")  # logo: favicon and phone home-screen icons
     html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
     html = html.replace('<html lang="it">', '<html lang="it" data-mode="static">', 1)
     vendor_script = '    <script src="vendor/range-slider-input-2.4.7.min.js"></script>\n'
     assert vendor_script in html, "script range-slider-input non trovato in index.html"
     html = html.replace(vendor_script, "", 1)
-    # impronta del contenuto negli indirizzi di script e stile: dopo un aggiornamento il browser scarica subito i file
-    # nuovi invece di usare per 10 minuti quelli in cache (pagina nuova con script vecchio = voci che non funzionano)
+    # content fingerprint in the script and style URLs: after an update the browser downloads the new files right
+    # away instead of using the cached ones for 10 minutes (new page with old script = entries that do not work)
     for name, attr in (("app.js", "src"), ("render.js", "src"), ("style.css", "href")):
         digest = hashlib.sha1((out_dir / name).read_bytes()).hexdigest()[:10]
         old = f'{attr}="{name}"'
@@ -116,20 +116,20 @@ def main(out_dir: Path) -> int:
         meta = client.get("/api/meta").json()
         size += write_json(out_dir / "data" / "meta.json", meta)
         runs = client.get("/api/runs").json()
-        # componenti del vento e campi dei dettagli: non hanno file propri (vedi sopra)
+        # wind components and detail fields: they have no files of their own (see above)
         comp = {vec[c]: vec for vec in variables.VECTORS for c in ("u", "v")}
         detail_of = {d["var"]: v.id for v in variables.REGISTRY.values() for d in (v.details or [])}
 
         def get(model, var, run, step):
             r = client.get("/api/field", params={"model": model, "var": var, "run": run, "step": step})
             if r.status_code != 200:
-                print(f"saltato {model}/{var}/{run}/{step}: {r.status_code}", file=sys.stderr)
+                print(f"skipped {model}/{var}/{run}/{step}: {r.status_code}", file=sys.stderr)
                 return None
             return r.json()
 
         for model, items in runs.items():
             for item in items:
-                if item.get("incoming"):  # corsa ancora in arrivo: solo l'avviso, i campi non si pubblicano
+                if item.get("incoming"):  # run still incoming: only the notice, its fields are not published
                     continue
                 run, have = item["run"], item["variables"]
                 for var, info in have.items():
@@ -156,19 +156,19 @@ def main(out_dir: Path) -> int:
                         body.update(var=vec["id"], u=fu["values"], v=fv["values"])
                         size += write_bin(out_dir / "data" / "field" / model / vec["id"] / run / f"{step}.bin", body)
                         files += 1
-        # spaghetti degli ensemble di GFS ed ECMWF: un file per punto della loro griglia (vedi app/ensemble.py)
+        # GFS and ECMWF ensemble spaghetti: one file per point of their grid (see app/ensemble.py)
         nens = 0
         for model, iy, ix, body in ensemble.all_points(store):
             size += write_json(out_dir / "data" / "ensemble" / model / body["run"] / f"{iy}_{ix}.json", body)
             nens += 1
-        # radiosondaggi osservati: indice delle stazioni e un file per lancio (vedi app/soundings.py)
+        # observed soundings: station index and one file per launch (see app/soundings.py)
         size += write_json(out_dir / "data" / "soundings" / "index.json", soundings.index(store))
         for st in soundings.index(store):
-            for key in st["times"][:1]:  # nella pagina si vede solo l'ultimo lancio
+            for key in st["times"][:1]:  # the page shows only the latest launch
                 size += write_json(out_dir / "data" / "soundings" / st["id"] / f"{key}.json",
                                    soundings.load(store, st["id"], key))
-        # meteogrammi: serie nelle celle della griglia del modello, in riquadri (vedi app/series.py); la griglia
-        # di ogni corsa va in runs.json, per trovare riquadro e cella di una località
+        # meteograms: series in the cells of the model grid, in tiles (see app/series.py); the grid
+        # of each run goes into runs.json, to find the tile and cell of a place
         nser = 0
         for model, items in runs.items():
             for item in items:
@@ -182,8 +182,8 @@ def main(out_dir: Path) -> int:
                     nser += 1
         runs_out = {"generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "models": runs}
         size += write_json(out_dir / "data" / "runs.json", runs_out)
-    print(f"Sito statico in {out_dir}: {files} campi, {nser} riquadri di serie, {nens} punti dell'ensemble, "
-          f"{size / 1e6:.1f} MB di dati")
+    print(f"Static site in {out_dir}: {files} fields, {nser} series tiles, {nens} ensemble points, "
+          f"{size / 1e6:.1f} MB of data")
     return 0
 
 

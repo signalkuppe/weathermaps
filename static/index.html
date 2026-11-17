@@ -3,13 +3,13 @@
   <head>
     <meta charset="utf-8" />
     <meta name="color-scheme" content="dark" />
-    <!-- viewport-fit=cover: aperta dalla schermata Home la mappa va anche sotto la barra di stato (trasparente); i
-         riquadri si spostano di env(safe-area-inset-*) in style.css -->
+    <!-- viewport-fit=cover: opened from the Home Screen the map also goes under the (transparent) status bar; the
+         panels move by env(safe-area-inset-*) in style.css -->
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Weathermaps</title>
-    <!-- logo "Cella" (static/icons): favicon, icona della home del telefono e manifest per aggiungerla come app -->
+    <!-- "Cella" logo (static/icons): favicon, phone home-screen icon and manifest to add it as an app -->
     <link rel="icon" href="icons/favicon.svg" type="image/svg+xml" />
     <link
       rel="icon"
@@ -20,7 +20,7 @@
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
     <link rel="manifest" href="manifest.webmanifest" />
     <meta name="apple-mobile-web-app-title" content="Weathermaps" />
-    <!-- anteprima del link (WhatsApp, Telegram, social): l'immagine vuole l'indirizzo completo del sito pubblicato -->
+    <!-- link preview (WhatsApp, Telegram, social): the image needs the full address of the published site -->
     <meta
       name="description"
       content="Pioggia, neve, temperatura e vento dei modelli meteo a confronto sul Nord Italia, aggiornati ogni ora."
@@ -59,7 +59,7 @@
       rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/mapbox-gl/3.9.4/mapbox-gl.css"
     />
-    <!-- Mapbox GL: scaricata subito, eseguita da app.js; connessioni ai suoi server aperte in anticipo -->
+    <!-- Mapbox GL: downloaded right away, executed by app.js; connections to its servers opened in advance -->
     <link
       rel="preload"
       as="script"
@@ -109,7 +109,7 @@
           ></span>
         </h1>
         <div class="head-actions">
-          <!-- solo nell'app aperta dalla schermata Home (niente barra del browser per ricaricare): vedi app.js -->
+          <!-- only in the app opened from the Home Screen (no browser bar to reload): see app.js -->
           <button
             id="app-reload"
             class="icon-btn"
@@ -145,8 +145,8 @@
         </div>
       </header>
       <div class="panel-body">
-        <!-- sezioni (modelli e parametri, località, impostazioni, crediti): una aperta alla volta, con animazione
-           (app.js, "sezioni del pannello") -->
+        <!-- sections (models and parameters, places, settings, credits): one open at a time, animated
+           (app.js, "panel sections") -->
         <details id="models-box" class="points-box models" open>
           <summary>Modelli e parametri</summary>
           <div class="models-body">
@@ -189,7 +189,7 @@
               <select id="var" class="rich-select" aria-label="Grandezza"></select>
             </label>
             <div class="run-block">
-              <!-- si mostra solo l'ultima corsa completa; quella in arrivo compare nell'avviso sotto -->
+              <!-- only the latest complete run is shown; the incoming one appears in the notice below -->
               <div class="run-head">
                 <span>Corsa</span><span id="run" class="run-line"></span
                 ><span id="run-age" class="run-age"></span>
@@ -211,7 +211,7 @@
               <span>Modalità</span>
               <div class="seg" id="mode"></div>
             </div>
-            <!-- istante mostrato e slider dei passi -->
+            <!-- time shown and step slider -->
             <div class="time">
               <span
                 id="loading"
@@ -223,7 +223,7 @@
               <div id="valid" class="valid">—</div>
               <div id="range" class="range">—</div>
             </div>
-            <!-- play dell'animazione e slider (con la tastiera: ← → cambiano passo, spazio avvia l'animazione) -->
+            <!-- animation play and slider (with the keyboard: ← → change step, space starts the animation) -->
             <div class="stepper">
               <button
                 id="play"
@@ -255,12 +255,12 @@
             </div>
           </div>
         </details>
-        <!-- combinazione modello/grandezza/ora senza dati (la mappa intanto è in grigio) -->
+        <!-- model/field/time combination without data (meanwhile the map is grey) -->
         <div id="nodata" class="nodata" role="status" hidden>
           <b id="nodata-title"></b><span id="nodata-text"></span>
         </div>
 
-        <!-- sotto la sezione dei modelli: eventuali errori -->
+        <!-- below the models section: errors, if any -->
         <div id="status" class="status" role="status"></div>
         <details id="points-box" class="points-box">
           <summary>Località preferite</summary>
@@ -294,7 +294,7 @@
               <span>Sfondo</span>
               <div class="seg" id="base"></div>
             </div>
-            <!-- linee sopra i colori, a livelli: stati (con le coste), regioni, province (Natural Earth, scripts/make_borders.py) -->
+            <!-- lines above the colours, by level: countries (with coastlines), regions, provinces (Natural Earth, scripts/make_borders.py) -->
             <div class="row">
               <span>Confini</span>
               <div class="seg" id="borders"></div>
@@ -334,12 +334,12 @@
             </label>
           </div>
         </details>
-        <!-- livelli in più sopra la mappa, indipendenti dal modello: per ora il radar (poi satellite...) -->
+        <!-- extra layers above the map, independent of the model: radar, satellite, soundings -->
         <details id="extra" class="points-box extra">
           <summary>Livelli extra</summary>
           <div class="settings-body">
-            <!-- uno alla volta: radar (mosaico nazionale, ogni 5 minuti), satellite (nubi, Meteosat, ogni 10 minuti) o
-                 radiosondaggi (le stazioni sulla mappa, toccandole il diagramma Skew-T) -->
+            <!-- one at a time: radar (national mosaic, every 5 minutes), satellite (clouds, Meteosat, every 10 minutes) or
+                 soundings (the stations on the map, tapping them opens the Skew-T diagram) -->
             <div class="seg" id="extra-seg"></div>
           </div>
         </details>
@@ -373,8 +373,8 @@
             Informativa privacy
           </button>
         </details>
-        <!-- ultimo elemento del pannello: quando sono stati aggiornati i dati; l'orologio (Lucide "clock", ISC) sta
-             nella colonna dei triangoli delle sezioni -->
+        <!-- last element of the panel: when the data were updated; the clock (Lucide "clock", ISC) sits
+             in the column of the section triangles -->
         <p id="updated-row" class="updated-row" hidden>
           <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5"
             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -386,8 +386,8 @@
       </div>
     </aside>
 
-    <!-- su mobile la legenda viene spostata dentro il badge (un solo riquadro in basso), vedi placeLegend in app.js -->
-    <!-- caricamento delle immagini del radar: al centro della pagina; i controlli compaiono quando sono tutte pronte -->
+    <!-- on mobile the legend is moved inside the badge (a single box at the bottom), see placeLegend in app.js -->
+    <!-- radar image loading: in the centre of the page; the controls appear when all are ready -->
     <div id="radar-loader" class="radar-loader" role="status" hidden>
       <span class="spinner"></span>
       <span class="radar-loader-text"
@@ -396,7 +396,7 @@
       ></span>
     </div>
     <div id="badge" class="badge">
-      <!-- icone Lucide (ISC): chevrons-left, chevron-left, chevron-right, play / pause -->
+      <!-- Lucide icons (ISC): chevrons-left, chevron-left, chevron-right, play / pause -->
       <button
         id="m-first"
         class="badge-btn"
@@ -440,7 +440,7 @@
         </svg>
       </button>
       <div id="badge-text" class="badge-text" aria-live="polite"></div>
-      <!-- con il radar acceso la barra mostra solo l'animazione del radar (ultima ora, ogni 5 minuti) -->
+      <!-- with the radar on, the bar shows only the radar animation (last hour, every 5 minutes) -->
       <div class="badge-radar">
         <button
           id="radar-play"
@@ -497,7 +497,7 @@
           <path d="m9 18 6-6-6-6" />
         </svg>
       </button>
-      <!-- solo su mobile: slider dei passi a tutta larghezza, al posto delle frecce -->
+      <!-- mobile only: full-width step slider, instead of the arrows -->
       <input
         id="m-step"
         class="m-step single-step wm-range"
@@ -554,7 +554,7 @@
           <line x1="15.41" x2="8.59" y1="6.51" y2="10.49" />
         </svg>
       </button>
-      <!-- con radar o satellite: chiude il livello e torna alle mappe dei modelli. Lucide "x" (ISC) -->
+      <!-- with radar or satellite: closes the layer and goes back to the model maps. Lucide "x" (ISC) -->
       <button
         id="extra-close"
         class="share-btn extra-close"
@@ -825,7 +825,7 @@
         </section>
       </article>
     </dialog>
-    <!-- meteogramma di una località: andamento nel tempo delle grandezze del modello scelto (vedi app/series.py) -->
+    <!-- meteogram of a place: the chosen model's fields over time (see app/series.py) -->
     <dialog
       id="chart-dialog"
       class="share-dialog chart-dialog"
@@ -843,12 +843,12 @@
             >
               <button><selectedcontent></selectedcontent></button>
             </select>
-            <!-- modelli a confronto: precipitazione cumulata o temperatura a 850 hPa di tutti i modelli e della media -->
+            <!-- model comparison: accumulated precipitation or temperature at 850 hPa of all models and the median -->
             <div id="chart-multi" class="seg chart-multi" hidden>
               <button type="button" data-v="tp">Precipitazione</button>
               <button type="button" data-v="t850">T 850 hPa</button>
             </div>
-            <!-- radiosondaggio: scelta del lancio (al posto del modello) -->
+            <!-- sounding: launch choice (instead of the model) -->
             <select id="chart-sounding" class="chart-sounding" aria-label="Lancio" hidden></select>
             <span id="chart-details"></span>
           </div>
@@ -927,12 +927,12 @@
             </svg>
           </button>
         </div>
-        <!-- il grafico usa un punto della griglia delle serie: se il totale è molto diverso dalla mappa, lo dice
-             (tutta la larghezza, sotto titolo e pulsanti) -->
+        <!-- if the chart's total is very different from the map's, it says so
+             (full width, below title and buttons) -->
         <div id="chart-warn" class="chart-warn" role="note" hidden></div>
       </header>
       <div id="chart-body" class="chart-body"></div>
-      <!-- ora fissata (clic, tocco o trascinando il dito sul grafico): valori e azioni, sempre visibili in fondo -->
+      <!-- pinned time (click, tap or dragging the finger on the chart): values and actions, always visible at the bottom -->
       <div id="chart-readout" class="chart-readout" hidden>
         <div class="chart-readout-values"></div>
         <div class="chart-readout-links">
@@ -946,8 +946,8 @@
     <div id="probe" class="probe" hidden></div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-    <!-- sfondo Mapbox (vettoriale) dentro Leaflet: lo carica app.js in parallelo ai dati (vedi mapboxLib) -->
-    <!-- disegno dei colori: nella pagina come riserva, e come Web Worker (stesso file) -->
+    <!-- Mapbox basemap (vector) inside Leaflet: app.js loads it in parallel with the data (see mapboxLib) -->
+    <!-- colour rendering: in the page as a fallback, and as a Web Worker (same file) -->
     <script src="render.js"></script>
     <script src="vendor/range-slider-input-2.4.7.min.js"></script>
     <script src="app.js"></script>

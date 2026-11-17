@@ -1,16 +1,16 @@
-/* Weathermaps: frontend. Tutto ciò che dipende da area, modelli e grandezze
-   arriva da /api/meta e /api/runs: qui non ci sono coordinate né soglie fisse. */
+/* Weathermaps: frontend. Everything that depends on area, models and fields
+   comes from /api/meta and /api/runs: there are no fixed coordinates or thresholds here. */
 (() => {
   "use strict";
 
   const $ = (id) => document.getElementById(id);
 
-  // App dalla schermata Home in verticale (iOS 26): la pagina parte sotto l'orologio ma iOS la accorcia lo stesso
-  // dell'altezza della barra di stato (es. 812 px su 874), e in fondo resta una fascia vuota. Qui la pagina prende
-  // tutta l'altezza dello schermo (--app-h, vedi html/body in style.css). In orizzontale e nel browser non serve.
-  // Solo iOS: su Android lo schermo comprende anche barra di stato e barra di navigazione, che restano visibili, e
-  // la pagina più alta della finestra finiva con il fondo (pannello dei comandi) sotto la barra di navigazione.
-  // Registrato prima di Leaflet e Mapbox: al ridimensionamento la misura nuova è già pronta quando ricalcolano.
+  // Home Screen app in portrait (iOS 26): the page starts below the clock but iOS still shortens it
+  // by the height of the status bar (e.g. 812 px out of 874), leaving an empty strip at the bottom. Here the page takes
+  // the full screen height (--app-h, see html/body in style.css). Not needed in landscape or in the browser.
+  // iOS only: on Android the screen also includes the status bar and the navigation bar, which stay visible, and
+  // a page taller than the window ended up with its bottom (the controls panel) under the navigation bar.
+  // Registered before Leaflet and Mapbox: on resize the new size is ready when they recompute.
   const IOS =
     /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   function fixAppHeight() {
@@ -88,14 +88,14 @@
     ui.privacyDialog.close();
   });
 
-  // run: sempre l'ultima corsa completa del modello (non si sceglie più a mano)
+  // run: always the model's latest complete run (no longer chosen by hand)
   const state = {
     model: "gfs",
     var: "t850",
     run: null,
-    step: null, // ora mostrata (con le cumulate: dentro il range)
-    // cumulate: range dello slider (fisso finché non lo sposti, all'apertura tutta la corsa) e tipo di cumulata
-    // ("total" = dall'inizio del range, "hours" = le ultime `hours` ore). `mode` ne discende (vedi syncMode)
+    step: null, // time shown (with accumulations: inside the range)
+    // accumulations: slider range (fixed until you move it, the whole run on opening) and accumulation kind
+    // ("total" = since the start of the range, "hours" = the last `hours` hours). `mode` follows from it (see syncMode)
     rangeFrom: null,
     rangeTo: null,
     cum: "total",
@@ -108,18 +108,18 @@
     borders: "regions",
     bordersOpacity: 1,
     extra: "none",
-  }; // predefiniti: Outdoors, colori al 70%, confini fino alle regioni a pieno contrasto, celle sfumate
-  // "static": sito pubblicato su GitHub Pages (file JSON pre-generati, nessun server)
+  }; // defaults: Outdoors, colours at 70%, borders down to regions at full contrast, smooth cells
+  // "static": site published on GitHub Pages (pre-generated JSON files, no server)
   const STATIC = document.documentElement.dataset.mode === "static";
-  let publishedAt = null; // solo statico: quando sono stati pubblicati i dati
+  let publishedAt = null; // static only: when the data were published
   let meta = null;
   let runs = null;
-  let current = null; // risposta /api/field mostrata
-  let currentContour = null; // campo delle linee nelle voci combinate (es. zero termico sopra la pioggia)
-  let currentArrows = null; // componenti del vento nelle voci combinate con le frecce (es. vento 700 hPa sopra la pioggia)
+  let current = null; // /api/field response shown
+  let currentContour = null; // field of the lines in combined entries (e.g. freezing level over precipitation)
+  let currentArrows = null; // wind components in combined entries with arrows (e.g. 700 hPa wind over precipitation)
   let overlay = null;
-  let menuLL = null; // punto del menu della mappa aperto (clic destro o pressione prolungata), vedi openMapMenu
-  let probeLL = null; // punto toccato su mobile: il tooltip del valore resta lì (vedi "tooltip puntuale")
+  let menuLL = null; // point of the open map menu (right click or long press), see openMapMenu
+  let probeLL = null; // point tapped on mobile: the value tooltip stays there (see "point tooltip")
   let playTimer = null;
   let playbackSelection = null;
   const cache = new Map();
@@ -144,7 +144,7 @@
         }
         state.rangeFrom = values[from];
         state.rangeTo = values[to];
-        state.step = state.rangeTo; // si mostra la fine del range
+        state.step = state.rangeTo; // the end of the range is shown
         syncMode();
         ui.step.value = steps().indexOf(state.step);
         togglePlay(false);
@@ -169,15 +169,15 @@
     return slider;
   });
 
-  // ---------- mappa
+  // ---------- map
   const map = L.map("map", {
     zoomControl: true,
     attributionControl: true,
-    // zoom frazionario: lo zoom minimo può aderire esattamente all'area coperta
+    // fractional zoom: the minimum zoom can fit the covered area exactly
     zoomSnap: 0.25,
     zoomDelta: 0.5,
     wheelPxPerZoomLevel: 120,
-    maxBoundsViscosity: 1.0, // impedisce di trascinare fuori dall'area
+    maxBoundsViscosity: 1.0, // prevents dragging outside the area
   });
   map.zoomControl.setPosition("topright");
   const bases = {
@@ -187,7 +187,7 @@
       attribution:
         '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     }),
-    // Thunderforest Outdoors: la chiave arriva da /api/meta (vedi init), finché non c'è la tessera resta vuota
+    // Thunderforest Outdoors: the key comes from /api/meta (see init); until then the tile stays empty
     topo: L.tileLayer(
       "https://{s}.tile.thunderforest.com/outdoors/{z}/{x}/{y}{r}.png?apikey={apikey}",
       {
@@ -206,7 +206,7 @@
   const MAPBOX_ATTR =
     '&copy; <a href="https://www.mapbox.com/about/maps/">Mapbox</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
   let glBase = null;
-  /** Nomi in italiano dove ci sono (name_it), altrimenti il nome locale: niente "Genova / Genoa". */
+  /** Italian names where available (name_it), otherwise the local name: no "Genova / Genoa". */
   function italianLabels(m) {
     for (const layer of m.getStyle().layers) {
       const tf =
@@ -247,13 +247,13 @@
     ])
       if (m.getLayer(id)) m.setLayoutProperty(id, "visibility", "none");
   }
-  /** "Base": Streets di Mapbox ricolorato come una carta meteo (tavolozza simile a meteoblue): fondo beige chiaro, boschi
-   *  verde tenue, acqua azzurra, strade bianche sottili. Sotto i colori dei dati non deve competere con loro. */
+  /** "Base": Mapbox Streets recoloured like a weather chart (palette similar to meteoblue): light beige background,
+   *  pale green woods, light blue water, thin white roads. Under the data colours it must not compete with them. */
   const LAND = "hsl(47, 26%, 88%)",
     GREEN = "hsla(82, 46%, 72%, 0.55)",
     WATER = "hsl(205, 56%, 73%)";
-  /** Outdoors: rilievo più marcato, ombreggiatura calcolata dal modello del terreno di Mapbox (oltre a quella, tenue,
-   *  già nello stile). Sotto strade, colori dei dati e confini. */
+  /** Outdoors: stronger relief, hillshading computed from the Mapbox terrain model (on top of the faint one
+   *  already in the style). Below roads, data colours and borders. */
   function strongRelief(m) {
     if (m.__style !== MAPBOX_STYLES.topo || m.getLayer("wm-relief")) return;
     m.addSource("wm-dem", {
@@ -308,7 +308,7 @@
     if (m.getLayer("water-depth"))
       m.setLayoutProperty("water-depth", "visibility", "none");
     for (const l of m.getStyle().layers) {
-      // strade: bianche, bordo appena più scuro del fondo
+      // roads: white, edge just darker than the background
       if (
         l.type !== "line" ||
         !/^(road|bridge|tunnel)-/.test(l.id) ||
@@ -322,9 +322,9 @@
       );
     }
   }
-  /* Colori dentro Mapbox: le immagini dei dati (modello, radar, satellite) diventano strati dello stile, inseriti
-   * sotto confini e nomi (e sopra terreno, acqua e strade). Così confini e città di Mapbox restano leggibili sopra i
-   * colori a qualunque opacità, e coincidono con quelli dello sfondo. Un registro le ricrea quando cambia lo stile. */
+  /* Colours inside Mapbox: the data images (model, radar, satellite) become style layers, inserted
+   * below borders and names (and above terrain, water and roads). This way Mapbox borders and cities stay readable
+   * above the colours at any opacity, and match those of the basemap. A registry recreates them when the style changes. */
   const glImgs = new Map(); // id -> { url, bounds, opacity, crisp, visible }
   let glStyleReady = false;
   const glMap = () => (glBase && glStyleReady ? glBase : null);
@@ -334,8 +334,8 @@
     [b.getEast(), b.getSouth()],
     [b.getWest(), b.getSouth()],
   ];
-  /** Primo strato da tenere sopra i colori: i confini (dopo strade e ponti, che restano sotto), se mancano le scritte
-   *  dei luoghi. */
+  /** First layer to keep above the colours: the borders (after roads and bridges, which stay below), or the place
+   *  labels if borders are missing. */
   const glBefore = (m) => {
     const ls = m.getStyle().layers;
     return (
@@ -348,8 +348,8 @@
     const src = m.getSource(id);
     if (!src) {
       m.addSource(id, { type: "image", url: c.url, coordinates });
-      // già con l'opacità giusta e senza transizioni: Mapbox altrimenti parte da 1 e sfuma in 300 ms (le immagini del radar
-      // in caricamento si vedevano per un attimo, e la dissolvenza dell'animazione arrivava in ritardo)
+      // already at the right opacity and without transitions: otherwise Mapbox starts from 1 and fades over 300 ms (radar
+      // images being loaded showed for a moment, and the animation's cross-fade arrived late)
       m.addLayer(
         {
           id,
@@ -367,9 +367,9 @@
       src.__url !== c.url ||
       JSON.stringify(src.__coords) !== JSON.stringify(coordinates)
     ) {
-      // un'immagine alla volta: se Mapbox sta ancora caricando o decodificando la precedente, quella nuova aspetta
-      // (cambiandola a metà, la vecchia può arrivare dopo la nuova e restare sulla mappa: muovendo in fretta lo slider
-      // i colori si fermavano su un passo sbagliato)
+      // one image at a time: if Mapbox is still loading or decoding the previous one, the new one waits
+      // (changing it midway, the old one can arrive after the new one and stay on the map: moving the slider quickly
+      // the colours stopped on a wrong step)
       if (src._imageRequest) {
         if (!src.__wait) {
           src.__wait = true;
@@ -413,10 +413,10 @@
     if (m?.getLayer(id)) m.removeLayer(id);
     if (m?.getSource(id)) m.removeSource(id);
   }
-  /** "Confini" (Impostazioni) sui confini di Mapbox, sopra i colori: Nessuno li nasconde, Stati / Regioni /
-   *  Province li mostrano scuri fino a quel livello, con l'opacità scelta. Le province (admin_level 2) ci sono nei
-   *  dati di Mapbox ma non nello stile: le aggiunge uno strato nostro. */
-  let glWater = null; // GeoJSON delle coste, da borders.json
+  /** "Confini" (borders, Settings) on the Mapbox borders, above the colours: None hides them, Countries / Regions /
+   *  Provinces show them dark down to that level, with the chosen opacity. Provinces (admin_level 2) are in the
+   *  Mapbox data but not in the style: a layer of ours adds them. */
+  let glWater = null; // coastline GeoJSON, from borders.json
   let glWaterLoad = null;
   function glBorders() {
     glWaterLoad ??= fetch("borders.json")
@@ -471,8 +471,8 @@
         "admin-1-boundary-bg",
       );
     }
-    // coste (sotto i colori il mare non si vede più): da borders.json, da OpenStreetMap come lo sfondo.
-    // Il contorno dell'acqua di Mapbox comprenderebbe anche i fiumi, a trattini sparsi.
+    // coastlines (under the colours the sea is no longer visible): from borders.json, from OpenStreetMap like the basemap.
+    // The Mapbox water outline would also include rivers, as scattered dashes.
     if (
       !m.getLayer("wm-coast") &&
       m.getLayer("admin-1-boundary-bg") &&
@@ -506,13 +506,13 @@
       if (!m.getLayer(id)) continue;
       m.setLayoutProperty(id, "visibility", n >= lvl && !synoptic() ? "visible" : "none");
       if (id.endsWith("-bg")) {
-        // alone chiaro sotto la linea: bianco come in Streets (Outdoors lo ha rosato)
+        // light halo under the line: white as in Streets (Outdoors has it pinkish)
         m.setPaintProperty(id, "line-color", "#ffffff");
         continue;
       }
       m.setPaintProperty(id, "line-opacity", op);
       if (id.startsWith("wm-")) continue;
-      // stati e regioni a linea continua e scura (negli stili Mapbox sono tratteggiati e chiari: sopra i colori sparivano)
+      // countries and regions as solid dark lines (in the Mapbox styles they are dashed and light: above the colours they vanished)
       m.setPaintProperty(id, "line-color", "#1f2328");
       if (id !== "admin-0-boundary-disputed")
         m.setPaintProperty(id, "line-dasharray", [10, 0]);
@@ -611,8 +611,8 @@
       });
     }
   }
-  /** Copia del disegno di Mapbox per l'immagine condivisa: senza preserveDrawingBuffer (più lento) il canvas WebGL si
-   *  può leggere solo subito dopo un disegno, nell'evento "render". */
+  /** Copy of the Mapbox drawing for the shared image: without preserveDrawingBuffer (slower) the WebGL canvas can
+   *  only be read right after a draw, in the "render" event. */
   function glCapture() {
     return new Promise((resolve) => {
       const m = glBase;
@@ -627,16 +627,16 @@
       m.triggerRepaint();
     });
   }
-  let glShot = null; // ultima copia di glCapture, usata da snapshotMap
-  /** Carta sinottica: dello sfondo Mapbox restano solo il fondo e i nostri strati (colori dei dati); coste e stati
-   *  sono linee nostre a bassa risoluzione (styleSynBorders). Tornando alla mappa normale riappare tutto com'era. */
+  let glShot = null; // latest glCapture copy, used by snapshotMap
+  /** Synoptic chart: of the Mapbox basemap only the background and our layers (data colours) remain; coastlines and
+   *  countries are our own low-resolution lines (styleSynBorders). Back on the normal map everything reappears. */
   function glSynopticBase() {
     const m = glMap();
     if (!m) return;
     if (synoptic()) {
       m.__synHidden ??= new Set();
       for (const l of m.getStyle().layers) {
-        if (l.type === "background" || glImgs.has(l.id)) continue; // restano il fondo e le immagini dei dati
+        if (l.type === "background" || glImgs.has(l.id)) continue; // the background and the data images remain
         if (m.getLayoutProperty(l.id, "visibility") === "none") continue;
         m.__synHidden.add(l.id);
         m.setLayoutProperty(l.id, "visibility", "none");
@@ -671,7 +671,7 @@
       attributionControl: false,
       dragRotate: false,
       pitchWithRotate: false,
-      fadeDuration: 0, // niente dissolvenza delle scritte: meno fotogrammi da disegnare dopo ogni spostamento
+      fadeDuration: 0, // no label fade: fewer frames to draw after each move
       language: "it",
     };
     try {
@@ -702,15 +702,15 @@
       hideTransportLabels(m);
       meteoPalette(m);
       strongRelief(m);
-      m.__synHidden = null; // stile nuovo: nessuno strato nascosto dalla carta sinottica
+      m.__synHidden = null; // new style: no layer hidden by the synoptic chart
       glSynopticBase();
-      for (const [id, c] of glImgs) if (c.url) glApply(m, id, c); // lo stile nuovo non ha i nostri strati
+      for (const [id, c] of glImgs) if (c.url) glApply(m, id, c); // the new style does not have our layers
     });
     for (const layer of Object.values(bases)) map.removeLayer(layer);
   }
-  // sfondo: dalla sezione "Impostazioni" del pannello (niente selettore livelli di Leaflet)
-  const BASE_NAMES = { osm: "Base", topo: "Outdoors" }; // effetto "carta meteo": opacità al massimo e confini
-  // confini sopra i colori (Impostazioni), a livelli: ogni scelta comprende le precedenti
+  // basemap: from the "Impostazioni" (settings) section of the panel (no Leaflet layer switcher)
+  const BASE_NAMES = { osm: "Base", topo: "Outdoors" }; // "weather chart" effect: maximum opacity and borders
+  // borders above the colours (Settings), by level: each choice includes the previous ones
   const BORDER_NAMES = {
     none: "Nessuno",
     countries: "Stati",
@@ -733,7 +733,7 @@
     );
   }
   function setBase(name, save = true) {
-    state.base = bases[name] ? name : "topo"; // anche il vecchio "Essenziale" salvato nel browser
+    state.base = bases[name] ? name : "topo"; // also the old "Essenziale" saved in the browser
     if (glBase) {
       const m = glBase,
         style = MAPBOX_STYLES[state.base];
@@ -749,7 +749,7 @@
         if (k === state.base) layer.addTo(map);
         else map.removeLayer(layer);
       }
-    if (save) saveSettings(); // all'avvio no: un link con l'opacità nell'URL non cambia quelle salvate
+    if (save) saveSettings(); // not at startup: a link with the opacity in the URL does not change the saved ones
     ui.base.replaceChildren(
       ...Object.entries(BASE_NAMES).map(([k, text]) => {
         const b = document.createElement("button");
@@ -761,16 +761,16 @@
       }),
     );
   }
-  // attribuzione della mappa sempre nel pannello, nella sezione "Info & crediti" (dove ci sono anche le fonti
-  // dei dati dei modelli, in index.html); Leaflet continua ad aggiornarla da solo.
+  // map attribution always in the panel, in the "Info & crediti" section (where the model data sources are too,
+  // in index.html); Leaflet keeps updating it by itself.
   ui.attrib.appendChild(map.attributionControl.getContainer());
 
-  // su mobile badge e legenda diventano un solo riquadro in basso: la legenda entra nel badge
-  // versione mobile: telefoni e tablet in verticale (stessa regola nei @media di style.css)
+  // on mobile badge and legend become a single box at the bottom: the legend goes into the badge
+  // mobile version: phones and tablets in portrait (same rule in the @media of style.css)
   const mobileMq = window.matchMedia(
     "(max-width: 600px), (orientation: portrait) and (pointer: coarse) and (max-width: 1100px)",
   );
-  const hoverMq = window.matchMedia("(hover: hover)"); // dispositivi col mouse: c'è il tooltip al passaggio
+  const hoverMq = window.matchMedia("(hover: hover)"); // devices with a mouse: there is the hover tooltip
   const legendHome = ui.legend.parentNode;
   function placeLegend() {
     (mobileMq.matches ? ui.badge : legendHome).appendChild(ui.legend);
@@ -841,8 +841,8 @@
     });
   const fmtHour = (d) =>
     d.toLocaleTimeString("it-IT", { timeZone: "Europe/Rome", hour: "2-digit", minute: "2-digit" });
-  /** Intervallo fra due istanti, con il giorno scritto una volta sola se è lo stesso:
-   *  "ven 13 nov, 06:00 → 18:00" oppure "gio 12, 18:00 → ven 13 nov, 06:00" (il mese all'inizio solo se cambia). */
+  /** Interval between two times, with the day written once if it is the same:
+   *  "ven 13 nov, 06:00 → 18:00" or "gio 12, 18:00 → ven 13 nov, 06:00" (the month at the start only if it changes). */
   function fmtSpan(a, b, { month = true } = {}) {
     if (fmtDay(a) === fmtDay(b))
       return `${fmtDay(b, month)}, ${fmtHour(a)} → ${fmtHour(b)}`;
@@ -850,11 +850,11 @@
     return `${fmtDay(a, startMonth)}, ${fmtHour(a)} → ${fmtDay(b, month)}, ${fmtHour(b)}`;
   }
   const stepDate = (step) => new Date(runDate(state.run).getTime() + step * 3600e3);
-  // inizio dell'accumulo mostrato, solo per gli intervalli scelti (non per il totale dalla corsa)
-  // inizio della cumulata (anche il totale dall'inizio della corsa): così si leggono sempre inizio e fine
+  // start of the accumulation shown, only for chosen intervals (not for the total since the run)
+  // start of the accumulation (also the total since the start of the run): so start and end can always be read
   const intervalStartDate = (s = state.step) =>
     state.run && rangeMode() && intervalPrev(s) < s ? stepDate(intervalPrev(s)) : null;
-  // istante mostrato, o l'intervallo se ne è scelto uno: per pannello, popup e immagine condivisa
+  // time shown, or the interval if one is chosen: for panel, popup and shared image
   const fmtShown = (s = state.step, opts) => {
     const start = intervalStartDate(s);
     return start ? fmtSpan(start, stepDate(s), opts) : fmtLocal(stepDate(s));
@@ -865,20 +865,20 @@
     variable()?.modes.includes("total") &&
     variable()?.modes.includes("interval") &&
     (state.mode === "total" || state.mode === "interval");
-  // grandezza dei dati (colori, località, passi): per le voci combinate è quella dei colori (es. "tp")
+  // data field (colours, places, steps): for combined entries it is the colours' one (e.g. "tp")
   const dataVar = () => variable()?.field || variable()?.vector?.u || state.var;
-  // carta sinottica (geopotenziale e pressione): area propria, niente località, grafici, radar e satellite
+  // synoptic chart (geopotential and pressure): own area, no places, charts, radar or satellite
   const synoptic = () => !!(meta && variable()?.area);
   const areaNow = () => variable()?.area || meta.bbox;
-  // nome per legenda e testi: per le combinate quello della grandezza dei colori ("Precipitazione")
+  // name for legend and texts: for combined entries the colour field's ("Precipitazione")
   const baseLabel = () => variable().base_label || variable().label;
-  // cumulate: differenza fra il totale ai due estremi scelti. I vecchi link con `ore` inizializzano ancora i preset.
+  // accumulations: difference between the total at the two chosen ends. Old links with `ore` still set the presets.
   const INTERVALS = [3, 6, 12, 24];
   const intervalSteps = () => {
     const values = steps();
     return values[0] === 0 ? values : [0, ...values];
   };
-  /** Passo più vicino a `s - hours`; oltre +144h i passi sono ogni 6 ore, quindi un preset 3h diventa 6h. */
+  /** Step nearest to `s - hours`; beyond +144h steps are every 6 hours, so a 3h preset becomes 6h. */
   function presetPrev(s = state.step, hours = state.hours) {
     const target = s - hours;
     if (target <= 0) return 0;
@@ -886,41 +886,41 @@
     for (const x of meta.steps) if (x <= target && x > best) best = x;
     return best;
   }
-  /** Inizio della cumulata mostrata all'ora `s`: l'inizio del range (Totale) o le ultime ore scelte, mai prima del
-   *  range. Tutto il resto (dati, legenda, grafici) legge da qui. */
+  /** Start of the accumulation shown at hour `s`: the start of the range (Total) or the last chosen hours, never before
+   *  the range. Everything else (data, legend, charts) reads from here. */
   function intervalPrev(s = state.step, hours = state.hours) {
-    if (state.cum === "hours") return presetPrev(s, hours); // le ultime ore, ovunque nella corsa
+    if (state.cum === "hours") return presetPrev(s, hours); // the last hours, anywhere in the run
     return state.rangeFrom ?? 0;
   }
-  // cumulate: con Totale lo slider a due maniglie sceglie il periodo; con le ore fisse una maniglia sola che scatta
-  // di `hours` ore lungo tutta la corsa (il periodo resta memorizzato per quando si torna al Totale)
+  // accumulations: with Total the two-thumb slider picks the period; with fixed hours a single thumb that jumps
+  // by `hours` hours along the whole run (the period is remembered for when you go back to Total)
   const presetMode = () => rangeMode() && state.cum === "hours";
   const dualMode = () => rangeMode() && state.cum !== "hours";
-  /** Ore su cui si muovono slider a una maniglia, frecce e play: con le ore fisse una ogni `hours` ore della corsa. */
+  /** Hours that one-thumb sliders, arrows and play move on: with fixed hours one every `hours` hours of the run. */
   function slideSteps() {
     if (!presetMode()) return steps();
     const avail = [...availableSteps()];
     return rangeFrames(0, avail.length ? Math.max(...avail) : steps().at(-1));
   }
-  /** Modo dei dati dalla scelta: "total" se la cumulata parte dall'inizio della corsa, altrimenti "interval". */
+  /** Data mode from the choice: "total" if the accumulation starts at the start of the run, otherwise "interval". */
   function syncMode() {
     if (!rangeMode()) return;
     state.mode = intervalPrev() === 0 ? "total" : "interval";
   }
-  /** Ore fra `from` e `to`: ogni passo con Totale (il play dentro il periodo); con le ore fisse una ogni `hours` ore
-   *  (le ultime `hours` ore ciascuna). */
+  /** Hours between `from` and `to`: every step with Total (play inside the period); with fixed hours one every `hours`
+   *  hours (each the last `hours` hours). */
   function rangeFrames(from = state.rangeFrom ?? 0, to = state.rangeTo ?? state.step) {
     const avail = availableSteps();
     const inside = steps().filter((x) => x > from && x <= to && avail.has(x));
     if (state.cum !== "hours") return inside;
     const frames = [];
     for (let target = from + state.hours; target <= to; target += state.hours) {
-      const x = [...inside].reverse().find((y) => y <= target); // passo più vicino (oltre +144h ogni 6 ore)
+      const x = [...inside].reverse().find((y) => y <= target); // nearest step (beyond +144h every 6 hours)
       if (x != null && x !== frames.at(-1)) frames.push(x);
     }
     return frames.length ? frames : inside.slice(-1);
   }
-  // durata effettiva della cumulata al passo mostrato: sempre scritta, mai "intervallo" e basta
+  // actual duration of the accumulation at the step shown: always written, never just "interval"
   const intervalHours = (s = state.step) => s - intervalPrev(s);
 
   function stopProgressAnimation() {
@@ -952,7 +952,7 @@
       playbackSelection = null;
     }
     const values = intervalSteps();
-    // lo slider mostra il range (fisso), non la cumulata dell'ora mostrata
+    // the slider shows the (fixed) range, not the accumulation of the time shown
     const from = Math.max(0, values.indexOf(playbackSelection?.from ?? state.rangeFrom ?? intervalPrev()));
     const to = Math.max(from + 1, values.indexOf(playbackSelection?.to ?? state.rangeTo ?? state.step));
     const position = (step) => {
@@ -1002,14 +1002,14 @@
       }
     }
   }
-  // "in 3h" / "totale" / "" (grandezze istantanee), dopo il nome della grandezza
+  // "in 3h" / "totale" / "" (instantaneous fields), after the field name
   const modePhrase = () =>
     state.mode === "interval"
       ? `in ${intervalHours()}h`
       : state.mode === "total"
         ? "totale"
         : "";
-  // voci combinate: cosa sono le linee ("· linee zero termico ogni 250 m"), in legenda e nell'immagine condivisa
+  // combined entries: what the lines are ("· linee zero termico ogni 250 m"), in the legend and in the shared image
   const lcFirst = (t) => t.charAt(0).toLowerCase() + t.slice(1); // "Vento 700 hPa" → "vento 700 hPa"
   const isoNote = () => {
     if (variable().arrows)
@@ -1020,14 +1020,14 @@
       ? ` · linee ${contourName().toLowerCase()}`
       : ` · linee ${c.label.toLowerCase()} ogni ${c.step} ${c.units}`;
   };
-  // con le cumulate le linee non sono dell'istante finale ma la media del periodo pesata con la precipitazione
+  // with accumulations the lines are not those of the final time but the period mean weighted by precipitation
   const weightedContour = () =>
     !!variable()?.contour_field && state.mode === "interval";
-  // nome del valore delle linee per legenda, riquadro e tooltip: con le cumulate "Zero termico in 24h", come
-  // "Precipitazione in 24h" (è la media del periodo pesata con la pioggia, vedi contourFieldAt)
+  // name of the line value for legend, popup and tooltip: with accumulations "Zero termico in 24h", like
+  // "Precipitazione in 24h" (it is the period mean weighted by precipitation, see contourFieldAt)
   const contourName = () =>
     `${variable().contours.label}${weightedContour() ? ` in ${intervalHours()}h` : ""}`;
-  // passi del modello scelto: lo slider si ferma all'orizzonte del modello (es. ICON-CH2 a +120h)
+  // steps of the chosen model: the slider stops at the model's range (e.g. ICON-CH2 at +120h)
   const steps = () => {
     const max =
       meta.models.find((m) => m.id === state.model)?.max_step ?? Infinity;
@@ -1043,20 +1043,20 @@
   const availableSteps = () =>
     new Set(runInfo()?.variables[dataVar()]?.steps || []);
 
-  /** Avviso al centro della mappa (null = nascosto). */
+  /** Notice in the centre of the map (null = hidden). */
   function showNoData(title, text = "") {
     ui.nodata.hidden = !title;
     if (title) {
       ui.nodataTitle.textContent = title;
       ui.nodataText.textContent = text;
     }
-    map.getContainer().classList.toggle("map-nodata", !!title); // senza dati la mappa resta in grigio
-    document.body.classList.toggle("no-data", !!title); // e sopra c'è solo il menu principale (vedi style.css)
+    map.getContainer().classList.toggle("map-nodata", !!title); // without data the map stays grey
+    document.body.classList.toggle("no-data", !!title); // and only the main menu is on top (see style.css)
     if (title) {
       ui.probe.hidden = true;
       probeLL = null;
     }
-    // pannello chiuso (su mobile succede spesso): si riapre, altrimenti resterebbe solo una mappa grigia muta
+    // panel closed (often on mobile): it reopens, otherwise only a silent grey map would remain
     if (title && ui.panel.classList.contains("collapsed")) ui.collapse.click();
   }
 
@@ -1065,11 +1065,11 @@
     ui.status.classList.toggle("warn", !!warn);
   }
 
-  // ---------- impostazioni (sfondo, opacità, celle nette, isolinee) salvate nel browser; un link con i parametri
-  // nell'URL vince su quelle salvate (readHash viene dopo)
+  // ---------- settings (basemap, opacity, sharp cells, contours) saved in the browser; a link with parameters
+  // in the URL wins over the saved ones (readHash comes after)
   const SETTINGS_KEY = "weathermaps.settings.v1";
-  // versione delle impostazioni salvate: con la 2 (sfondi Mapbox) cambiano i predefiniti di colori e confini, e chi
-  // aveva salvato quelli vecchi (confini spenti) riparte una volta dai nuovi; il resto delle scelte resta
+  // version of the saved settings: with 2 (Mapbox basemaps) the colour and border defaults change, and whoever
+  // had saved the old ones (borders off) restarts once from the new ones; the other choices stay
   const SETTINGS_VERSION = 2;
   function loadSettings() {
     try {
@@ -1088,11 +1088,11 @@
       if (typeof d.iso === "boolean") state.iso = d.iso;
       if (current && BORDER_NAMES[d.borders]) state.borders = d.borders;
       if (d.extra === "radar" || d.extra === "sat" || d.extra === "snd") state.extra = d.extra;
-      else if (d.radar === true) state.extra = "radar"; // impostazione salvata dalla prima versione del radar
+      else if (d.radar === true) state.extra = "radar"; // setting saved by the first version of the radar
       if (current && Number.isFinite(d.bordersOpacity))
         state.bordersOpacity = Math.min(1, Math.max(0.1, d.bordersOpacity));
     } catch {
-      /* storage non disponibile o dato rovinato: valori predefiniti */
+      /* storage unavailable or corrupted data: default values */
     }
   }
   function saveSettings() {
@@ -1116,16 +1116,16 @@
         }),
       );
     } catch {
-      /* storage non disponibile */
+      /* storage unavailable */
     }
   }
 
-  // ---------- stato nell'URL
+  // ---------- state in the URL
   function readHash() {
     const p = new URLSearchParams(location.hash.slice(1));
     for (const k of ["model", "var", "mode"]) if (p.get(k)) state[k] = p.get(k);
-    // cumulate: range (from, to) e tipo (ore = 3/6/12/24, senza = Totale). I link vecchi (from + step, senza to)
-    // diventano un range col Totale; "ore" da solo (link ancora più vecchi) è il pulsante delle ore su tutta la corsa
+    // accumulations: range (from, to) and kind (ore = 3/6/12/24, without = Total). Old links (from + step, without to)
+    // become a range with Total; "ore" alone (even older links) is the hours button over the whole run
     const ore = +p.get("ore");
     state.cum = INTERVALS.includes(ore) ? "hours" : "total";
     if (state.cum === "hours") state.hours = ore;
@@ -1137,25 +1137,25 @@
       state.rangeTo = +p.get("step");
       state.cum = "total";
     }
-    // i parametri "corsa"/"run" dei link vecchi si ignorano: si mostra sempre l'ultima corsa completa
+    // the "corsa"/"run" parameters of old links are ignored: the latest complete run is always shown
     if (p.get("step")) state.step = +p.get("step");
     if (p.get("opacity"))
       state.opacity = Math.min(1, Math.max(0.1, +p.get("opacity")));
     if (p.get("crisp")) state.crisp = p.get("crisp") === "1";
     if (p.get("iso")) state.iso = p.get("iso") !== "0";
   }
-  // Safari permette al massimo 100 replaceState ogni 30 secondi, poi dà errore: scorrendo lo slider avanti e indietro
-  // l'aggiornamento della mappa si fermava lì (sembrava bloccata). L'indirizzo si scrive quindi poco dopo l'ultima
-  // modifica (una volta sola per una serie di spostamenti) e un eventuale errore non ferma nulla.
+  // Safari allows at most 100 replaceState calls every 30 seconds, then throws: dragging the slider back and forth
+  // the map update stopped there (it looked frozen). So the address is written shortly after the last
+  // change (once for a series of moves) and a possible error stops nothing.
   function replaceHash(hash) {
     try {
       history.replaceState(history.state, "", hash);
     } catch {
-      /* limite del browser: l'indirizzo si aggiorna alla prossima modifica */
+      /* browser limit: the address is updated at the next change */
     }
   }
   let hashTimer = null;
-  // uscendo dalla pagina (ricarica, chiusura) l'indirizzo in attesa si scrive subito
+  // when leaving the page (reload, close) the pending address is written right away
   window.addEventListener("pagehide", () => {
     if (hashTimer) writeHashNow();
   });
@@ -1191,8 +1191,8 @@
     replaceHash("#" + p.toString());
   }
 
-  // ---------- popolamento controlli
-  // bandiere: libreria flag-icons (tutte in formato 4:3, stessa larghezza); per la mediana un'icona Lucide "layers" (ISC)
+  // ---------- filling the controls
+  // flags: flag-icons library (all 4:3, same width); for the median a Lucide "layers" icon (ISC)
   const LAYERS_ICON =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/></svg>';
   const modelIcon = (m) =>
@@ -1202,7 +1202,7 @@
         ? LAYERS_ICON
         : "";
 
-  /** Select dei modelli: bandiera + nome. Il <button><selectedcontent> iniziale resta al suo posto. */
+  /** Model select: flag + name. The initial <button><selectedcontent> stays in place. */
   function fillModelSelect(models, value, select = ui.model) {
     for (const o of [...select.querySelectorAll("option")]) o.remove();
     for (const m of models) {
@@ -1223,8 +1223,8 @@
     );
   }
 
-  // tutti i modelli, sempre: cambiando grandezza il modello non cambia da solo; se non la fornisce lo dice l'avviso
-  // al centro della mappa (vedi update)
+  // all models, always: changing field does not change the model by itself; if it does not provide it the notice
+  // in the centre of the map says so (see update)
   function setupModels() {
     const models = meta.models;
     if (!models.find((m) => m.id === state.model))
@@ -1235,7 +1235,7 @@
     renderModelInfo();
   }
 
-  // ---------- icona informazioni sul modello scelto
+  // ---------- info icon about the chosen model
   function renderModelInfo() {
     const m = meta.models.find((x) => x.id === state.model);
     const text = m?.description || "";
@@ -1268,7 +1268,7 @@
       state.var = meta.variables[0].id;
     fillSelect(
       ui.varSel,
-      meta.variables.map((v) => [v.id, v.menu_label || v.label]), // nome breve, sta su una riga
+      meta.variables.map((v) => [v.id, v.menu_label || v.label]), // short name, fits on one line
       state.var,
     );
     ui.varRow.hidden = meta.variables.length < 2;
@@ -1277,7 +1277,7 @@
   function setupModes() {
     const v = variable();
     if (!v.modes.includes(state.mode)) state.mode = v.modes[0];
-    // grandezze accumulate: Totale · 3h · 6h · 12h · 24h; il doppio slider consente ogni altro intervallo.
+    // accumulated fields: Totale · 3h · 6h · 12h · 24h; the double slider allows any other interval.
     const opts = v.modes.flatMap((m) =>
       m === "interval"
         ? INTERVALS.map((h) => [m, h, `${h}h`])
@@ -1296,11 +1296,11 @@
         b.setAttribute("aria-pressed", String(modePressed(m, h)));
         b.addEventListener("click", () => {
           if (rangeMode()) {
-            // il range resta quello scelto: cambia solo il tipo di cumulata; si mostra la fine del range
+            // the range stays the chosen one: only the accumulation kind changes; the end of the range is shown
             togglePlay(false);
             state.cum = h ? "hours" : "total";
             if (h) {
-              // ore fisse: si riparte sempre dal primo intervallo della corsa (il periodo del Totale resta memorizzato)
+              // fixed hours: always restart from the first interval of the run (the Total period stays remembered)
               state.hours = h;
               state.step = slideSteps()[0] ?? state.step;
             } else state.step = state.rangeTo ?? state.step;
@@ -1313,12 +1313,12 @@
       }),
     );
     ui.modeRow.hidden = v.modes.length < 2;
-    // slider a due maniglie solo col Totale; con le ore fisse quello a una maniglia (vedi slideSteps)
+    // two-thumb slider only with Total; with fixed hours the one-thumb one (see slideSteps)
     document.body.classList.toggle("range-mode", dualMode());
     updateModeSelection();
   }
 
-  // pulsante acceso: con le cumulate il tipo scelto (Totale o le ore), altrimenti il modo
+  // lit button: with accumulations the chosen kind (Total or hours), otherwise the mode
   function modePressed(m, h) {
     if (!rangeMode()) return m === state.mode;
     return h ? state.cum === "hours" && h === state.hours : state.cum !== "hours";
@@ -1330,23 +1330,23 @@
     }
   }
 
-  /** Corsa da mostrare: l'ultima completa (le corse ancora in arrivo non si mostrano). */
+  /** Run to show: the latest complete one (runs still incoming are not shown). */
   function runList() {
     return (runs[state.model] || []).filter(
       (r) => !r.incoming && r.variables[dataVar()],
     );
   }
-  /** Corsa più nuova ancora in arrivo, solo per l'avviso. */
+  /** Newest run still incoming, only for the notice. */
   const incomingRun = () =>
     (runs[state.model] || []).find((r) => r.incoming && r.variables[dataVar()]);
 
-  /** Ritorna true se la corsa mostrata è cambiata. */
+  /** Returns true if the run shown has changed. */
   function setupRuns() {
     const before = state.run;
     const r = runList()[0];
     state.run = r ? r.run : null;
     if (!r) {
-      // grandezza che il modello non ha: lo dice già l'avviso, qui nessuna corsa da indicare
+      // field the model does not have: the notice already says so, no run to show here
       ui.run.textContent = variable()?.models.includes(state.model) ? "nessuna corsa disponibile" : "—";
       ui.run.title = "";
       ui.runAge.textContent = "";
@@ -1354,7 +1354,7 @@
       ui.run.innerHTML = `<strong>${cycle(r.run)}</strong> ${fmtRunDay(r.run)}`;
       ui.run.title = `Corsa delle ${cycle(r.run)} del ${fmtRunDay(r.run)}: l'ultima completa`;
       const sel = r.variables[dataVar()];
-      // testo corto: la riga "Corsa" sta su una sola riga anche nel pannello stretto; quello lungo nel tooltip
+      // short text: the "Corsa" row fits on one line even in the narrow panel; the long one in the tooltip
       const n = sel?.members ? Object.keys(sel.members).length : 0;
       ui.runAge.textContent =
         state.model === "mean" && n ? `${n} modelli` : fmtAge(r.run);
@@ -1367,10 +1367,10 @@
     return before !== state.run;
   }
 
-  // ---------- corsa in arrivo: stato + pulsante "Aggiorna"
+  // ---------- incoming run: status + "Aggiorna" (refresh) button
   let refreshing = false;
 
-  /** Avviso della corsa in arrivo: si mostra quando sarà completa, intanto se ne vede l'avanzamento. */
+  /** Notice of the incoming run: it is shown once complete, meanwhile its progress is visible. */
   function renderRunLive(incoming) {
     const info = incoming?.variables[dataVar()];
     ui.runLive.hidden = !info && !refreshing;
@@ -1380,7 +1380,7 @@
       ui.runLiveText.textContent = `Corsa ${cycle(state.run)} aggiornata`;
   }
 
-  /** Corsa mostrata e passi scaricati (anche della corsa in arrivo), su tutte le grandezze. */
+  /** Run shown and downloaded steps (of the incoming run too), across all fields. */
   function latestSnapshot(model) {
     const list = runs[model] || [];
     const n = list.reduce(
@@ -1439,7 +1439,7 @@
       if (!res.ok) throw new Error(res.statusText);
       const started = await res.json();
       const t0 = Date.now();
-      // segue l'aggiornamento sul server e mostra i passi man mano che arrivano
+      // follows the update on the server and shows the steps as they arrive
       for (;;) {
         await new Promise((r) => setTimeout(r, 2500));
         const st = await fetch(
@@ -1487,7 +1487,7 @@
       state.step = avail.includes(24) ? 24 : (avail[0] ?? s[0]);
     }
     if (rangeMode()) {
-      // range: all'apertura (o se non vale più, es. orizzonte diverso) tutta la corsa disponibile
+      // range: on opening (or if no longer valid, e.g. different range) the whole available run
       const interval = intervalSteps();
       const avail = [...availableSteps()];
       const last = avail.length ? Math.max(...avail) : s[s.length - 1];
@@ -1498,7 +1498,7 @@
       }
       if (!interval.includes(state.rangeFrom) || state.rangeFrom >= state.rangeTo) state.rangeFrom = 0;
       if (presetMode()) {
-        // ore fisse: l'ora mostrata deve essere uno degli scatti della maniglia
+        // fixed hours: the time shown must be one of the thumb's stops
         const frames = slideSteps();
         if (!frames.includes(state.step))
           state.step = [...frames].reverse().find((x) => x <= state.step) ?? frames[0] ?? state.step;
@@ -1513,7 +1513,7 @@
 
   function renderLegend() {
     if (state.extra === "sat") {
-      // satellite: scala di grigi delle nubi (infrarosso), dalle più sottili alle più alte
+      // satellite: greyscale of the clouds (infrared), from the thinnest to the highest
       ui.legend.innerHTML =
         `<h2><span class="lg-label">Nubi da satellite </span>(infrarosso)</h2><ol class="lg-continuous">` +
         `<li><i style="background:linear-gradient(to right, ${SAT_SHADES[0]}, ${SAT_SHADES[1]})"></i><span class="lg-tick">basse</span></li>` +
@@ -1521,7 +1521,7 @@
       return;
     }
     if (state.extra === "radar") {
-      // radar acceso: la sua legenda (classi del servizio, mm/h) al posto di quella del modello
+      // radar on: its legend (the service's classes, mm/h) instead of the model's
       ui.legend.innerHTML =
         `<h2><span class="lg-label">Radar, intensità </span>(mm/h)</h2><ol>` +
         RADAR_CLASSES.map(([t, c], i) => {
@@ -1535,15 +1535,15 @@
     const { thresholds, colors } = v.scale;
     const modeLabel = modePhrase();
     const num = (x) => String(x).replace("-", "−");
-    const openLow = v.scale.transparent_below == null; // la prima classe include anche i valori più bassi
-    // con molte soglie (T850 ogni 2 °C) se ne scrive una su due, per non affollare la barra; meno ancora se le
-    // etichette sono lunghe (geopotenziale: 31 soglie di tre cifre)
+    const openLow = v.scale.transparent_below == null; // the first class also includes the lowest values
+    // with many thresholds (T850 every 2 °C) one out of two is written, so as not to crowd the bar; even fewer if the
+    // labels are long (geopotential: 31 three-digit thresholds)
     let every = thresholds.length > 14 ? 2 : 1;
     const chars = (k) =>
       thresholds.reduce((a, t, i) => a + (i % k ? 0 : num(t).length + 1), 0);
     while (chars(every) > 50) every *= 2;
     if (v.scale.continuous) {
-      // barra sfumata: un tratto per ogni coppia di punti di colore, soglie sui bordi (l'ultima a destra)
+      // smooth bar: one segment per pair of colour stops, thresholds on the edges (the last on the right)
       const n = thresholds.length;
       const segs = thresholds.slice(0, -1).map((t, i) => {
         const tick = i % every ? "" : num(t);
@@ -1564,8 +1564,8 @@
           : i === 0 && openLow
             ? `< ${num(next)}`
             : `${num(t)} … ${num(next)}`;
-      // tick: soglia inferiore della classe, mostrata solo nella barra compatta su mobile
-      // la prima classe della pioggia (da 0.1 mm) si legge "da 0": il primo numero sta sul bordo sinistro della barra
+      // tick: lower threshold of the class, shown only in the compact bar on mobile
+      // the first precipitation class (from 0.1 mm) reads "from 0": the first number sits on the left edge of the bar
       const tick =
         (i === 0 && openLow) || i % every
           ? ""
@@ -1577,7 +1577,7 @@
     ui.legend.innerHTML = `<h2><span class="lg-label">${baseLabel()} ${modeLabel} </span>(${v.units})${isoNote()}</h2><ol>${items.join("")}</ol>`;
   }
 
-  // ---------- dati
+  // ---------- data
   const ctxNow = () => ({ model: state.model, var: dataVar(), run: state.run });
 
   function fieldUrl(step, mode, ctx, prev) {
@@ -1588,13 +1588,13 @@
     return `api/field?${p}`;
   }
 
-  // richieste dei campi in corso: muovendo in fretta lo slider se ne accumulano decine (il browser ne fa 6 alla volta
-  // per sito) e il passo che serve resta in coda dietro a quelli già superati: quelle vecchie si annullano
+  // field requests in progress: moving the slider quickly piles up dozens (the browser makes 6 at a time
+  // per site) and the needed step stays queued behind those already passed: the old ones are cancelled
   const inflight = new Map(); // url -> { ctrl, gen }
   let fetchGen = 0;
   function dropStaleFetches() {
     fetchGen++;
-    if (inflight.size <= 5) return; // poche: lasciarle finire (sono i passi vicini, serviranno)
+    if (inflight.size <= 5) return; // only a few: let them finish (they are the nearby steps, they will be needed)
     for (const [url, x] of inflight)
       if (x.gen < fetchGen - 1) {
         x.ctrl.abort();
@@ -1608,10 +1608,10 @@
     ctx = ctxNow(),
     prev = mode === "interval" ? intervalPrev(step) : null,
   ) {
-    // statico: c'è solo il totale; la cumulata è la differenza fra due totali (come fa il server)
+    // static: there is only the total; the accumulation is the difference between two totals (as the server does)
     if (STATIC && mode === "interval")
       return getIntervalStatic(step, ctx, prev);
-    // statico: i campi dei dettagli (es. z850) stanno nel file della grandezza a cui appartengono (t850)
+    // static: the detail fields (e.g. z850) are in the file of the field they belong to (t850)
     if (STATIC) {
       const owner = meta.variables.find((x) =>
         x.details?.some((d) => d.var === ctx.var),
@@ -1649,9 +1649,9 @@
     return cache.get(url);
   }
 
-  /** Sito statico: campo in formato compatto (vedi app/packed.py). Intestazione JSON con le liste di valori sostituite
-   *  da {"$q": [inizio, quanti, scala]}, poi i valori in interi a 16 bit (-32768 = mancante). Torna lo stesso oggetto
-   *  di /api/field. */
+  /** Static site: field in compact format (see app/packed.py). JSON header with the value lists replaced
+   *  by {"$q": [start, count, scale]}, then the values as 16-bit integers (-32768 = missing). Returns the same object
+   *  as /api/field. */
   function unpackField(buf) {
     const n = new DataView(buf).getUint32(0, true);
     const header = JSON.parse(
@@ -1670,7 +1670,7 @@
         let src = ints,
           off = start;
         if (x.$z) {
-          // differenze fra celle vicine, a zig-zag, byte bassi e alti separati (si comprime meglio in rete)
+          // differences between neighbouring cells, zig-zag, low and high bytes separate (compresses better on the wire)
           const lo = new Uint8Array(buf, base + 2 * start, len),
             hi = new Uint8Array(buf, base + 2 * start + len, len);
           src = new Int16Array(len);
@@ -1678,7 +1678,7 @@
           let acc = 0;
           for (let k = 0; k < len; k++) {
             const zz = lo[k] | (hi[k] << 8);
-            acc = ((acc + ((zz >>> 1) ^ -(zz & 1))) << 16) >> 16; // somma su 16 bit, come nella scrittura
+            acc = ((acc + ((zz >>> 1) ^ -(zz & 1))) << 16) >> 16; // 16-bit sum, as in the writing
             src[k] = acc;
           }
         }
@@ -1691,7 +1691,7 @@
             out[k] = f32[k] = v / scale;
           }
         }
-        F32.set(out, f32); // per il disegno, senza riconvertire
+        F32.set(out, f32); // for drawing, without converting again
         return out;
       }
       return Object.fromEntries(
@@ -1745,7 +1745,7 @@
       const ctx = `${state.model}|${state.var}|${state.run}|${state.mode}|${intervalPrev()}`;
       mainField(s[j])
         .then((f) => {
-          // anche l'immagine dei colori, se nel frattempo non è cambiata la mappa
+          // the colour image too, if the map has not changed in the meantime
           if (
             ctx ===
             `${state.model}|${state.var}|${state.run}|${state.mode}|${intervalPrev()}`
@@ -1758,7 +1758,7 @@
     }
   }
 
-  /** Voci combinate con le frecce: le due componenti del vento alla stessa ora (stessi file delle voci "Vento"). */
+  /** Combined entries with arrows: the two wind components at the same time (same files as the "Vento" entries). */
   function arrowsFieldAt(step) {
     const a = variable()?.arrows;
     if (!a) return Promise.resolve(null);
@@ -1785,15 +1785,15 @@
     return cache.get(key);
   }
 
-  // ---------- vento: le voci "Vento" chiedono le due componenti (verso est `u`, verso nord `v`, in km/h) e ne ricavano
-  // la velocità (colori, località, classifica) e la direzione (frecce)
+  // ---------- wind: the "Vento" entries request the two components (eastward `u`, northward `v`, in km/h) and derive
+  // the speed (colours, places, ranking) and the direction (arrows)
   function mainField(step) {
     const vec = variable()?.vector;
     if (!vec) return getField(step);
     const ctx = ctxNow();
     const key = `vec|${ctx.model}|${ctx.run}|${vec.u}|${step}`;
     if (!cache.has(key)) {
-      // statico: le due componenti stanno in un solo file per passo (meno file da pubblicare)
+      // static: the two components are in a single file per step (fewer files to publish)
       const parts = STATIC
         ? getField(step, "value", { ...ctx, var: state.var }).then((b) => [
             { ...b, values: b.u },
@@ -1831,7 +1831,7 @@
   }
 
   const DIRS = ["N", "NE", "E", "SE", "S", "SO", "O", "NO"];
-  /** Da dove soffia il vento (convenzione meteo): gradi da nord in senso orario e punto cardinale. */
+  /** Where the wind blows from (meteorological convention): degrees from north clockwise and compass point. */
   function windDirAt(f, lat, lon) {
     const { lat0, lon0, dlat, dlon, nx, ny } = f.grid;
     const ix = Math.round((lon - lon0) / dlon),
@@ -1844,11 +1844,11 @@
     return { deg, name: DIRS[Math.round(deg / 45) % 8] };
   }
 
-  // ---------- Livelli extra: radar o satellite (uno alla volta), animati sulle ultime immagini. Servizi WMS pubblici
-  // chiesti dal browser (CORS aperto, anche nel sito statico); ogni tessera si ripulisce in un canvas (clean) così resta
-  // solo il fenomeno sopra la mappa. Con un livello extra acceso spariscono i livelli del modello.
-  /* radar: classi nostre (limite inferiore in mm/h e colore), scala classica delle mappe radar italiane. Il servizio
-   * colora l'immagine con queste soglie sui valori veri: le riceve come stile (SLD) insieme alla richiesta. */
+  // ---------- Extra layers: radar or satellite (one at a time), animated over the latest images. Public WMS services
+  // requested by the browser (open CORS, also on the static site); each tile is cleaned up in a canvas (clean) so that
+  // only the phenomenon remains above the map. With an extra layer on, the model layers disappear.
+  /* radar: our own classes (lower bound in mm/h and colour), the classic scale of Italian radar maps. The service
+   * colours the image with these thresholds on the real values: it receives them as a style (SLD) with the request. */
   const RADAR_CLASSES = [
     [0.2, "#9a8a9b"],
     [1, "#2400ff"],
@@ -1863,18 +1863,18 @@
   const radarSld = (layer) =>
     `<StyledLayerDescriptor version="1.0.0" xmlns="http://www.opengis.net/sld"><NamedLayer><Name>${layer}</Name>` +
     `<UserStyle><FeatureTypeStyle><Rule><RasterSymbolizer><ColorMap type="intervals">` +
-    // "intervals": ogni colore vale fino alla soglia dichiarata; sotto la prima trasparente
+    // "intervals": each colour applies up to the declared threshold; below the first, transparent
     `<ColorMapEntry color="#000000" quantity="${RADAR_CLASSES[0][0]}" opacity="0"/>` +
     RADAR_CLASSES.map(
       ([, c], i) =>
         `<ColorMapEntry color="${c}" quantity="${RADAR_CLASSES[i + 1]?.[0] ?? 1e6}"/>`,
     ).join("") +
     `</ColorMap></RasterSymbolizer></Rule></FeatureTypeStyle></UserStyle></NamedLayer></StyledLayerDescriptor>`;
-  const SAT_SHADES = ["#969ea6", "#cbcfd4", "#ffffff"]; // legenda del satellite: nubi sottili/basse → spesse/alte
+  const SAT_SHADES = ["#969ea6", "#cbcfd4", "#ffffff"]; // satellite legend: thin/low clouds → thick/high
   const wmsUrl = (base, params) =>
     `${base}?${new URLSearchParams({ service: "WMS", version: "1.3.0", styles: "", ...params })}`;
   const EXTRAS = {
-    // mosaico radar nazionale (Protezione Civile) pubblicato da ItaliaMeteo su MeteoHub: intensità in mm/h ogni 5 minuti
+    // national radar mosaic (Protezione Civile) published by ItaliaMeteo on MeteoHub: intensity in mm/h every 5 minutes
     radar: {
       name: "Radar",
       wms: "https://maps.mistralportal.it/wms",
@@ -1885,14 +1885,14 @@
       credit: "Radar: Protezione Civile, ItaliaMeteo (MeteoHub)",
       shareTitle: "Radar precipitazioni · Protezione Civile / ItaliaMeteo",
       shareSub: "Intensità (mm/h)",
-      // colori dalle nostre classi (RADAR_CLASSES), non quelli del servizio; i valori vengono interpolati (bilineare) prima
-      // di essere colorati: contorni morbidi invece dei quadratini da 1 km del dato
+      // colours from our classes (RADAR_CLASSES), not the service's; values are interpolated (bilinearly) before
+      // being coloured: soft outlines instead of the data's 1 km squares
       sld: true,
       clean(d) {
         for (let i = 3; i < d.length; i += 4) if (d[i] < 250) d[i] = 0;
-      }, // bordi sfumati: via
-      /** Ultima immagine: si prova all'indietro di 5 in 5 minuti con un'immagine di 1 pixel (per un'ora che non c'è
-       *  ancora il servizio risponde con un errore XML invece che con un PNG). */
+      }, // blurred edges: removed
+      /** Latest image: tried backwards in 5-minute steps with a 1-pixel image (for a time that does not exist
+       *  yet the service answers with an XML error instead of a PNG). */
       async latest() {
         const slot = 5 * 60e3,
           t0 = Math.floor(Date.now() / slot) * slot;
@@ -1919,8 +1919,8 @@
         return null;
       },
     },
-    // Meteosat di terza generazione (EUMETSAT): infrarosso 10,5 µm ogni 10 minuti, giorno e notte. Più è chiaro più la
-    // nube è fredda (alta o spessa): la luminosità diventa trasparenza, nubi bianche e suolo sereno invisibile
+    // third-generation Meteosat (EUMETSAT): 10.5 µm infrared every 10 minutes, day and night. The lighter, the colder
+    // the cloud (high or thick): brightness becomes transparency, white clouds and clear ground invisible
     sat: {
       name: "Satellite",
       wms: "https://view.eumetsat.int/geoserver/wms",
@@ -1932,19 +1932,19 @@
       shareTitle: "Nubi da satellite · EUMETSAT Meteosat",
       shareSub: "Infrarosso 10,5 µm",
       clean(d) {
-        // grigio dell'infrarosso: suolo e mare sereni ~50-100, nubi ~110-200 (più chiaro = più freddo = più alto). Sotto i
-        // 100 trasparente; sopra, nube sempre più opaca e più bianca (le basse grigie, le alte bianche: si leggono anche
-        // sulla mappa chiara)
+        // infrared grey: clear land and sea ~50-100, clouds ~110-200 (lighter = colder = higher). Below
+        // 100 transparent; above, increasingly opaque and white cloud (low ones grey, high ones white: readable even
+        // on the light map)
         for (let i = 0; i < d.length; i += 4) {
           const v = d[i],
             a = Math.max(0, Math.min(1, (v - 100) / 70)),
             w = Math.max(0, Math.min(1, (v - 110) / 80));
           d[i] = d[i + 1] = Math.round(150 + 105 * w);
-          d[i + 2] = Math.round(158 + 97 * w); // grigio appena azzurrato → bianco
+          d[i + 2] = Math.round(158 + 97 * w); // slightly bluish grey → white
           d[i + 3] = Math.round(255 * a);
         }
       },
-      /** Ultima immagine: dalle capabilities del solo livello (8 kB), attributo default della dimensione time. */
+      /** Latest image: from the capabilities of the single layer (8 kB), default attribute of the time dimension. */
       async latest() {
         const r = await fetch(
           "https://view.eumetsat.int/geoserver/mtg_fd/ir105_hrfi/ows?service=WMS&request=GetCapabilities&version=1.3.0",
@@ -1959,11 +1959,11 @@
     },
   };
   map.createPane("radar");
-  map.getPane("radar").style.zIndex = 405; // sopra i colori del modello, sotto confini, frecce e isolinee
+  map.getPane("radar").style.zIndex = 405; // above the model colours, below borders, arrows and contours
   map.getPane("radar").style.pointerEvents = "none";
-  /** Un'immagine per istante su tutta l'area dei dati (13 richieste invece di centinaia di tessere: il server del
-   *  satellite risponde in ~2 s a richiesta), ripulita in un canvas e mostrata come immagine sopra la mappa: spostando
-   *  o ingrandendo la mappa non si ricarica nulla. 1800 px sull'area ≈ 1 km per pixel, più fine dei dati. */
+  /** One image per time over the whole data area (13 requests instead of hundreds of tiles: the satellite
+   *  server answers in ~2 s per request), cleaned up in a canvas and shown as an image above the map: moving
+   *  or zooming the map reloads nothing. 1800 px over the area ≈ 1 km per pixel, finer than the data. */
   const EXTRA_W = 1800;
   function extraImage(cfg, time) {
     const b = meta.bbox,
@@ -1973,7 +1973,7 @@
     const h = Math.round((W * (ne.y - sw.y)) / (ne.x - sw.x));
     return new Promise((resolve) => {
       const img = new Image();
-      img.crossOrigin = "anonymous"; // per ripulire i pixel e per l'immagine condivisa
+      img.crossOrigin = "anonymous"; // to clean up the pixels and for the shared image
       img.onload = () => {
         const c = document.createElement("canvas");
         c.width = W;
@@ -1988,7 +1988,7 @@
           "image/png",
         );
       };
-      img.onerror = () => resolve(null); // immagine mancante: quell'istante resta vuoto
+      img.onerror = () => resolve(null); // missing image: that time stays empty
       img.src = wmsUrl(cfg.wms, {
         request: "GetMap",
         layers: cfg.layer,
@@ -2005,8 +2005,8 @@
       });
     });
   }
-  // animazione: le ultime `frames` immagini, un livello per immagine caricato subito; si passa da una all'altra cambiando
-  // solo l'opacità, così l'animazione non lampeggia mentre arrivano le tessere
+  // animation: the last `frames` images, one layer per image loaded right away; switching from one to the next changes
+  // only the opacity, so the animation does not flicker while the tiles arrive
   const extraCfg = () => EXTRAS[state.extra];
   const fmtRadarTime = (t) =>
     new Date(t).toLocaleTimeString("it-IT", {
@@ -2014,14 +2014,14 @@
       hour: "2-digit",
       minute: "2-digit",
     });
-  let radarFrames = []; // [{ time, layer, ready }] dalla più vecchia alla più recente
+  let radarFrames = []; // [{ time, layer, ready }] from the oldest to the most recent
   let radarIdx = -1,
     radarTimer = null,
     radarPlay = null;
-  let radarAutoplay = false; // si accende col livello: l'animazione parte da sola appena tutte le immagini sono caricate
-  /** Stato di caricamento: finché manca qualche immagine, riquadro al centro della pagina ("Caricamento radar 5/13") e
-   *  controlli nascosti; quando sono tutte pronte si toglie e, la prima volta, parte subito l'animazione. Dopo uno
-   *  spostamento della mappa le tessere nuove arrivano mentre l'animazione continua: niente riquadro. */
+  let radarAutoplay = false; // turned on with the layer: the animation starts by itself as soon as all images are loaded
+  /** Loading state: while some image is missing, a box in the centre of the page ("Caricamento radar 5/13") and
+   *  hidden controls; when all are ready it goes away and, the first time, the animation starts right away. After
+   *  a map move the new tiles arrive while the animation continues: no box. */
   let radarReadyOnce = false;
   function updateRadarLoading() {
     const ready = radarFrames.filter((f) => f.ready).length,
@@ -2032,10 +2032,10 @@
     const was = document.body.classList.contains("radar-loading");
     document.body.classList.toggle("radar-loading", loading);
     if (was && !loading) {
-      // immagini pronte: barra e legenda entrano con l'animazione (vedi .badge-enter in style.css)
+      // images ready: bar and legend enter with the animation (see .badge-enter in style.css)
       const enter = (el, cls) => {
         el.classList.remove(cls);
-        void el.offsetWidth; // riparte anche se era appena stata usata
+        void el.offsetWidth; // restarts even if it was just used
         el.classList.add(cls);
         const end = (e) => {
           if (e.target !== el) return;
@@ -2045,23 +2045,23 @@
         el.addEventListener("animationend", end);
       };
       enter(ui.badge, "badge-enter");
-      if (!ui.badge.contains(ui.legend)) enter(ui.legend, "legend-enter"); // su mobile la legenda è dentro la barra
+      if (!ui.badge.contains(ui.legend)) enter(ui.legend, "legend-enter"); // on mobile the legend is inside the bar
     }
     $("radar-loader-name").textContent = extraCfg()?.name.toLowerCase() || "";
     $("radar-loader-count").textContent = radarFrames.length
       ? `${ready} di ${radarFrames.length} immagini`
       : "in attesa…";
     if (!all) return;
-    showRadarFrame(radarIdx); // ora dell'immagine al posto del conteggio
+    showRadarFrame(radarIdx); // image time instead of the count
     if (radarAutoplay) {
       radarAutoplay = false;
       startRadarPlay();
     }
   }
-  /** Dissolvenza fra l'immagine `i` e la seguente (`t` da 0 a 1, ciclica): la seguente compare sopra nella prima metà
-   *  mentre l'altra resta piena, poi l'altra sfuma. Così nelle zone in comune la pioggia non si affievolisce a metà. */
+  /** Cross-fade between image `i` and the next (`t` from 0 to 1, cyclic): the next appears on top in the first half
+   *  while the other stays full, then the other fades. So in the shared areas the rain does not dim halfway. */
   function paintRadar(i, t) {
-    // finché non sono arrivate tutte le immagini non se ne mostra nessuna (niente pezzi mentre si carica)
+    // until all images have arrived none is shown (no pieces while loading)
     const n = radarFrames.length,
       op = radarReadyOnce ? (extraCfg()?.opacity ?? 0) : 0,
       j = (i + 1) % n;
@@ -2092,24 +2092,24 @@
   function stopRadarPlay() {
     cancelAnimationFrame(radarPlay);
     radarPlay = null;
-    if (radarFrames.length) showRadarFrame(radarIdx); // niente dissolvenza lasciata a metà
+    if (radarFrames.length) showRadarFrame(radarIdx); // no cross-fade left halfway
     $("radar-play").innerHTML = M_PLAY;
     $("radar-play").setAttribute("aria-label", "Anima");
   }
   const RADAR_HOLD = 150,
     RADAR_HOLD_LAST = 1500,
-    RADAR_FADE = 350; // ms: ogni immagine resta ferma poi sfuma nella seguente
+    RADAR_FADE = 350; // ms: each image stays still then fades into the next
   function startRadarPlay() {
     if (radarFrames.length < 2) return;
     $("radar-play").innerHTML = M_PAUSE;
     $("radar-play").setAttribute("aria-label", "Ferma l'animazione");
-    if (radarIdx >= radarFrames.length - 1) showRadarFrame(0); // dall'ultima si riparte dalla prima
+    if (radarIdx >= radarFrames.length - 1) showRadarFrame(0); // from the last one, start again from the first
     let t0 = performance.now();
     const step = (now) => {
       const n = radarFrames.length,
         last = radarIdx >= n - 1;
       const hold = last ? RADAR_HOLD_LAST : RADAR_HOLD,
-        el = now - t0; // pausa più lunga sull'ultima immagine
+        el = now - t0; // longer pause on the last image
       if (el >= hold + RADAR_FADE) {
         showRadarFrame(last ? 0 : radarIdx + 1);
         t0 = now;
@@ -2118,7 +2118,7 @@
     };
     radarPlay = requestAnimationFrame(step);
   }
-  /** Allinea i livelli all'ultima immagine disponibile: tiene quelli già caricati, aggiunge i nuovi, toglie i vecchi. */
+  /** Aligns the layers to the latest available image: keeps those already loaded, adds the new ones, removes the old. */
   async function refreshRadar() {
     const cfg = extraCfg();
     if (!cfg) return;
@@ -2126,9 +2126,9 @@
     try {
       latest = await cfg.latest();
     } catch {
-      /* rete assente: si riprova al prossimo giro */
+      /* no network: retried at the next round */
     }
-    if (extraCfg() !== cfg) return; // nel frattempo è cambiato livello
+    if (extraCfg() !== cfg) return; // the layer changed in the meantime
     if (!latest) {
       if (!radarFrames.length)
         $("radar-loader-count").textContent =
@@ -2154,18 +2154,18 @@
     );
     radarFrames = times.map(
       (time) => keep.get(time) || { time, ready: false, layer: L.layerGroup() },
-    ); // segnaposto
-    // richieste dalla più recente (la più utile, e l'animazione si ferma lì): il server ne serve poche alla volta
+    ); // placeholder
+    // requests from the most recent (the most useful, and the animation stops there): the server handles few at a time
     for (const f of [...radarFrames].reverse()) {
       if (keep.has(f.time)) continue;
       extraImage(cfg, f.time).then((url) => {
         if (!radarFrames.includes(f)) {
           if (url) URL.revokeObjectURL(url);
           return;
-        } // livello già cambiato
+        } // layer already changed
         f.url = url;
         if (url && glBase)
-          f.layer = glFrameLayer(`wm-x-${f.time}`, url, bounds); // dentro Mapbox, sotto confini e nomi
+          f.layer = glFrameLayer(`wm-x-${f.time}`, url, bounds); // inside Mapbox, below borders and names
         else if (url)
           f.layer = L.imageOverlay(url, bounds, {
             pane: "radar",
@@ -2178,10 +2178,10 @@
       });
     }
     $("radar-slider").max = radarFrames.length - 1;
-    if (wasLast && !radarPlay) showRadarFrame(radarFrames.length - 1); // senza animazione si resta sull'ultima immagine
+    if (wasLast && !radarPlay) showRadarFrame(radarFrames.length - 1); // without animation stay on the latest image
     updateRadarLoading();
   }
-  /** Immagine del radar/satellite come strato Mapbox, con gli stessi metodi usati dall'animazione. */
+  /** Radar/satellite image as a Mapbox layer, with the same methods used by the animation. */
   function glFrameLayer(id, url, bounds) {
     glPut(id, { url, bounds, opacity: 0 });
     return {
@@ -2201,30 +2201,30 @@
     }
     radarFrames = [];
     radarIdx = -1;
-    // radar, satellite e radiosondaggi solo sulla mappa normale
+    // radar, satellite and soundings only on the normal map
     state.extra = (EXTRAS[name] || name === "snd") && !synoptic() ? name : "none";
     const cfg = extraCfg();
-    // radiosondaggi: via i colori del modello come col radar, restano la mappa e le stazioni (vedi renderSoundings)
+    // soundings: the model colours go away as with the radar, map and stations remain (see renderSoundings)
     const snd = state.extra === "snd";
     document.body.classList.toggle("snd-mode", snd);
     renderSoundings();
-    // con un livello extra: spariscono colori, isolinee e frecce del modello (sarebbe illeggibile), legenda e barra in
-    // alto passano al livello; il modello resta scelto e torna togliendolo
+    // with an extra layer: the model's colours, contours and arrows disappear (it would be unreadable), legend and top
+    // bar switch to the layer; the model stays selected and comes back when it is removed
     document.body.classList.toggle("radar-mode", !!cfg);
-    if (glImgs.has("wm-model")) glPut("wm-model", { visible: !cfg && !snd }); // i colori del modello spariscono anche in Mapbox
+    if (glImgs.has("wm-model")) glPut("wm-model", { visible: !cfg && !snd }); // the model colours disappear in Mapbox too
     $("extra-name").textContent = cfg?.name || "";
     if (cfg) togglePlay(false);
     if (meta && state.var) {
       renderLegend();
       renderPoints();
-    } // all'avvio le disegnano setupVars e setupPoints
+    } // at startup setupVars and setupPoints draw them
     ui.probe.hidden = true;
     radarAutoplay = !!cfg;
     radarReadyOnce = false;
     updateRadarLoading();
     if (cfg) {
       refreshRadar();
-      radarTimer = setInterval(refreshRadar, cfg.stepMin * 60e3); // nuova immagine ogni 5 (radar) o 10 minuti (satellite)
+      radarTimer = setInterval(refreshRadar, cfg.stepMin * 60e3); // new image every 5 (radar) or 10 minutes (satellite)
     }
     $("extra-seg").replaceChildren(
       ...Object.entries(EXTRA_NAMES).map(([k, text]) => {
@@ -2234,7 +2234,7 @@
         b.setAttribute("aria-pressed", String(k === state.extra));
         b.addEventListener("click", () => {
           setExtra(k);
-          // su mobile il pannello copre la mappa: accendendo radar o satellite si chiude, così si vede il caricamento
+          // on mobile the panel covers the map: turning on radar or satellite closes it, so the loading is visible
           if (
             k !== "none" &&
             mobileMq.matches &&
@@ -2258,19 +2258,19 @@
   });
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) refreshRadar();
-  }); // tornando sulla pagina
+  }); // when coming back to the page
 
   map.createPane("arrows");
   map.getPane("arrows").style.zIndex = 425;
   map.getPane("arrows").style.pointerEvents = "none";
   const arrowsRenderer = L.canvas({ pane: "arrows", padding: 0.1 });
   const arrowsLayer = L.layerGroup().addTo(map);
-  const ARROW_STEP = 46; // px fra le frecce
-  /** Frecce della direzione (verso dove va il vento) su una griglia regolare di pixel, ricalcolate a ogni spostamento:
-   *  sempre la stessa densità a ogni zoom. Lunghezza crescente con la velocità. */
+  const ARROW_STEP = 46; // px between arrows
+  /** Direction arrows (where the wind goes) on a regular pixel grid, recomputed at every move:
+   *  always the same density at every zoom. Length grows with speed. */
   function drawArrows() {
     arrowsLayer.clearLayers();
-    const f = current?.u ? current : currentArrows; // voce "Vento" o combinata con le frecce
+    const f = current?.u ? current : currentArrows; // "Vento" entry or combined with arrows
     if (!f?.u) return;
     const su = sampler({ grid: f.grid, values: f.u }, false),
       sv = sampler({ grid: f.grid, values: f.v }, false);
@@ -2284,17 +2284,17 @@
           v = sv(ll.lat, ll.lng);
         if (u == null || v == null) continue;
         const sp = Math.hypot(u, v);
-        if (sp < 2) continue; // calma: niente freccia
+        if (sp < 2) continue; // calm: no arrow
         const len = 9 + (Math.min(sp, 80) / 80) * 13; // 9–22 px
         const dx = u / sp,
-          dy = -v / sp; // schermo: y verso il basso
+          dy = -v / sp; // screen: y pointing down
         const x0 = x - (dx * len) / 2,
           y0 = y - (dy * len) / 2,
           x1 = x + (dx * len) / 2,
           y1 = y + (dy * len) / 2;
         const h = 5,
           wx = -dy,
-          wy = dx; // punta: due tratti a 30° circa
+          wy = dx; // tip: two strokes at about 30°
         segs.push([toLL(x0, y0), toLL(x1, y1)]);
         segs.push([
           toLL(x1 - dx * h + wx * h * 0.6, y1 - dy * h + wy * h * 0.6),
@@ -2320,10 +2320,10 @@
     if (current?.u || currentArrows) drawArrows();
   });
 
-  /** Campo delle linee nelle voci combinate al passo `step`. Con le cumulate (es. pioggia in 24h) è lo zero termico
-   *  medio del periodo pesato con la precipitazione: per ogni punto, ogni sotto-intervallo fra due passi conta quanto
-   *  la pioggia caduta in esso, con lo zero termico medio fra i suoi due estremi. Dove nel periodo non piove (meno di
-   *  0,1 mm) si usa la media semplice. Con il Totale è il valore all'ora mostrata. */
+  /** Field of the lines in combined entries at step `step`. With accumulations (e.g. precipitation in 24h) it is the
+   *  period's mean freezing level weighted by precipitation: for each point, each sub-interval between two steps counts as
+   *  much as the precipitation that fell in it, with the mean freezing level between its two ends. Where no rain falls in
+   *  the period (less than 0.1 mm) the plain mean is used. With Total it is the value at the time shown. */
   function contourFieldAt(step) {
     const ctx = ctxNow();
     const cv = variable().contour_field;
@@ -2349,7 +2349,7 @@
         ]);
         const end = hz[hz.length - 1];
         const n = end?.values.length;
-        // griglie diverse fra pioggia e linee (non dovrebbe capitare): solo l'istante finale
+        // different grids between precipitation and lines (should not happen): only the final time
         if (
           !end ||
           tot.some((t) => t && t.values.length !== n) ||
@@ -2365,7 +2365,7 @@
           for (let i = 1; i < chain.length; i++) {
             const a = hz[i - 1]?.values[k],
               b = hz[i]?.values[k];
-            const z = a != null && b != null ? (a + b) / 2 : (b ?? a); // al passo 0 lo zero termico non c'è
+            const z = a != null && b != null ? (a + b) / 2 : (b ?? a); // at step 0 there is no freezing level
             if (z == null) continue;
             const t1 = tot[i].values[k],
               t0 = tot[i - 1] ? tot[i - 1].values[k] : 0;
@@ -2399,7 +2399,7 @@
     const th = scale.thresholds;
     const below = scale.transparent_below;
     if (scale.continuous) {
-      // sfumata: interpolazione lineare fra i due punti di colore vicini, costante oltre gli estremi
+      // smooth: linear interpolation between the two nearby colour stops, constant beyond the ends
       const n = th.length - 1;
       return (v) => {
         if (v == null || Number.isNaN(v)) return null;
@@ -2461,10 +2461,10 @@
     };
   }
 
-  // ---------- immagine dei colori: calcolata in un worker (static/render.js), così i milioni di pixel dei modelli a
-  // 1-2 km non bloccano slider, pinch e animazioni; le immagini dei passi già visti (e dei vicini, preparate in
-  // anticipo) restano in memoria, quindi tornare su un passo o animare non ricalcola niente.
-  const F32 = new WeakMap(); // lista di valori (con null) -> Float32Array (NaN = mancante), per il worker
+  // ---------- colour image: computed in a worker (static/render.js), so the millions of pixels of the 1-2 km
+  // models do not block slider, pinch and animations; the images of steps already seen (and of nearby ones, prepared
+  // in advance) stay in memory, so going back to a step or animating recomputes nothing.
+  const F32 = new WeakMap(); // list of values (with null) -> Float32Array (NaN = missing), for the worker
   function f32Of(values) {
     let a = F32.get(values);
     if (!a) {
@@ -2483,14 +2483,14 @@
     if (renderSrc && window.Worker && window.OffscreenCanvas)
       renderWorker = new Worker(renderSrc);
   } catch {
-    /* niente worker: si calcola nella pagina */
+    /* no worker: computed in the page */
   }
   const renderJobs = new Map(); // id -> { job, resolve, low }
   let renderBusy = null,
     renderSeq = 0;
   function pumpRender() {
     if (renderBusy != null || !renderJobs.size) return;
-    // prima l'immagine da mostrare (l'ultima chiesta), poi quelle preparate in anticipo
+    // first the image to show (the last requested), then those prepared in advance
     let pick = null,
       pickLow = true;
     for (const [id, j] of renderJobs) {
@@ -2515,7 +2515,7 @@
       pumpRender();
     };
     renderWorker.onerror = () => {
-      // worker inutilizzabile: i lavori in coda passano alla pagina
+      // worker unusable: the queued jobs move to the page
       const jobs = [...renderJobs.values()];
       renderJobs.clear();
       renderBusy = null;
@@ -2542,11 +2542,11 @@
       ),
     );
   }
-  const IMG_KEEP = 40; // immagini tenute (le più recenti): ~10 MB al massimo con i modelli più fini
-  const imgCache = new Map(); // chiave -> Promise<url>
+  const IMG_KEEP = 40; // images kept (the most recent): ~10 MB at most with the finest models
+  const imgCache = new Map(); // key -> Promise<url>
   const fieldImageIds = new WeakMap();
   let fieldIds = 0;
-  /** Immagine dei colori di un campo per la grandezza e le impostazioni attuali; `low` = preparata in anticipo. */
+  /** Colour image of a field for the current field and settings; `low` = prepared in advance. */
   function fieldImage(f, low = false) {
     const v = variable(),
       { nx, ny, lat0, lon0, dlat, dlon } = f.grid;
@@ -2555,17 +2555,17 @@
     const hit = imgCache.get(key);
     if (hit) {
       imgCache.delete(key);
-      imgCache.set(key, hit); // usata di recente: in fondo
+      imgCache.set(key, hit); // recently used: to the end
       if (!low && hit.id != null && renderJobs.has(hit.id)) {
-        // ora serve subito
+        // needed right now
         for (const j of renderJobs.values()) j.low = true;
         renderJobs.get(hit.id).low = false;
         pumpRender();
       }
       return hit;
     }
-    // grandezze con le loro linee (T850, zero termico): colori dallo stesso campo ammorbidito delle linee, così ogni
-    // linea cade esattamente su un cambio di colore; "celle nette" mostra invece il dato grezzo
+    // fields with their lines (T850, freezing level): colours from the same smoothed field as the lines, so each
+    // line falls exactly on a colour change; "sharp cells" shows the raw data instead
     const own = v.contours && !v.contour_field && !state.crisp;
     const job = {
       id: ++renderSeq,
@@ -2578,20 +2578,20 @@
       dlon,
       scale: v.scale,
       crisp: state.crisp,
-      // 2 pixel per cella (almeno 1100 in larghezza); le griglie più fini (ICON-CH1, 1 km) ne hanno già abbastanza.
-      // Carta sinottica: le celle di 0,25° sullo schermo sono grandi, con le fasce strette di 4 dam servono più pixel
-      // (altrimenti i bordi delle fasce vengono a scalini); 7 tiene la larghezza sotto i 4096 pixel delle texture
-      // dei telefoni
+      // 2 pixels per cell (at least 1100 wide); the finest grids (ICON-CH1, 1 km) already have enough.
+      // Synoptic chart: the 0.25° cells are large on screen, with the narrow 4 dam bands more pixels are needed
+      // (otherwise the band edges come out stepped); 7 keeps the width below the 4096-pixel texture limit
+      // of phones
       upscale: synoptic()
         ? Math.max(2, Math.min(7, Math.floor(4096 / nx)))
         : Math.max(nx >= 800 && !state.crisp ? 1 : 2, Math.ceil(1100 / nx)),
-      // carta sinottica: GFS a 0,25° ha piccole irregolarità fra celle vicine che, con fasce di 4 dam, fanno i bordi
-      // a quadretti; due passate di media danno le fasce morbide delle carte classiche (il tooltip resta grezzo)
+      // synoptic chart: GFS at 0.25° has small irregularities between neighbouring cells that, with 4 dam bands, make
+      // chequered edges; two averaging passes give the soft bands of the classic charts (the tooltip stays raw)
       smooth: synoptic() ? 2 : own ? Math.min(4, Math.round(0.1 / dlon)) : 0,
     };
     const pr = renderWorker
       ? new Promise((resolve) => {
-          if (!low) for (const j of renderJobs.values()) j.low = true; // i passi già superati non hanno più la precedenza
+          if (!low) for (const j of renderJobs.values()) j.low = true; // steps already passed no longer have priority
           renderJobs.set(job.id, { job, resolve, low });
           pumpRender();
         })
@@ -2602,7 +2602,7 @@
       if (!url && imgCache.get(key) === pr) imgCache.delete(key);
     });
     while (imgCache.size > IMG_KEEP) {
-      // via le più vecchie (mai quella mostrata: è appena stata usata)
+      // drop the oldest (never the one shown: it has just been used)
       const [k, old] = imgCache.entries().next().value;
       imgCache.delete(k);
       if (renderJobs.has(old.id) && renderBusy !== old.id) {
@@ -2619,7 +2619,7 @@
   let drawSeq = 0;
   function draw(f) {
     const { lat0, lon0, dlat, dlon, nx, ny } = f.grid;
-    // bordi delle celle
+    // cell edges
     const south = lat0 - dlat / 2,
       north = lat0 + (ny - 1) * dlat + dlat / 2;
     const west = lon0 - dlon / 2,
@@ -2628,7 +2628,7 @@
     const my = ++drawSeq,
       crisp = state.crisp;
     const painted = fieldImage(f).then((url) => {
-      if (my !== drawSeq || !url) return; // nel frattempo si è passati a un altro campo
+      if (my !== drawSeq || !url) return; // meanwhile we moved to another field
       if (glBase) {
         glPut("wm-model", {
           url,
@@ -2655,7 +2655,7 @@
   }
 
   function clearOverlay() {
-    drawSeq++; // un'immagine ancora in calcolo non deve più comparire
+    drawSeq++; // an image still being computed must no longer appear
     if (overlay) {
       map.removeLayer(overlay);
       overlay = null;
@@ -2667,7 +2667,7 @@
     arrowsLayer.clearLayers();
   }
 
-  // ---------- linee di livello (isoterme a 850 hPa): calcolate qui dal campo, disegnate sopra i colori
+  // ---------- contour lines (isotherms at 850 hPa): computed here from the field, drawn above the colours
   map.createPane("contours");
   map.getPane("contours").style.zIndex = 420;
   map.getPane("contours").style.pointerEvents = "none";
@@ -2676,9 +2676,9 @@
   map.getPane("contourLabels").style.pointerEvents = "none";
   const isoRenderer = L.canvas({ pane: "contours", padding: 0.5 });
 
-  // ---------- contorni geografici (coste, laghi, confini di stato e di provincia, Natural Earth) sopra i colori:
-  // solo con l'opacità al massimo, quando la mappa di sfondo non si vede più (prima sarebbero linee doppie).
-  // Il file si scarica la prima volta che servono.
+  // ---------- geographic outlines (coastlines, lakes, country and province borders, Natural Earth) above the colours:
+  // only with maximum opacity, when the basemap is no longer visible (before, they would be double lines).
+  // The file is downloaded the first time they are needed.
   map.createPane("borders");
   map.getPane("borders").style.zIndex = 410;
   map.getPane("borders").style.pointerEvents = "none";
@@ -2688,10 +2688,10 @@
     coast: { weight: 1.5, opacity: 0.85 },
     countries: { weight: 2, opacity: 0.9 },
     regions: { weight: 1.4, opacity: 0.8 },
-    provinces: { weight: 1.1, opacity: 0.75, dashArray: "4 3" }, // tratteggio: si distinguono dalle regioni
+    provinces: { weight: 1.1, opacity: 0.75, dashArray: "4 3" }, // dashed: tells them apart from regions
   };
-  // quali linee, dalla scelta "Confini": Stati = coste e confini di stato (con l'opacità al massimo la mappa diventa
-  // una carta meteo classica), Regioni e Province aggiungono i confini interni
+  // which lines, from the "Confini" choice: Countries = coastlines and country borders (with maximum opacity the map
+  // becomes a classic weather chart), Regions and Provinces add the internal borders
   const BORDER_LEVELS = [
     [],
     ["coast", "countries"],
@@ -2703,7 +2703,7 @@
     return new Set(BORDER_LEVELS.slice(0, n + 1).flat());
   }
   const bordersOn = () => visibleBorders().size > 0;
-  const borderLines = {}; // chiave -> polyline, create al primo caricamento di borders.json
+  const borderLines = {}; // key -> polyline, created when borders.json is first loaded
   let bordersLoad = null;
   function styleBorders() {
     styleSynBorders();
@@ -2716,7 +2716,7 @@
       bordersLayer.remove();
       glBorders();
       return;
-    } // con Mapbox i confini sono i suoi
+    } // with Mapbox the borders are its own
     const keys = visibleBorders();
     if (!keys.size) {
       bordersLayer.remove();
@@ -2724,7 +2724,7 @@
     }
     bordersLayer.addTo(map);
     const apply = () => {
-      // stato letto al momento: se nel frattempo è cambiato, vale l'ultimo
+      // state read at the time: if it changed in the meantime, the latest wins
       const k = visibleBorders();
       for (const [key, line] of Object.entries(borderLines)) {
         if (k.has(key)) bordersLayer.addLayer(line);
@@ -2747,11 +2747,11 @@
       })
       .catch(() => {
         bordersLoad = null;
-      }); // senza contorni la mappa funziona lo stesso: si riproverà
+      }); // the map works without outlines anyway: it will be retried
     bordersLoad?.then(apply);
   }
-  // coste e stati della carta sinottica (Natural Earth 1:50m, scripts/make_borders.py --synoptic): sopra i colori,
-  // anche con Mapbox (del suo sfondo lì resta solo il fondo). "Confini: Nessuno" li spegne.
+  // coastlines and countries of the synoptic chart (Natural Earth 1:50m, scripts/make_borders.py --synoptic): above the
+  // colours, with Mapbox too (of its basemap only the background remains there). "Confini: Nessuno" turns them off.
   map.createPane("synBorders");
   map.getPane("synBorders").style.zIndex = 410;
   map.getPane("synBorders").style.pointerEvents = "none";
@@ -2779,16 +2779,16 @@
   const isoLabels = L.layerGroup().addTo(map);
   let isoData = []; // [{ level, bold, pts: [[lat, lon], ...] }]
 
-  /** Marching squares: per ogni livello i segmenti nelle celle, poi uniti in linee (aperte o chiuse). */
+  /** Marching squares: for each level the segments in the cells, then joined into lines (open or closed). */
   function contourLines(f, levels) {
     const { lat0, lon0, dlat, dlon, nx, ny } = f.grid;
-    const v = f.values; // già ammorbidito (smoothField)
+    const v = f.values; // already smoothed (smoothField)
     const out = [];
     for (const lvl of levels) {
-      // i valori arrivano arrotondati (0,1 °C): uno esattamente uguale al livello farebbe linee a gradini lungo
-      // le celle; il livello si sposta di un'inezia così nessun valore lo tocca
+      // values arrive rounded (0.1 °C): one exactly equal to the level would make stepped lines along
+      // the cells; the level is shifted by a hair so no value touches it
       const L0 = lvl + 1e-4;
-      const pos = new Map(); // id del lato -> [lat, lon] dell'attraversamento
+      const pos = new Map(); // side id -> [lat, lon] of the crossing
       const segA = [],
         segB = [];
       const cross = (id, ya, xa, va, yb, xb, vb) => {
@@ -2813,7 +2813,7 @@
             sc = c >= L0,
             sd = d >= L0;
           if (sa === sb && sb === sc && sc === sd) continue;
-          // lati: 0 = a-b (basso), 1 = b-c (destra), 2 = d-c (alto), 3 = a-d (sinistra)
+          // sides: 0 = a-b (bottom), 1 = b-c (right), 2 = d-c (top), 3 = a-d (left)
           const e = [];
           if (sa !== sb) e[0] = cross((y * nx + x) * 2, y, x, a, y, x + 1, b);
           if (sb !== sc)
@@ -2838,7 +2838,7 @@
             segB.push(ids[1][1]);
             continue;
           }
-          // sella: decide il valore al centro della cella
+          // saddle: the value at the cell centre decides
           const center = (a + b + c + d) / 4 >= L0;
           if (center === sa) {
             segA.push(e[0], e[2]);
@@ -2849,7 +2849,7 @@
           }
         }
       }
-      // unione dei segmenti che condividono un lato
+      // joining the segments that share a side
       const at = new Map();
       const link = (id, k) => {
         const l = at.get(id);
@@ -2886,7 +2886,7 @@
         })();
         const ids = [...back.reverse(), segA[k], segB[k], ...fwd];
         const closed = ids[0] === ids[ids.length - 1];
-        if (ids.length < (closed ? 12 : 4)) continue; // frammenti e anelli minuscoli: solo rumore
+        if (ids.length < (closed ? 12 : 4)) continue; // tiny fragments and rings: just noise
         out.push({
           level: lvl,
           pts: smooth(
@@ -2899,22 +2899,22 @@
     return out;
   }
 
-  /** Campo ammorbidito per linee di livello e relativi colori (calcolato una volta per campo). Sulle griglie fini
-   *  (ICON 2 km) più passate, così le linee non diventano tanti anellini; GFS (0,25°) resta com'è. */
+  /** Smoothed field for contour lines and their colours (computed once per field). On fine grids
+   *  (ICON 2 km) more passes, so the lines do not become many little rings; GFS (0.25°) stays as it is. */
   function smoothField(f) {
     if (!f._smooth) {
       const { nx, ny, dlon } = f.grid;
       f._smooth = {
         ...f,
-        // carta sinottica: isobare morbide come nelle carte classiche (a 0,25° altrimenti nessuna passata)
+        // synoptic chart: soft isobars like in the classic charts (at 0.25° otherwise no pass)
         values: blurred(f.values, nx, ny, synoptic() ? 3 : Math.min(4, Math.round(0.1 / dlon))),
       };
     }
     return f._smooth;
   }
 
-  /** Media mobile 3×3 ripetuta `passes` volte (solo per le linee, i colori restano quelli del campo): sulle griglie
-   *  fini (ICON 2 km) le isoterme seguono ogni valle e diventano tanti anellini; così somigliano alle carte classiche. */
+  /** 3×3 moving average repeated `passes` times (only for the lines, the colours stay those of the field): on fine
+   *  grids (ICON 2 km) the isotherms follow every valley and become many little rings; this way they look like the classic charts. */
   function blurred(vals, nx, ny, passes) {
     let a = vals;
     for (let it = 0; it < passes; it++) {
@@ -2948,11 +2948,11 @@
     return a;
   }
 
-  /** Arrotonda gli spigoli (Chaikin, due passate): le griglie larghe (GFS 0,25°) non fanno linee a scalini. */
+  /** Rounds the corners (Chaikin, two passes): coarse grids (GFS 0.25°) do not make stepped lines. */
   function smooth(pts, closed) {
     let p = pts;
     for (let it = 0; it < 1 && p.length > 2; it++) {
-      // una passata: le linee restano sul bordo dei colori
+      // one pass: the lines stay on the colour edges
       const q = closed ? [] : [p[0]];
       const n = p.length - 1;
       for (let i = 0; i < n; i++) {
@@ -3029,7 +3029,7 @@
             renderer: isoRenderer,
             interactive: false,
             smoothFactor: 0.5,
-            // carta sinottica: isobare bianche e più spesse sopra i colori pieni, come su Meteociel
+            // synoptic chart: white, thicker isobars above the solid colours, like on Meteociel
             ...(synoptic()
               ? { color: "#ffffff", weight: isBold ? 4 : 3, opacity: 0.95 }
               : { color: "#1f2328", weight: isBold ? 2 : 0.9, opacity: isBold ? 0.85 : 0.55 }),
@@ -3044,7 +3044,7 @@
     placeContourLabels();
   }
 
-  /** Etichette lungo le linee, a distanza fissa in pixel (si ricalcolano allo zoom), senza sovrapporsi. */
+  /** Labels along the lines, at a fixed distance in pixels (recomputed on zoom), without overlapping. */
   function placeContourLabels() {
     isoLabels.clearLayers();
     if (!isoData.length) return;
@@ -3065,7 +3065,7 @@
     };
     const signed = !!variable()?.contours?.signed;
     const fmt = (l) => (signed && l > 0 ? `+${l}` : `${l}`).replace("-", "−");
-    // prima le linee in evidenza, poi le più lunghe
+    // highlighted lines first, then the longest
     const order = [...isoData].sort(
       (a, b) => b.bold - a.bold || b.pts.length - a.pts.length,
     );
@@ -3109,20 +3109,20 @@
     const s = state.step;
     const run = runDate(state.run || "1970010100");
     const valid = new Date(run.getTime() + s * 3600e3);
-    // pannello e barra desktop: con un intervallo solo le date, senza mese per stare in una riga; altrimenti
-    // istante e passo ("ven 13 nov, 18:00 · +18h")
+    // panel and desktop bar: with an interval only the dates, without the month to fit on one row; otherwise
+    // time and step ("ven 13 nov, 18:00 · +18h")
     const span = state.run && intervalStartDate(s);
-    // senza corsa (grandezza che il modello non ha) niente date: fmtShown ha bisogno della corsa
+    // without a run (field the model does not have) no dates: fmtShown needs the run
     const panelTime = !state.run ? "" : span ? fmtShown(s, { month: false }) : `${fmtShown(s)} · +${s}h`;
     ui.valid.classList.toggle("valid-span", !!span);
     ui.valid.textContent = panelTime;
     if (!state.run) {
       ui.range.textContent = "";
-      // anche nella barra (su mobile il pannello di solito è chiuso): grandezza non fornita o dati non ancora arrivati
+      // in the bar too (on mobile the panel is usually closed): field not provided or data not arrived yet
       const what = variable().models.includes(state.model)
         ? "nessun dato"
         : "non disponibile";
-      // stessa struttura della barra normale: su mobile "non disponibile" al posto dell'ora, il modello a destra
+      // same structure as the normal bar: on mobile "non disponibile" instead of the time, the model on the right
       ui.badgeText.innerHTML =
         `<b class="badge-d">${modelLabel()}</b><span class="badge-run badge-d">${what === "nessun dato" ? "nessun dato" : "grandezza non disponibile"}</span>` +
         `<span class="badge-m badge-m-time"><b>${what}</b></span>` +
@@ -3131,15 +3131,15 @@
     }
     const runText = `<strong>${state.run.slice(8, 10)}z</strong> ${state.run.slice(6, 8)}/${state.run.slice(4, 6)}`;
     syncIntervalSliders();
-    // la cumulata dell'immagine mostrata (anche durante il play: con le ore scelte le ultime ore, non tutto il range)
+    // the accumulation of the image shown (during play too: with the chosen hours the last hours, not the whole range)
     const rangeStart = intervalPrev(s);
     const rangeEnd = s;
     const rangeLabel = rangeStart === 0
       ? `+${rangeEnd} ore`
       : `Da +${rangeStart}h a +${rangeEnd}h · ${rangeEnd - rangeStart}h`;
-    // con un intervallo anche l'ora d'inizio; su mobile senza mese per stare in una riga
+    // with an interval the start time too; on mobile without the month to fit on one row
     const mobileTime = fmtShown(s, { month: false });
-    // con l'inizio già scritto nelle date basta la durata, così la riga resta una sola
+    // with the start already written in the dates the duration is enough, so the row stays single
     const mobileRangeLabel = intervalStartDate(s)
       ? `${rangeEnd - rangeStart}h`
       : rangeStart === 0
@@ -3148,21 +3148,21 @@
     const mobileRange = rangeMode()
       ? `<span class="badge-m-range">${mobileRangeLabel}</span>`
       : "";
-    // desktop: modello, corsa e istante; mobile (badge-m): prima l'istante, poi modello breve e corsa
+    // desktop: model, run and time; mobile (badge-m): first the time, then short model and run
     ui.badgeText.innerHTML =
       `<b class="badge-d">${modelLabel()}</b><span class="badge-run badge-d">${runText}</span>` +
       `<span class="badge-valid badge-d">${panelTime}</span>` +
       `<span class="badge-m badge-m-time"><b>${mobileTime}</b>${mobileRange}</span>` +
       `<span class="badge-m badge-m-model">${shortLabel(state.model)} ${cycle(state.run)}</span>`;
-    const mStep = $("m-step"); // slider della barra su mobile, allineato a quello del pannello
+    const mStep = $("m-step"); // bar slider on mobile, aligned with the panel's
     mStep.max = slideSteps().length - 1;
     mStep.value = slideSteps().indexOf(s);
     for (const r of [mStep, ui.step])
-      r.style.setProperty("--pct", `${(100 * +r.value) / (+r.max || 1)}%`); // parte percorsa
-    // cumulate (intervallo o totale): date nella riga sopra, passi e durata nella barra in basso e in legenda;
-    // l'ora UTC resta solo per le grandezze istantanee
+      r.style.setProperty("--pct", `${(100 * +r.value) / (+r.max || 1)}%`); // covered part
+    // accumulations (interval or total): dates in the row above, steps and duration in the bottom bar and in the legend;
+    // the UTC time remains only for instantaneous fields
     ui.range.textContent = state.mode === "interval" || state.mode === "total" ? "" : `${fmtUTC(valid)} UTC`;
-    if (typeof renderLandscapeNav === "function") renderLandscapeNav(); // mini barra del telefono in orizzontale
+    if (typeof renderLandscapeNav === "function") renderLandscapeNav(); // mini bar of the phone in landscape
   }
 
   let seq = 0;
@@ -3209,16 +3209,16 @@
     }
     showNoData(null);
     const my = ++seq;
-    setLoading(true); // spinner nella riga dell'ora: niente testo che compare e sparisce spostando il pannello
+    setLoading(true); // spinner in the time row: no text appearing and disappearing that shifts the panel
     dropStaleFetches();
     try {
-      // voci combinate: anche il campo delle linee, alla stessa ora (se manca, solo i colori)
+      // combined entries: also the field of the lines, at the same time (if missing, only the colours)
       const cv = variable().contour_field;
       const load = () =>
         Promise.all([
           mainField(state.step),
           cv ? contourFieldAt(state.step).catch(() => null) : null,
-          arrowsFieldAt(state.step).catch(() => null), // frecce delle combinate (se mancano, solo i colori)
+          arrowsFieldAt(state.step).catch(() => null), // arrows of the combined entries (if missing, only the colours)
         ]);
       let got;
       for (let attempt = 0; ; attempt++) {
@@ -3226,7 +3226,7 @@
           got = await load();
           break;
         } catch (e) {
-          // una richiesta annullata da dropStaleFetches proprio mentre tornava utile: si rifà
+          // a request cancelled by dropStaleFetches right when it became useful again: redo it
           if (e.name !== "AbortError" || attempt >= 3 || my !== seq) throw e;
         }
       }
@@ -3239,9 +3239,9 @@
       if (my !== seq) return;
       renderPoints();
       refreshProbe();
-      setStatus(""); // i modelli della mediana sono già nella riga della corsa ("8 modelli")
+      setStatus(""); // the median's models are already in the run row ("8 modelli")
       prefetch();
-      if (hoverMq.matches && extras().length) loadExtras(); // per il tooltip (sui touch solo aprendo un riquadro)
+      if (hoverMq.matches && extras().length) loadExtras(); // for the tooltip (on touch only when opening a popup)
     } catch (e) {
       if (my !== seq) return;
       clearOverlay();
@@ -3253,10 +3253,10 @@
     }
   }
 
-  // spinner del caricamento: compare solo se l'attesa supera 150 ms (con i dati in cache non lampeggia)
+  // loading spinner: appears only if the wait exceeds 150 ms (with cached data it does not flash)
   let loadingTimer = null;
-  // caricamento della mappa: rotellina nel pannello e linea animata sulla barra dell'ora (su mobile il pannello è
-  // di solito chiuso), solo se l'attesa supera 150 ms (le immagini già in memoria non fanno lampeggiare nulla)
+  // map loading: spinner in the panel and animated line on the time bar (on mobile the panel is
+  // usually closed), only if the wait exceeds 150 ms (images already in memory make nothing flash)
   function setLoading(on) {
     clearTimeout(loadingTimer);
     if (on)
@@ -3270,15 +3270,15 @@
     }
   }
 
-  // ---------- località preferite: scelte dall'utente con la ricerca, salvate nel browser (localStorage).
-  // Ognuna ha marcatore numerato + valore sulla mappa e una riga nell'elenco del pannello.
+  // ---------- favourite places: chosen by the user via search, saved in the browser (localStorage).
+  // Each one has a numbered marker + value on the map and a row in the panel list.
   const PLACES_KEY = "weathermaps.places.v1";
   const pointMarkers = [];
   const pointRows = [];
   let places = loadPlaces();
   let editing = false;
 
-  /** Valore del punto di griglia più vicino (come il tooltip), null se fuori griglia o mancante. */
+  /** Value of the nearest grid point (like the tooltip), null if outside the grid or missing. */
   function valueAt(f, lat, lon) {
     const { lat0, lon0, dlat, dlon, nx, ny } = f.grid;
     const ix = Math.round((lon - lon0) / dlon);
@@ -3301,7 +3301,7 @@
           );
       }
     } catch {
-      /* storage non disponibile o dato rovinato: si parte vuoti */
+      /* storage unavailable or corrupted data: start empty */
     }
     return [];
   }
@@ -3309,7 +3309,7 @@
     try {
       localStorage.setItem(PLACES_KEY, JSON.stringify({ v: 1, places }));
     } catch {
-      /* navigazione privata o storage pieno: le modifiche valgono finché resti sulla pagina */
+      /* private browsing or full storage: changes last while you stay on the page */
     }
   }
 
@@ -3323,9 +3323,9 @@
     );
   }
 
-  /** Ricostruisce marcatori ed elenco da `places` (dopo ogni aggiunta, modifica o eliminazione). */
+  /** Rebuilds markers and list from `places` (after each addition, edit or deletion). */
   function setupPoints() {
-    closePlacePop(); // gli indici possono cambiare (eliminazione)
+    closePlacePop(); // indexes may change (deletion)
     for (const m of pointMarkers) m.remove();
     pointMarkers.length = 0;
     pointRows.length = 0;
@@ -3352,7 +3352,7 @@
       const li = document.createElement("li");
       li.innerHTML = `<span class="pt-num"></span><span class="pt-name"></span><span class="pt-v"></span>`;
       if (editing) {
-        // modifica: nome rinominabile al posto del testo, pulsante per eliminare al posto del valore
+        // edit: renamable name instead of the text, delete button instead of the value
         const input = document.createElement("input");
         input.className = "pt-name pt-rename";
         input.value = p.name;
@@ -3402,7 +3402,7 @@
     setupPoints();
   });
 
-  /** false se c'è già una località lì (dalla ricerca). custom: punto scelto sulla mappa, sempre aggiunto. */
+  /** false if there is already a place there (from search). custom: point chosen on the map, always added. */
   function addPlace(name, lat, lon, custom = false) {
     if (
       !custom &&
@@ -3424,12 +3424,12 @@
     return true;
   }
 
-  // ricerca: Open-Meteo (GeoNames) e, di riserva, Photon (OpenStreetMap), limitata all'area della mappa e a località
-  // abitate (città, paesi, frazioni), cime e passi: senza filtro "Sondrio" restituirebbe anche vie, stazioni e provincia.
+  // search: Open-Meteo (GeoNames) and, as a fallback, Photon (OpenStreetMap), limited to the map area and to inhabited
+  // places (cities, villages, hamlets), peaks and passes: without a filter "Sondrio" would also return streets, stations and the province.
   let searchTimer = null;
   let searchCtl = null;
-  // la lista dei risultati sta fuori dal pannello (che scorre e la taglierebbe): in body, posizione fissa sotto il
-  // campo di ricerca (sopra se sotto non c'è posto), alta al massimo quanto lo spazio libero nella finestra
+  // the result list lives outside the panel (which scrolls and would clip it): in body, fixed position below the
+  // search field (above if there is no room below), at most as tall as the free space in the window
   document.body.append(ui.placeResults);
   function placeResults() {
     if (ui.placeResults.hidden) return;
@@ -3442,13 +3442,13 @@
     const el = ui.placeResults;
     el.style.left = `${Math.max(M, r.left)}px`;
     el.style.width = `${Math.min(r.width, window.innerWidth - 2 * M)}px`;
-    el.style.maxHeight = `${Math.max(80, Math.min(down ? below : above, 236))}px`; // circa 5 risultati, poi scorre
+    el.style.maxHeight = `${Math.max(80, Math.min(down ? below : above, 236))}px`; // about 5 results, then it scrolls
     el.style.top = down ? `${r.bottom + GAP}px` : "";
     el.style.bottom = down ? "" : `${window.innerHeight - r.top + GAP}px`;
   }
   window.addEventListener("resize", placeResults);
   ui.placeQ.closest(".panel-body")?.addEventListener("scroll", placeResults);
-  window.visualViewport?.addEventListener("resize", placeResults); // tastiera del telefono
+  window.visualViewport?.addEventListener("resize", placeResults); // phone keyboard
 
   function hideResults() {
     clearTimeout(searchTimer);
@@ -3485,8 +3485,8 @@
       `https://photon.komoot.io/api/?${new URLSearchParams({ q, limit: "8" })}` +
       `&bbox=${b.lon_min},${b.lat_min},${b.lon_max},${b.lat_max}` +
       "&osm_tag=place&osm_tag=natural:peak&osm_tag=mountain_pass";
-    // prima Open-Meteo (GeoNames: città, paesi, cime e passi; risponde in meno di un secondo), poi Photon se non
-    // trova niente o non risponde (OpenStreetMap, più completo ma spesso lentissimo: anche 40-50 secondi)
+    // first Open-Meteo (GeoNames: cities, villages, peaks and passes; answers in under a second), then Photon if it
+    // finds nothing or does not answer (OpenStreetMap, more complete but often very slow: even 40-50 seconds)
     const openMeteo = async () => {
       const params = new URLSearchParams({
         name: q,
@@ -3584,7 +3584,7 @@
       hideResults();
       return;
     }
-    // subito uno stato di attesa: spinner nel campo e "Ricerca…" nell'elenco (Open-Meteo risponde in qualche decimo)
+    // a waiting state right away: spinner in the field and "Ricerca…" in the list (Open-Meteo answers in a few tenths)
     setSearching(true);
     ui.placeResults.innerHTML =
       '<li class="place-none place-wait">Ricerca…</li>';
@@ -3608,14 +3608,14 @@
 
   function renderPoints() {
     const pts = places;
-    if (pointMarkers.length !== pts.length) return; // all'avvio prima di setupPoints: le disegna lui
+    if (pointMarkers.length !== pts.length) return; // at startup before setupPoints: it draws them
     if (state.extra !== "none" || synoptic()) {
-      // radar o satellite: le località servono solo a orientarsi, niente valori del modello (sulla carta a 500 hPa
-      // sono nascoste, vedi body.synoptic-mode .pt in style.css)
+      // radar or satellite: places only help with orientation, no model values (on the 500 hPa chart
+      // they are hidden, see body.synoptic-mode .pt in style.css)
       pts.forEach((p, i) => {
         const el = pointMarkers[i].getElement();
         if (el) {
-          el.querySelector(".pt-val").textContent = p.name; // sulla mappa il nome al posto del valore
+          el.querySelector(".pt-val").textContent = p.name; // on the map the name instead of the value
           const n = el.querySelector(".pt-num");
           n.textContent = "";
           n.style.background = "";
@@ -3629,7 +3629,7 @@
         n.classList.remove("pt-dark");
         pointMarkers[i].setZIndexOffset(0);
       });
-      ui.points.append(...pointRows); // nell'ordine in cui sono state aggiunte, senza classifica
+      ui.points.append(...pointRows); // in the order they were added, without ranking
       pointOrder = pts.map((_, i) => i);
       closePlacePop();
       placePointLabels();
@@ -3640,11 +3640,11 @@
     const values = [];
     pts.forEach((p, i) => {
       const v = current ? valueAt(current, p.lat, p.lon) : null;
-      const text = v == null ? "" : v.toFixed(dec); // senza valore niente trattini: l'etichetta si nasconde
+      const text = v == null ? "" : v.toFixed(dec); // without a value no dashes: the label is hidden
       const c = v == null ? null : color(v);
       const el = pointMarkers[i].getElement();
       if (el) {
-        // sulla mappa col simbolo attaccato (2575m, 8.2°C): compatto ma senza ambiguità
+        // on the map with the symbol attached (2575m, 8.2°C): compact but unambiguous
         el.querySelector(".pt-val").textContent =
           v == null ? text : `${text}${current.units}`;
         el.querySelector(".pt-num").style.background = c
@@ -3655,7 +3655,7 @@
           !!c && c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114 < 140,
         );
       }
-      const pv = pointRows[i].querySelector(".pt-v"); // in modifica al suo posto c'è il pulsante elimina
+      const pv = pointRows[i].querySelector(".pt-v"); // when editing, the delete button is in its place
       if (pv) pv.textContent = v == null ? "" : `${text} ${current.units}`;
       const n = pointRows[i].querySelector(".pt-num");
       n.style.background = c ? `rgb(${c.join(",")})` : "";
@@ -3665,12 +3665,12 @@
       );
       values[i] = v;
     });
-    // classifica: dal valore più alto; a parità stessa posizione (1, 2, 2, 4), i "—" in fondo senza numero.
-    // Si confrontano i valori arrotondati come mostrati, così due "2.4" hanno la stessa posizione.
+    // ranking: from the highest value; ties get the same position (1, 2, 2, 4), the "—" at the end without a number.
+    // The rounded values as shown are compared, so two "2.4" have the same position.
     const shown = values.map((v) =>
       v == null ? null : Number(v.toFixed(dec)),
     );
-    // direzione dalla grandezza: "desc" = più alto primo (pioggia), "asc" = più basso primo (temperatura)
+    // direction from the field: "desc" = highest first (precipitation), "asc" = lowest first (temperature)
     const sign = variable().rank === "asc" ? -1 : 1;
     const key = (i) => (shown[i] == null ? -Infinity : sign * shown[i]);
     const order = pts.map((_, i) => i).sort((a, b) => key(b) - key(a) || a - b);
@@ -3682,7 +3682,7 @@
       pointRows[i].querySelector(".pt-num").textContent = label;
       const el = pointMarkers[i].getElement();
       if (el) el.querySelector(".pt-num").textContent = label;
-      // i primi in classifica sopra gli altri se i marcatori si toccano
+      // the top-ranked above the others if the markers touch
       pointMarkers[i].setZIndexOffset((order.length - pos) * 10);
     });
     ui.points.append(...order.map((i) => pointRows[i]));
@@ -3691,29 +3691,29 @@
     renderPlacePop();
   }
 
-  // ---------- riquadro della località (click sul cerchio o sulla riga dell'elenco): nome, valori, classifica, ora.
-  // Uno solo alla volta; sopra il cerchio, sotto se in alto non c'è posto, sempre dentro la finestra.
+  // ---------- place popup (click on the circle or on the list row): name, values, ranking, time.
+  // Only one at a time; above the circle, below if there is no room above, always inside the window.
   const pop = document.createElement("div");
   pop.className = "pt-pop";
   pop.hidden = true;
   pop.setAttribute("role", "dialog");
   document.body.append(pop);
   let popIdx = null;
-  const detailFields = new Map(); // campi del dettaglio già scaricati (null = non disponibile)
-  const POP_MARGIN = 8; // distanza minima dai bordi della finestra
-  const POP_GAP = 16; // distanza dal centro del cerchio alla punta della freccia
+  const detailFields = new Map(); // detail fields already downloaded (null = not available)
+  const POP_MARGIN = 8; // minimum distance from the window edges
+  const POP_GAP = 16; // distance from the circle centre to the arrow tip
 
-  // il clic su una località apre sempre lo stesso riquadro con i valori (anche sulla carta a 500 hPa); da lì il grafico
-  // nel tempo e, se il modello scelto ha l'ensemble (GFS, ECMWF), gli spaghetti
-  // telefono in orizzontale: località e menu del punto si toccano come in verticale (per aprire i grafici; se si
-  // vedono male si ruota il telefono); niente tooltip del valore al tocco
+  // clicking a place always opens the same popup with the values (on the 500 hPa chart too); from there the time chart
+  // and, if the chosen model has the ensemble (GFS, ECMWF), the spaghetti
+  // phone in landscape: places and point menu are tapped as in portrait (to open the charts; if they
+  // look bad you rotate the phone); no value tooltip on tap
   const landscapeView = () => document.body.classList.contains("landscape-view");
   function openPlacePop(idx) {
-    if (synoptic()) return; // sulla carta a 500 hPa le località non si mostrano
-    if (state.extra !== "none") return; // con radar o satellite il riquadro dei valori del modello non serve
+    if (synoptic()) return; // on the 500 hPa chart places are not shown
+    if (state.extra !== "none") return; // with radar or satellite the model values popup is not needed
     popIdx = idx;
     ui.probe.hidden = true;
-    probeLL = null; // col riquadro aperto niente tooltip del valore
+    probeLL = null; // with the popup open no value tooltip
     renderPlacePop();
   }
   function closePlacePop() {
@@ -3721,24 +3721,24 @@
     pop.hidden = true;
     markPoppedPoint();
   }
-  // l'etichetta bianca della località col riquadro aperto si nasconde (stesso valore, sarebbe un doppione)
+  // the place's white label is hidden while the popup is open (same value, it would be a duplicate)
   function markPoppedPoint() {
     pointMarkers.forEach((m, i) =>
       m.getElement()?.classList.toggle("pt-popped", i === popIdx),
     );
   }
 
-  // nome breve per la seconda riga del tooltip
+  // short name for the second tooltip line
   const SHORT = { z850: "quota 850" };
-  /** Grandezze in più della grandezza mostrata (`details`, es. l'altezza di 850 hPa sulla mappa della T850): nel
-   *  riquadro della località e nella seconda riga del tooltip; si scaricano con l'ora mostrata e restano in detailFields. */
+  /** Extra fields of the field shown (`details`, e.g. the height of 850 hPa on the T850 map): in the
+   *  place popup and in the second tooltip line; downloaded with the time shown and kept in detailFields. */
   const extras = () => variable()?.details || [];
   const extraKey = (d) => `${state.model}|${state.run}|${d.var}|${state.step}`;
   function loadExtras() {
     for (const d of extras()) {
       const key = extraKey(d);
       if (detailFields.has(key)) continue;
-      detailFields.set(key, undefined); // in arrivo
+      detailFields.set(key, undefined); // arriving
       const step = state.step;
       getField(step, "value", { ...ctxNow(), var: d.var })
         .catch(() => null)
@@ -3748,7 +3748,7 @@
         });
     }
   }
-  /** Valore formattato di una grandezza in più nel punto: undefined = ancora in arrivo, null = non disponibile. */
+  /** Formatted value of an extra field at the point: undefined = still arriving, null = not available. */
   function extraValue(d, lat, lon) {
     const f = detailFields.get(extraKey(d));
     if (f === undefined) return undefined;
@@ -3789,7 +3789,7 @@
       const d = windDirAt(current, p.lat, p.lon);
       rows.push(["Direzione", d == null ? "—" : `da ${d.name} (${d.deg}°)`]);
     }
-    // grandezze in più (sulla mappa della T850 l'altezza della superficie di 850 hPa)
+    // extra fields (on the T850 map the height of the 850 hPa surface)
     loadExtras();
     for (const d of extras()) {
       const x = extraValue(d, p.lat, p.lon);
@@ -3808,9 +3808,9 @@
           ([k, x]) =>
             `<div class="pt-pop-row"><span>${esc(k)}</span><b>${esc(x)}</b></div>`,
         )
-        .join("") + // senza valore la riga non c'è
+        .join("") + // without a value the row is not there
       (foot ? `<div class="pt-pop-foot">${esc(foot)}</div>` : "") +
-      // pulsanti affiancati: grafico nel tempo e, se il modello ha l'ensemble, gli spaghetti
+      // side-by-side buttons: time chart and, if the model has the ensemble, the spaghetti
       (meta.series && state.run || meta.ensemble?.[state.model]
         ? '<div class="pt-pop-btns">' +
           (meta.series && state.run
@@ -3840,7 +3840,7 @@
     placePlacePop();
   }
 
-  /** Posizione: centrata sul punto, sopra (o sotto), spostata di lato quanto serve per restare nella finestra. */
+  /** Position: centred on the point, above (or below), shifted sideways as much as needed to stay in the window. */
   function placePlacePop() {
     if (popIdx == null || pop.hidden) return;
     const p = places[popIdx];
@@ -3854,7 +3854,7 @@
       y = mr.top + c.y;
     const W = window.innerWidth,
       H = window.innerHeight;
-    // punto fuori dalla finestra: niente riquadro appeso al nulla
+    // point outside the window: no popup hanging in mid-air
     if (x < 0 || x > W || y < 0 || y > H) {
       pop.style.visibility = "hidden";
       return;
@@ -3873,7 +3873,7 @@
     pop.style.left = `${left}px`;
     pop.style.top = `${top}px`;
     pop.classList.toggle("below", below);
-    // la freccia resta sul punto anche quando il riquadro è spostato di lato
+    // the arrow stays on the point even when the popup is shifted sideways
     pop.querySelector(".pt-pop-arrow").style.left =
       `${Math.min(Math.max(x - left, 12), w - 12)}px`;
   }
@@ -3884,25 +3884,25 @@
     if (e.key === "Escape") closePlacePop();
   });
 
-  // ---------- posizione delle etichette delle località: a destra se c'è posto, se no a sinistra, sopra o sotto;
-  // se nessun lato è libero il valore si nasconde (resta il numero; il valore è nell'elenco e nel tooltip).
-  // Si sceglie in ordine di classifica: i primi hanno la precedenza.
+  // ---------- position of the place labels: on the right if there is room, otherwise left, above or below;
+  // if no side is free the value is hidden (the number stays; the value is in the list and the tooltip).
+  // Chosen in ranking order: the first ones have precedence.
   let pointOrder = [];
   const PT_SIDES = ["right", "left", "above", "below"];
-  const PT_R = 12; // raggio del cerchio (con il bordo)
-  const PT_GAP = 18; // distanza dell'etichetta dal centro (come nel CSS: 29px dal bordo del marcatore di 22px)
+  const PT_R = 12; // circle radius (with the border)
+  const PT_GAP = 18; // label distance from the centre (as in the CSS: 29px from the edge of the 22px marker)
   function placePointLabels() {
     const overlaps = (a, b) =>
       a.x1 < b.x2 && b.x1 < a.x2 && a.y1 < b.y2 && b.y1 < a.y2;
     const items = pointMarkers.map((m) => {
       const el = m.getElement();
       if (!el) return null;
-      el.classList.remove("pt-noval"); // per misurare l'etichetta deve essere visibile
+      el.classList.remove("pt-noval"); // to be measured the label must be visible
       const c = map.latLngToContainerPoint(m.getLatLng());
       const val = el.querySelector(".pt-val");
       return { el, c, w: val.offsetWidth, h: val.offsetHeight };
     });
-    // ostacoli: tutti i cerchi, poi via via le etichette già sistemate
+    // obstacles: all circles, then one by one the labels already placed
     const taken = items.filter(Boolean).map(({ c }) => ({
       x1: c.x - PT_R,
       x2: c.x + PT_R,
@@ -3952,7 +3952,7 @@
   }
   map.on("zoomend", placePointLabels);
 
-  // ---------- condivisione: immagine della mappa che si sta guardando
+  // ---------- sharing: image of the map being viewed
   const shareUi = {
     btn: $("share"),
     toast: $("share-toast"),
@@ -3967,7 +3967,7 @@
     points: $("share-points"),
     pointsRow: $("share-points-row"),
   };
-  // località nell'immagine: si decide nella finestra di condivisione (la scelta resta per le aperture successive)
+  // places in the image: decided in the share dialog (the choice stays for the next openings)
   shareUi.points.addEventListener("change", () => scheduleRender());
   let shareFile = null;
 
@@ -3983,7 +3983,7 @@
 
   const FONT = "system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
 
-  /** Spezza un testo in righe che stanno in `maxWidth` (con il font già impostato su ctx). */
+  /** Splits a text into lines that fit in `maxWidth` (with the font already set on ctx). */
   function wrapLines(ctx, text, maxWidth) {
     const words = text.split(" ");
     const lines = [];
@@ -3999,20 +3999,20 @@
     return lines;
   }
 
-  // Immagine condivisa: la mappa visibile viene fotografata e nella modale si sceglie il ritaglio, un riquadro
-  // con proporzioni fisse sopra l'intera area (fuori velata). Intestazione, punti, legenda e crediti si
-  // disegnano sopra il ritaglio a grandezza fissa e si vedono già dentro il riquadro.
+  // Shared image: the visible map is captured and in the modal the crop is chosen, a frame
+  // with fixed proportions over the whole area (veiled outside). Header, points, legend and credits are
+  // drawn over the crop at a fixed size and are already visible inside the frame.
   const RATIOS = {
     "4:3": [1600, 1200],
     "1:1": [1200, 1200],
     "16:9": [1600, 900],
   };
-  const MIN_FRACTION = 0.25; // riquadro più piccolo: un quarto della larghezza massima (oltre si sgrana)
-  const PT_SCALE = 1.5; // grandezza di marcatori e valori nell'immagine rispetto allo schermo
-  const FRAME_PAD = 16; // margine attorno al riquadro fisso nella modale
-  const outCanvas = document.createElement("canvas"); // immagine finale
+  const MIN_FRACTION = 0.25; // smallest frame: a quarter of the maximum width (beyond that it gets grainy)
+  const PT_SCALE = 1.5; // size of markers and values in the image relative to the screen
+  const FRAME_PAD = 16; // margin around the fixed frame in the modal
+  const outCanvas = document.createElement("canvas"); // final image
 
-  /** Mappa visibile in un canvas (a 2–3× per poter zoomare) e punti in coordinate dello schermo. */
+  /** Visible map in a canvas (at 2–3× to allow zooming) and points in screen coordinates. */
   function snapshotMap() {
     const cr = map.getContainer().getBoundingClientRect();
     const W = cr.width;
@@ -4049,7 +4049,7 @@
     };
     drawTiles(map.getPane("tilePane"));
     if (glBase && glShot) {
-      // sfondo Mapbox con colori, confini e nomi: la copia fatta da glCapture
+      // Mapbox basemap with colours, borders and names: the copy made by glCapture
       const r = glBase.getCanvas().getBoundingClientRect();
       ctx.drawImage(
         glShot,
@@ -4065,18 +4065,18 @@
       ctx.imageSmoothingEnabled = true;
     }
     if (extraCfg()) {
-      // radar o satellite sopra la mappa, come nella pagina
+      // radar or satellite above the map, as in the page
       ctx.globalAlpha = extraCfg().opacity;
       const shown = radarFrames[radarIdx]?.layer.getElement?.();
       if (shown) drawImg(shown, extraCfg().opacity);
       ctx.globalAlpha = 1;
     }
-    // isoterme: il canvas delle linee e le etichette (testo con alone bianco, come sullo schermo)
+    // isotherms: the lines canvas and the labels (text with a white halo, as on screen)
     const bordersCanvas = map.getPane("borders").querySelector("canvas");
     if (bordersCanvas && bordersOn() && !glBase) {
-      // con Mapbox i confini sono già nel suo canvas
+      // with Mapbox the borders are already in its canvas
       const r = bordersCanvas.getBoundingClientRect();
-      ctx.globalAlpha = state.bordersOpacity; // come nella pagina
+      ctx.globalAlpha = state.bordersOpacity; // as in the page
       ctx.drawImage(
         bordersCanvas,
         r.left - cr.left,
@@ -4086,7 +4086,7 @@
       );
       ctx.globalAlpha = 1;
     }
-    // carta sinottica: coste e stati sono linee nostre anche con Mapbox (vedi styleSynBorders)
+    // synoptic chart: coastlines and countries are our own lines with Mapbox too (see styleSynBorders)
     const synCanvas = map.getPane("synBorders").querySelector("canvas");
     if (synCanvas && synoptic() && state.borders !== "none") {
       const r = synCanvas.getBoundingClientRect();
@@ -4131,14 +4131,14 @@
       const x = r.left - cr.left + r.width / 2,
         y = r.top - cr.top + r.height / 2;
       ctx.lineWidth = 3;
-      // ombra nera sotto le etichette bianche della carta sinottica, alone chiaro sotto quelle scure
+      // black shadow under the white labels of the synoptic chart, light halo under the dark ones
       ctx.strokeStyle = synoptic() ? "rgba(0,0,0,0.9)" : "rgba(255,255,255,0.9)";
       ctx.lineJoin = "round";
       ctx.strokeText(el.textContent, x, y);
       ctx.fillStyle = cs.color;
       ctx.fillText(el.textContent, x, y);
     }
-    // punti: centro del cerchio e posizione del valore rispetto al centro (come sullo schermo)
+    // points: circle centre and position of the value relative to the centre (as on screen)
     const points = [];
     for (const m of synoptic() ? [] : pointMarkers) {
       const el = m.getElement();
@@ -4169,7 +4169,7 @@
     return { canvas, W, H, scale, points };
   }
 
-  /** Testi dell'immagine e nome del file, calcolati una volta all'apertura. */
+  /** Image texts and file name, computed once on opening. */
   function shareTexts() {
     const v = variable();
     const s = state.step;
@@ -4190,7 +4190,7 @@
         ? "Mappa © Thunderforest, dati © OpenStreetMap contributors"
         : "Mappa © OpenStreetMap contributors";
     if (extraCfg()) {
-      // radar o satellite: l'immagine è del livello extra (ora dell'immagine mostrata), con la sua legenda
+      // radar or satellite: the image is of the extra layer (time of the image shown), with its legend
       const cfg = extraCfg(),
         f = radarFrames[radarIdx];
       const t = f ? new Date(f.time) : new Date();
@@ -4224,14 +4224,14 @@
       v,
       title: `${modelLabel()} · ${runText}`,
       sub: `${baseLabel()}${modeText} (${v.units})${isoNote()} · +${s}h · ${fmtShown(s)}`,
-      // l'attribuzione di OpenStreetMap è obbligatoria anche sulle immagini
+      // OpenStreetMap attribution is mandatory on images too
       attr: `${baseAttr} · Dati: NOAA, ECMWF, ItaliaMeteo, CIMA, LaMMA, DWD, Météo-France, MeteoSvizzera · ${location.host}${location.pathname}`,
       name: `weathermaps-${state.model}-${state.var}-${state.run}-${String(s).padStart(3, "0")}.jpg`,
     };
   }
 
-  // ritaglio in coordinate della mappa fotografata (px dello schermo); l'altezza segue le proporzioni
-  // touched = l'utente ha già spostato o ridimensionato il riquadro (la posizione GPS non lo sposta più)
+  // crop in coordinates of the captured map (screen px); the height follows the proportions
+  // touched = the user has already moved or resized the frame (the GPS position no longer moves it)
   const crop = {
     snap: null,
     texts: null,
@@ -4240,7 +4240,7 @@
     y: 0,
     w: 0,
     touched: false,
-    fixed: false, // carta a 500 hPa: inquadratura fissa (come Meteociel), niente proporzioni né zoom né trascinamento
+    fixed: false, // 500 hPa chart: fixed framing (like Meteociel), no proportions, zoom or dragging
     savedRatio: null,
   };
   const ratioOf = () => RATIOS[crop.ratio][0] / RATIOS[crop.ratio][1];
@@ -4255,18 +4255,18 @@
     crop.y = Math.min(Math.max(crop.y, 0), crop.snap.H - cropH());
   }
 
-  /** Ridimensiona il riquadro di `factor` tenendo fermo il punto (mx, my) della mappa. */
+  /** Resizes the frame by `factor` keeping the map point (mx, my) still. */
   function scaleCropAt(
     factor,
     mx = crop.x + crop.w / 2,
     my = crop.y + cropH() / 2,
   ) {
-    // già al massimo e si allontana ancora: si allarga la mappa sotto il riquadro (zoom indietro e nuova foto)
+    // already at maximum and still zooming out: the map under the frame is widened (zoom out and new capture)
     if (factor > 1 && crop.w >= maxCropW() - 0.5) {
       widenShare(factor);
       return;
     }
-    // si allontana oltre il massimo: il riquadro arriva al massimo e il resto diventa zoom indietro della mappa
+    // zooming out beyond the maximum: the frame reaches the maximum and the rest becomes a zoom-out of the map
     if (factor > 1 && crop.w * factor > maxCropW() * 1.05) {
       const rest = (crop.w * factor) / maxCropW();
       scaleCropAt(maxCropW() / crop.w, mx, my);
@@ -4305,12 +4305,12 @@
     scheduleRender();
   }
 
-  /** Immagine finale: ritaglio della mappa + punti + intestazione + legenda e crediti. */
+  /** Final image: map crop + points + header + legend and credits. */
   function renderOut() {
     const [OW, OH] = RATIOS[crop.ratio];
     const ctx = outCanvas.getContext("2d");
     const { snap, texts } = crop;
-    const s = OW / crop.w; // px dell'immagine per px della mappa
+    const s = OW / crop.w; // image px per map px
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(
@@ -4325,12 +4325,12 @@
       OH,
     );
 
-    // punti a grandezza fissa
+    // points at a fixed size
     const k = PT_SCALE;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    // con radar e satellite le località hanno il nome al posto del valore (come sulla mappa)
-    // condividendo un punto dal menu della mappa si vede solo quello, mai le località
+    // with radar and satellite places have the name instead of the value (as on the map)
+    // sharing a point from the map menu shows only that one, never the places
     for (const p of shareUi.points.checked && !snap.pin ? snap.points : []) {
       const px = (p.x - crop.x) * s;
       const py = (p.y - crop.y) * s;
@@ -4344,7 +4344,7 @@
         ctx.fillStyle = "rgba(255,255,255,0.95)";
         roundRect(ctx, vx, vy, p.w * k, p.h * k, 5);
         ctx.fill();
-        // triangolino verso il cerchio (come sullo schermo)
+        // small triangle pointing at the circle (as on screen)
         const t = 5 * k,
           w = p.w * k,
           h = p.h * k;
@@ -4392,20 +4392,20 @@
       ctx.fillText(p.num, px, py + 1);
     }
 
-    // punto scelto dal menu della mappa: segnaposto e, sopra, il valore (fuori dal riquadro non si disegna)
+    // point chosen from the map menu: marker and, above it, the value (outside the frame it is not drawn)
     if (snap.pin) {
       const k = PT_SCALE,
         px = (snap.pin.x - crop.x) * s,
         py = (snap.pin.y - crop.y) * s;
       if (px >= 0 && px <= OW && py >= 0 && py <= OH) {
         if (crop.pinText) {
-          // grande quanto il sottotitolo dell'intestazione (22px): l'immagine è larga 1600px e si guarda rimpicciolita
+          // as large as the header subtitle (22px): the image is 1600px wide and is viewed scaled down
           ctx.font = `650 ${15 * k}px ${FONT}`;
           const bw = ctx.measureText(crop.pinText).width + 22 * k,
             bh = 30 * k,
             t = 7 * k;
           const bx = Math.min(Math.max(px - bw / 2, 6), OW - bw - 6);
-          const below = py - 14 * k - t - bh < 6; // troppo in alto: l'etichetta va sotto
+          const below = py - 14 * k - t - bh < 6; // too high: the label goes below
           const by = below ? py + 14 * k + t : py - 14 * k - t - bh;
           ctx.fillStyle = "rgba(0,0,0,0.25)";
           roundRect(ctx, bx, by + 3, bw, bh, 7 * k);
@@ -4425,7 +4425,7 @@
           ctx.textBaseline = "middle";
           ctx.fillText(crop.pinText, bx + bw / 2, by + bh / 2 + 1);
         }
-        // come sulla mappa: centro bianco, anello scuro e alone bianco (si vede su qualunque colore)
+        // as on the map: white centre, dark ring and white halo (visible on any colour)
         ctx.beginPath();
         ctx.arc(px, py, 11 * k, 0, Math.PI * 2);
         ctx.fillStyle = "#fff";
@@ -4441,16 +4441,16 @@
       }
     }
 
-    // intestazione in alto a sinistra: bandiera, modello e corsa, grandezza e istante
+    // header top left: flag, model and run, field and time
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
-    // bandiera del modello (già caricata, vedi loadFlag); con radar o satellite l'immagine non è del modello: niente
+    // model flag (already loaded, see loadFlag); with radar or satellite the image is not the model's: none
     const flag = state.extra === "none" ? crop.flag : null;
     const fh = 26,
       fw = flag
         ? Math.round(fh * (flag.naturalWidth / flag.naturalHeight || 4 / 3))
         : 0;
-    const fx = flag ? fw + 12 : 0; // spazio occupato dalla bandiera prima del titolo
+    const fx = flag ? fw + 12 : 0; // space taken by the flag before the title
     ctx.font = `700 30px ${FONT}`;
     const tw = ctx.measureText(texts.title).width + fx;
     ctx.font = `500 22px ${FONT}`;
@@ -4462,7 +4462,7 @@
     if (flag) {
       ctx.drawImage(flag, 44, 42, fw, fh);
       if (flag.dataset.border) {
-        // bandiere: bordino grigio come nella select (il bianco non si perde nel fondo)
+        // flags: thin grey border as in the select (white does not get lost in the background)
         ctx.strokeStyle = "rgba(29,35,48,0.25)";
         ctx.lineWidth = 1;
         ctx.strokeRect(44.5, 42.5, fw - 1, fh - 1);
@@ -4475,7 +4475,7 @@
     ctx.font = `500 22px ${FONT}`;
     ctx.fillText(texts.sub, 44, 100, hw - 40);
 
-    // fascia in basso: legenda e crediti
+    // bottom band: legend and credits
     const BAND = 86;
     ctx.fillStyle = "rgba(255,255,255,0.93)";
     ctx.fillRect(0, OH - BAND, OW, BAND);
@@ -4486,14 +4486,14 @@
     const lx = 24 + ctx.measureText(texts.v.units).width + 14;
     const cont = !!texts.v.scale.continuous;
     const nseg = cont ? thresholds.length - 1 : thresholds.length;
-    // la barra si ferma prima di "Realizzato da signalkuppe.com" (a destra sulla stessa riga)
+    // the bar stops before "Realizzato da signalkuppe.com" (on the right on the same row)
     ctx.font = `700 15px ${FONT}`;
     let creditW = ctx.measureText("signalkuppe.com").width;
     ctx.font = `400 15px ${FONT}`;
     creditW += ctx.measureText("Realizzato da ").width;
     const cw = Math.min(64, (OW - lx - 24 - creditW - 32) / nseg);
     const ly = OH - BAND + 16;
-    const every = thresholds.length > 14 ? 2 : 1; // come nella legenda della pagina
+    const every = thresholds.length > 14 ? 2 : 1; // as in the page legend
     ctx.font = `500 15px ${FONT}`;
     thresholds.forEach((t, i) => {
       if (i < nseg) {
@@ -4520,7 +4520,7 @@
       const skip =
         (i === 0 && !cont && texts.v.scale.transparent_below == null) ||
         i % every;
-      // pioggia e radar partono da 0, come nella legenda della pagina
+      // precipitation and radar start from 0, as in the page legend
       const zero = i === 0 && (t === 0.1 || texts.v.units === "mm/h");
       if (!skip)
         ctx.fillText(
@@ -4529,7 +4529,7 @@
           ly + 36,
         );
     });
-    // autore in basso a destra, sulla riga della legenda (la barra arriva al massimo a ~900 px)
+    // author bottom right, on the legend row (the bar reaches ~900 px at most)
     ctx.textAlign = "right";
     ctx.font = `700 15px ${FONT}`;
     ctx.fillStyle = "#1d2330";
@@ -4545,8 +4545,8 @@
     ctx.fillText(texts.attr, 24, OH - 12, OW - 48);
   }
 
-  // vista nella modale: riquadro fisso al centro (il più grande che sta nello spazio), sotto la mappa fotografata
-  // che si sposta e si ingrandisce; fuori dal riquadro la mappa resta visibile ma velata.
+  // view in the modal: fixed frame in the centre (the largest that fits in the space), below it the captured map
+  // that moves and zooms; outside the frame the map stays visible but veiled.
   const view = { dpr: 1, cw: 0, ch: 0, fx: 0, fy: 0, fw: 0, fh: 0 };
   function layoutView() {
     const r = shareUi.canvas.getBoundingClientRect();
@@ -4564,9 +4564,9 @@
     view.fx = (r.width - view.fw) / 2;
     view.fy = (r.height - view.fh) / 2;
   }
-  const viewScale = () => view.fw / crop.w; // px della vista per px della mappa
+  const viewScale = () => view.fw / crop.w; // view px per map px
   function renderView() {
-    if (shareUi.dialog.classList.contains("share-preparing")) return; // foto non ancora pronta
+    if (shareUi.dialog.classList.contains("share-preparing")) return; // capture not ready yet
     renderOut();
     const ctx = shareUi.canvas.getContext("2d");
     const { snap } = crop;
@@ -4575,11 +4575,11 @@
     ctx.clearRect(0, 0, view.cw, view.ch);
     ctx.imageSmoothingQuality = "high";
     if (crop.fixed) {
-      // inquadratura fissa: solo l'immagine finale, senza la mappa intorno né la cornice del ritaglio
+      // fixed framing: only the final image, without the map around it or the crop frame
       ctx.drawImage(outCanvas, view.fx, view.fy, view.fw, view.fh);
       return;
     }
-    // mappa intera nella stessa scala del riquadro, così fuori si vede il contesto
+    // whole map at the same scale as the frame, so the context is visible outside
     ctx.drawImage(
       snap.canvas,
       view.fx - crop.x * fs,
@@ -4608,7 +4608,7 @@
         renderView();
       });
     }
-    // il file si rigenera a gesto concluso, così "Condividi" ha già l'immagine pronta
+    // the file is regenerated once the gesture is over, so "Condividi" already has the image ready
     shareFile = null;
     clearTimeout(fileTimer);
     fileTimer = setTimeout(makeShareFile, 250);
@@ -4636,11 +4636,11 @@
     return makeShareFile();
   }
 
-  // bandiera del modello per l'intestazione dell'immagine: lo stesso SVG di flag-icons usato nella pagina (letto dal
-  // CSS), per la mediana l'icona "layers"; caricata una volta per modello
+  // model flag for the image header: the same flag-icons SVG used in the page (read from the
+  // CSS), for the median the "layers" icon; loaded once per model
   const flagCache = new Map();
   function loadFlag(modelId, ink = "#1d2330") {
-    // ink: colore dell'icona della mediana
+    // ink: colour of the median icon
     const key = `${modelId}|${ink}`;
     if (!flagCache.has(key)) {
       const m = meta.models.find((x) => x.id === modelId);
@@ -4666,7 +4666,7 @@
           ? Promise.resolve(null)
           : new Promise((resolve) => {
               const img = new Image();
-              img.crossOrigin = "anonymous"; // senza, il canvas diventerebbe "sporco" e non si potrebbe esportare
+              img.crossOrigin = "anonymous"; // without it the canvas would become "tainted" and could not be exported
               if (border) img.dataset.border = "1";
               img.onload = () => resolve(img);
               img.onerror = () => resolve(null);
@@ -4677,13 +4677,13 @@
     return flagCache.get(key);
   }
 
-  // vista della mappa all'apertura della condivisione: se dalla finestra si allontana oltre la mappa che stavi
-  // guardando, la mappa si allarga sotto (zoom indietro) e alla chiusura torna dov'era
+  // map view when sharing opens: if from the dialog you zoom out beyond the map you were
+  // viewing, the map widens underneath (zoom out) and on closing it goes back to where it was
   let shareRestore = null,
     widening = false,
-    widenMore = 1; // widenMore: zoom indietro chiesti durante una foto
-  /** Aspetta che Mapbox (o le tessere) abbia disegnato la vista nuova, al massimo 2 s, più un paio di fotogrammi per
-   *  le linee e le località di Leaflet. */
+    widenMore = 1; // widenMore: zoom-outs requested during a capture
+  /** Waits until Mapbox (or the tiles) has drawn the new view, at most 2 s, plus a couple of frames for
+   *  Leaflet's lines and places. */
   function mapReady() {
     return new Promise((resolve) => {
       const done = () => {
@@ -4706,16 +4706,16 @@
     glShot = glBase ? await glCapture() : null;
     crop.snap = snapshotMap();
     glShot = null;
-    // punto scelto dal menu della mappa: posizione nella foto (cambia se la foto si allarga, vedi widenShare)
+    // point chosen from the map menu: position in the capture (changes if the capture widens, see widenShare)
     crop.snap.pin = crop.pinLL ? map.latLngToContainerPoint(crop.pinLL) : null;
   }
-  /** Zoom indietro sotto il riquadro: la mappa si allontana di un livello attorno al centro del riquadro, si rifà la
-   *  foto e il riquadro copre la stessa zona di prima (poi `factor` più largo). */
+  /** Zoom out under the frame: the map moves out one level around the frame centre, the capture is redone
+   *  and the frame covers the same area as before (then `factor` wider). */
   async function widenShare(factor) {
     if (widening) {
       widenMore *= factor;
       return;
-    } // si applica appena finita la foto in corso
+    } // applied as soon as the current capture is done
     if (map.getZoom() <= map.getMinZoom() + 0.01) return;
     widening = true;
     try {
@@ -4724,7 +4724,7 @@
         crop.y + cropH() / 2,
       ]);
       const zoom = Math.max(map.getMinZoom(), map.getZoom() - 1);
-      const shrink = map.getZoomScale(zoom, map.getZoom()); // < 1: quanto si rimpicciolisce la stessa zona
+      const shrink = map.getZoomScale(zoom, map.getZoom()); // < 1: how much the same area shrinks
       shareRestore ??= { center: map.getCenter(), zoom: map.getZoom() };
       map.setView(center, zoom, { animate: false });
       await mapReady();
@@ -4747,7 +4747,7 @@
     }
   }
 
-  /** pin: { latlng, text } dal menu della mappa: segnaposto ed etichetta del valore nell'immagine */
+  /** pin: { latlng, text } from the map menu: marker and value label in the image */
   async function openShare(pin = null) {
     crop.pinLL = pin?.latlng || null;
     crop.pinText = pin?.text || "";
@@ -4759,29 +4759,29 @@
         scheduleRender();
       }
     });
-    // si parte dalla mappa così come la stai guardando (stessa zona e stesso zoom): niente posizione del dispositivo
+    // start from the map as you are viewing it (same area and zoom): no device location
     shareRestore = null;
     widenMore = 1;
     crop.fixed = synoptic();
     shareUi.dialog.classList.toggle("share-fixed", crop.fixed);
     if (crop.fixed) {
-      // carta a 500 hPa: la mappa sotto si ridimensiona e si sposta per l'inquadratura fissa; la finestra si apre
-      // subito (con "Preparazione…") così non si vede la mappa muoversi
+      // 500 hPa chart: the map below is resized and moved for the fixed framing; the dialog opens
+      // right away (with "Preparazione…") so the map is not seen moving
       shareUi.dialog.classList.add("share-preparing");
       if (!shareUi.dialog.open) shareUi.dialog.showModal();
     }
     await shareWideStart();
     if (crop.fixed && !shareWide) {
-      // carta a 500 hPa: la mappa mostra tutta l'inquadratura fissa; alla chiusura torna dov'era
+      // 500 hPa chart: the map shows the whole fixed framing; on closing it goes back to where it was
       shareRestore = { center: map.getCenter(), zoom: map.getZoom() };
       map.fitBounds(SYN_FRAME, { animate: false });
       await mapReady();
     }
     await takeSnap();
     crop.texts = shareTexts();
-    // all'apertura il riquadro più grande che sta nella mappa, al centro (la proporzione resta l'ultima scelta)
+    // on opening the largest frame that fits in the map, centred (the proportion stays the last one chosen)
     if (crop.fixed && crop.ratio !== "16:9") {
-      crop.savedRatio = crop.ratio; // si ritrova alla prossima condivisione delle altre mappe
+      crop.savedRatio = crop.ratio; // found again at the next sharing of the other maps
       crop.ratio = "16:9";
     }
     [outCanvas.width, outCanvas.height] = RATIOS[crop.ratio];
@@ -4790,7 +4790,7 @@
     crop.x = c.x - crop.w / 2;
     crop.y = c.y - cropH() / 2;
     if (crop.fixed) {
-      // riquadro 16:9 largo quanto l'inquadratura fissa, centrato in altezza su di lei
+      // 16:9 frame as wide as the fixed framing, vertically centred on it
       const nw = map.latLngToContainerPoint(SYN_FRAME.getNorthWest()),
         se = map.latLngToContainerPoint(SYN_FRAME.getSouthEast());
       crop.w = se.x - nw.x;
@@ -4800,16 +4800,16 @@
     clampCrop();
     crop.touched = false;
     shareUi.pointsRow.hidden = !crop.snap.points.length || !!crop.pinLL;
-    // località: con le mappe dei modelli accese (valori), con radar e satellite spente (si accendono dall'interruttore)
+    // places: with the model maps on (values), off with radar and satellite (they can be turned on with the switch)
     shareUi.points.checked = state.extra === "none" && !synoptic();
-    if (crop.fixed && !shareUi.dialog.open) return; // chiusa mentre si preparava (la mappa è già tornata dov'era)
+    if (crop.fixed && !shareUi.dialog.open) return; // closed while getting ready (the map is already back where it was)
     shareUi.dialog.classList.remove("share-preparing");
     if (!shareUi.dialog.open) shareUi.dialog.showModal();
     layoutView();
     setRatio(crop.ratio);
   }
 
-  // alla chiusura (X, Esc, dopo la condivisione) la mappa torna dov'era, se nella finestra ci si è allontanati
+  // on closing (X, Esc, after sharing) the map goes back to where it was, if you zoomed out in the dialog
   shareUi.dialog.addEventListener("close", () => {
     shareUi.dialog.classList.remove("share-preparing");
     if (shareRestore)
@@ -4822,18 +4822,18 @@
     }
   });
 
-  // Carta sinottica: con la finestra di condivisione aperta la mappa, nascosta sotto, diventa 1600×900 e si inquadra
-  // su SYN_FRAME, su qualunque schermo; alla chiusura torna com'era.
+  // Synoptic chart: with the share dialog open the map, hidden below, becomes 1600×900 and is framed
+  // on SYN_FRAME, on any screen; on closing it goes back as it was.
   let shareWide = null;
-  // inquadratura dell'immagine della carta a 500 hPa, come Meteociel: da Terranova al Mar Nero, dal Nord Africa
-  // all'Islanda (Italia a destra), 16:9
-  // più a sud del centro "geografico": in basso l'immagine ha sopra la mappa la barra dei colori e i crediti (~12%
-  // dell'altezza), che coprirebbero il Mediterraneo; il 16:9 ne prende ~25–66 N
+  // framing of the 500 hPa chart image, like Meteociel: from Newfoundland to the Black Sea, from North Africa
+  // to Iceland (Italy on the right), 16:9
+  // further south than the "geographic" centre: at the bottom the image has the colour bar and credits over the map
+  // (~12% of the height), which would cover the Mediterranean; the 16:9 takes ~25–66 N
   const SYN_FRAME = L.latLngBounds([26, -60], [66, 40]);
   async function shareWideStart() {
     if (!synoptic()) return;
-    // sempre la stessa mappa 1600×900 sotto la finestra (qualunque schermo): l'inquadratura fissa ci sta tutta e
-    // l'immagine viene uguale su telefono e desktop
+    // always the same 1600×900 map under the dialog (any screen): the fixed framing fits entirely and
+    // the image comes out the same on phone and desktop
     shareWide = { center: map.getCenter(), zoom: map.getZoom() };
     const root = document.documentElement.style;
     root.setProperty("--share-w", "1600px");
@@ -4842,8 +4842,8 @@
     map.invalidateSize({ pan: false });
     glBase?.resize();
     updateMinZoom();
-    // due passate: il primo adattamento può essere spostato dalla sincronizzazione con Mapbox dopo il cambio di misura
-    // (succedeva partendo da uno schermo stretto: l'Italia finiva fuori in basso)
+    // two passes: the first fit can be shifted by the sync with Mapbox after the size change
+    // (it happened starting from a narrow screen: Italy ended up out at the bottom)
     for (let k = 0; k < 2; k++) {
       map.fitBounds(SYN_FRAME, { animate: false });
       await mapReady();
@@ -4860,12 +4860,12 @@
     map.setView(center, Math.max(zoom, map.getMinZoom()), { animate: false });
   }
 
-  // posizione del dispositivo: non si usa più (prima centrava l'immagine condivisa); via quella salvata dalle versioni
-  // precedenti
+  // device location: no longer used (it used to centre the shared image); remove the one saved by
+  // earlier versions
   try {
     localStorage.removeItem("weathermaps.pos.v1");
   } catch {
-    /* storage non disponibile */
+    /* storage unavailable */
   }
   new ResizeObserver(() => {
     if (shareUi.dialog.open && crop.snap) {
@@ -4875,24 +4875,24 @@
   }).observe(shareUi.canvas);
 
   function closeShare() {
-    if (shareUi.dialog.open) shareUi.dialog.close(); // chiusura immediata, senza animazione
+    if (shareUi.dialog.open) shareUi.dialog.close(); // immediate close, without animation
   }
 
-  // gesti sulla mappa sotto il riquadro: trascinare la sposta, pizzico e rotella la ingrandiscono
-  // (= riquadro più piccolo sulla mappa, più dettaglio)
+  // gestures on the map under the frame: dragging moves it, pinch and wheel zoom it
+  // (= smaller frame on the map, more detail)
   const pointers = new Map();
   let pinch = null;
   const toView = (e) => {
     const r = shareUi.canvas.getBoundingClientRect();
     return [e.clientX - r.left, e.clientY - r.top];
   };
-  /** Punto della mappa fotografata sotto un punto della vista. */
+  /** Point of the captured map under a point of the view. */
   const viewToMap = ([vx, vy]) => [
     crop.x + (vx - view.fx) / viewScale(),
     crop.y + (vy - view.fy) / viewScale(),
   ];
   shareUi.canvas.addEventListener("pointerdown", (e) => {
-    if (crop.fixed) return; // inquadratura fissa
+    if (crop.fixed) return; // fixed framing
     crop.touched = true;
     shareUi.canvas.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, toView(e));
@@ -4932,7 +4932,7 @@
       e.preventDefault();
       if (crop.fixed) return;
       crop.touched = true;
-      // rotella in avanti = mappa più grande (più dettaglio)
+      // wheel forward = bigger map (more detail)
       scaleCropAt(Math.exp(e.deltaY * 0.0015), ...viewToMap(toView(e)));
     },
     { passive: false },
@@ -4948,7 +4948,7 @@
 
   function toast(text, warn = false) {
     shareUi.toast.textContent = text;
-    shareUi.toast.classList.toggle("warn", warn); // avviso: colori di attenzione
+    shareUi.toast.classList.toggle("warn", warn); // notice: warning colours
     shareUi.toast.hidden = false;
     clearTimeout(toast.t);
     toast.t = setTimeout(() => {
@@ -4965,29 +4965,29 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
 
-  /** Condivisione nativa del solo file (telefono: menu con WhatsApp e altre app); altrimenti lo scarica. */
+  /** Native sharing of the file only (phone: menu with WhatsApp and other apps); otherwise it downloads it. */
   async function sendShare() {
     await readyShareFile();
-    // solo l'immagine, senza testo né link: modello, corsa e istante sono già scritti sopra
+    // only the image, without text or link: model, run and time are already written on it
     const data = { files: [shareFile] };
     if (navigator.canShare?.(data)) {
       try {
         await navigator.share(data);
         return true;
       } catch (e) {
-        if (e.name === "AbortError") return true; // annullato dall'utente
+        if (e.name === "AbortError") return true; // cancelled by the user
         if (e.name !== "NotAllowedError") throw e;
-        return false; // gesto scaduto: si riprova dal pulsante dell'anteprima
+        return false; // gesture expired: retry from the preview button
       }
     }
-    // browser senza condivisione di file (soprattutto desktop): si scarica l'immagine
+    // browser without file sharing (mostly desktop): the image is downloaded
     await downloadShareFile();
     toast("Immagine scaricata: allegala dove vuoi condividerla.");
     return true;
   }
 
   shareUi.btn.addEventListener("click", async () => {
-    const pin = shareUi.btn.pin; // punto dal menu della mappa (vedi openMapMenu), solo per questo clic
+    const pin = shareUi.btn.pin; // point from the map menu (see openMapMenu), for this click only
     shareUi.btn.pin = null;
     if (!current) {
       toast("Niente da condividere: scegli un istante con dati.");
@@ -4996,7 +4996,7 @@
     shareUi.btn.disabled = true;
     setLoading(true);
     try {
-      // modale con ritaglio: il clic su "Condividi" è un gesto nuovo, valido per la condivisione nativa
+      // modal with crop: the click on "Condividi" is a new gesture, valid for native sharing
       await openShare(pin);
     } catch (e) {
       toast(`Impossibile creare l'immagine: ${e.message}`);
@@ -5017,10 +5017,10 @@
   });
   shareUi.close.addEventListener("click", closeShare);
 
-  // ---------- meteogramma di una località: andamento nel tempo delle grandezze del modello scelto. Sempre le stesse
-  // quattro (pioggia, T850, zero termico, vento a 10 m), quelle che il modello non ha si saltano. Un pannello per
-  // grandezza (mai due scale sullo stesso grafico), stesso asse dei tempi; pioggia a barre per intervallo,
-  // le altre a linee; ora locale sull'asse, l'ora mostrata nella mappa tratteggiata, lettura dei valori al passaggio.
+  // ---------- meteogram of a place: the chosen model's fields over time. Always the same
+  // four (precipitation, T850, freezing level, 10 m wind), those the model does not have are skipped. One panel per
+  // field (never two scales on the same chart), same time axis; precipitation as bars per interval,
+  // the others as lines; local time on the axis, the time shown on the map dashed, values read on hover.
   const chartUi = {
     dialog: $("chart-dialog"),
     body: $("chart-body"),
@@ -5034,28 +5034,28 @@
   };
   let chartData = null;
   let chartContext = null;
-  let chartPin = null; // ora (passo) fissata con un clic o un tocco: resta visibile e va nell'immagine condivisa
-  let clearChartPin = () => {}; // impostata da drawChart: toglie l'ora fissata (linea, riquadro e tooltip)
-  // Esc con un'ora fissata toglie solo quella; senza, chiude il grafico come al solito
+  let chartPin = null; // time (step) pinned with a click or a tap: it stays visible and goes into the shared image
+  let clearChartPin = () => {}; // set by drawChart: removes the pinned time (line, box and tooltip)
+  // Esc with a pinned time removes only that; without, it closes the chart as usual
   chartUi.dialog.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && chartPin != null) {
       e.preventDefault();
       clearChartPin();
     }
   });
-  // margine uguale su tutti i lati (come --cm in style.css): a sinistra coincide con lo spazio dei numeri dell'asse,
-  // così titolo della finestra e titoli dei grafici partono alla stessa distanza dal bordo che i grafici hanno a destra
-  const CHART_AXIS = 40; // spazio dei numeri dell'asse dentro l'SVG, a sinistra del grafico
-  const CLIM_RED = "#ef4444"; // climatologia negli spaghetti
-  const SNOW_BAR = "#a78bfa"; // parte di neve delle barre della precipitazione nei meteogrammi
-  const OFFICIAL = "#22c55e"; // verde della corsa ufficiale (controllo) negli spaghetti
-  const CHART_MAX_PH = 280; // altezza massima di un pannello a schermo: oltre, le curve si allungano senza dire di più
-  const CHART_R = 30; // dentro l'SVG, a destra: la scala dell'accumulo della pioggia e l'ultima ora sull'asse
+  // same margin on all sides (like --cm in style.css): on the left it matches the space of the axis numbers,
+  // so the dialog title and the chart titles start at the same distance from the edge that the charts have on the right
+  const CHART_AXIS = 40; // space for the axis numbers inside the SVG, left of the chart
+  const CLIM_RED = "#ef4444"; // climatology in the spaghetti
+  const SNOW_BAR = "#a78bfa"; // snow part of the precipitation bars in the meteograms
+  const OFFICIAL = "#22c55e"; // green of the official run (control) in the spaghetti
+  const CHART_MAX_PH = 280; // maximum height of a panel on screen: beyond that the curves stretch without saying more
+  const CHART_R = 30; // inside the SVG, on the right: the precipitation accumulation scale and the last time on the axis
   chartUi.close.addEventListener("click", () => chartUi.dialog.close());
 
-  /** Serie nel punto: dal server (api/series) o, nel sito statico, dai riquadri che lo contengono (app/series.py):
-   *  pioggia e neve dalla cella del modello più vicina, la stessa che legge il tooltip della mappa (valueAt), il
-   *  resto da una griglia regolare. */
+  /** Series at the point: from the server (api/series) or, on the static site, from the tiles that contain it (app/series.py):
+   *  precipitation and snow from the nearest model cell, the same one the map tooltip reads (valueAt), the
+   *  rest from a regular grid. */
   async function getSeries(model, run, lat, lon) {
     if (!STATIC) {
       const r = await fetch(
@@ -5064,18 +5064,18 @@
       if (!r.ok) throw new Error(r.statusText);
       return r.json();
     }
-    const grids = (runs[model] || []).find((e) => e.run === run)?.series; // griglie della corsa, da runs.json
+    const grids = (runs[model] || []).find((e) => e.run === run)?.series; // grids of the run, from runs.json
     if (!grids) throw new Error("serie non disponibile per questa corsa");
     const out = { lat, lon, vars: {} };
     await Promise.all(
       Object.entries(grids).map(async ([name, g]) => {
         const iy = Math.round((lat - g.lat0) / g.dlat),
           ix = Math.round((lon - g.lon0) / g.dlon);
-        if (iy < 0 || ix < 0 || iy >= g.ny || ix >= g.nx) return; // fuori dal dominio del modello
+        if (iy < 0 || ix < 0 || iy >= g.ny || ix >= g.nx) return; // outside the model domain
         const ty = Math.floor(iy / g.block),
           tx = Math.floor(ix / g.block);
         const r = await fetch(`data/series/${model}/${run}/${name}/${ty}_${tx}.bin`);
-        if (r.status === 404) return; // riquadro tutto fuori dal dominio: non c'è
+        if (r.status === 404) return; // tile entirely outside the domain: it does not exist
         if (!r.ok) throw new Error("serie non disponibile per questo punto");
         const t = unpackField(await r.arrayBuffer());
         const cell = (iy - ty * g.block) * t.nx + (ix - tx * g.block);
@@ -5094,15 +5094,15 @@
     return out;
   }
 
-  /** Climatologia della T850 (scripts/make_climate.py): per ogni ora del grafico la media 1991-2020 di quel giorno
-   *  dell'anno e di quell'ora (00/06/12/18 UTC) nel punto (interpolata fra i nodi a 2.5°). Null se il file manca: il grafico si disegna lo stesso. */
+  /** T850 climatology (scripts/make_climate.py): for each chart time the 1991-2020 mean of that day
+   *  of the year and that hour (00/06/12/18 UTC) at the point (interpolated between the 2.5° nodes). Null if the file is missing: the chart is drawn anyway. */
   let climFile = null;
   async function climT850(lat, lon, t0, steps) {
     climFile ??= fetch("clim-t850.json")
       .then((r) => (r.ok ? r.json() : null))
       .catch(() => null);
     const c = await climFile;
-    if (!c?.hours) return null; // file mancante o di un formato diverso: grafico senza climatologia
+    if (!c?.hours) return null; // file missing or in a different format: chart without climatology
     const fy = Math.min(Math.max((lat - c.lat0) / c.dlat, 0), c.ny - 1),
       fx = Math.min(Math.max((lon - c.lon0) / c.dlon, 0), c.nx - 1);
     const y0 = Math.min(Math.floor(fy), c.ny - 2),
@@ -5118,16 +5118,16 @@
         g[y0 + 1][x0 + 1] * wy * wx
       );
     };
-    // giorno dell'anno (0..364) e ora sinottica (0..3 = 00/06/12/18 UTC) di un istante
+    // day of the year (0..364) and synoptic hour (0..3 = 00/06/12/18 UTC) of a time
     const slotOf = (ms) => {
       const d = new Date(ms);
       const jan1 = Date.UTC(d.getUTCFullYear(), 0, 1);
       let day = Math.floor((ms - jan1) / 864e5);
       const leap = new Date(Date.UTC(d.getUTCFullYear(), 1, 29)).getUTCMonth() === 1;
-      if (leap && day >= 59) day -= 1; // il 29 febbraio vale come il 28 (la climatologia ha 365 giorni)
+      if (leap && day >= 59) day -= 1; // 29 February counts as the 28th (the climatology has 365 days)
       return [Math.min(day, 364), Math.floor(d.getUTCHours() / 6)];
     };
-    // fra due ore sinottiche si interpola (i passi degli spaghetti sono già ogni 6 ore, quindi di solito è esatto)
+    // between two synoptic hours it is interpolated (the spaghetti steps are already every 6 hours, so it is usually exact)
     return steps.map((s) => {
       const ms = t0 + s * 3600e3,
         base = Math.floor(ms / 216e5) * 216e5,
@@ -5137,7 +5137,7 @@
     });
   }
 
-  /** Spaghetti dell'ensemble di un modello nel punto più vicino: dal server o, nel sito statico, dal file del punto. */
+  /** Ensemble spaghetti of a model at the nearest point: from the server or, on the static site, from the point's file. */
   async function getEnsemble(model, lat, lon) {
     if (!STATIC) {
       const r = await fetch(`api/ensemble?${new URLSearchParams({ model, lat, lon })}`);
@@ -5182,7 +5182,7 @@
     if (!meta) return;
     const params = new URLSearchParams(location.hash.slice(1));
     if (params.get("chartSnd")) {
-      // radiosondaggio: stazione e lancio
+      // sounding: station and launch
       const [station, time] = params.get("chartSnd").split(":");
       openSounding(station, time || null, false);
       return;
@@ -5240,16 +5240,16 @@
       from = state.mode === "interval" ? intervalPrev() : 0,
       until = state.step,
       pushHistory = true,
-      ensemble = false, // spaghetti dell'ensemble GFS (carta sinottica) al posto del meteogramma
-      multi = null, // "tp" (cumulata) o "t850": tutti i modelli e la media a confronto
+      ensemble = false, // GFS ensemble spaghetti (synoptic chart) instead of the meteogram
+      multi = null, // "tp" (accumulated) or "t850": all models and the median compared
     } = {},
   ) {
     chartUi.title.textContent = p.name;
-    // modelli a confronto: niente scelta del modello, al suo posto Precipitazione / T 850 hPa
+    // model comparison: no model choice, in its place Precipitazione / T 850 hPa
     chartUi.model.hidden = !!multi;
     chartUi.multi.hidden = !multi;
     chartUi.sounding.hidden = true;
-    chartUi.dialog.classList.remove("side-panel"); // i grafici del modello a tutto schermo
+    chartUi.dialog.classList.remove("side-panel"); // the model charts full screen
     if (multi) {
       chartContext = { place: p, model: "mean", run: null, from: 0, until: 384, multi };
       writeChartHash(pushHistory && !chartUi.dialog.open);
@@ -5259,7 +5259,7 @@
       return;
     }
     if (ensemble)
-      // spaghetti: solo i modelli con l'ensemble (GFS, ECMWF)
+      // spaghetti: only the models with the ensemble (GFS, ECMWF)
       fillModelSelect(meta.models.filter((m) => meta.ensemble?.[m.id]), model, chartUi.model);
     else {
       fillModelSelect(meta.models, model, chartUi.model);
@@ -5282,20 +5282,20 @@
     chartUi.dialog.focus();
     await loadChart(model, chartContext.run);
   }
-  /** Il grafico legge un punto della griglia delle serie (0,05° o 0,1°), la mappa la cella del modello: in montagna i
-   *  totali possono essere molto diversi. Se la mappa mostra la stessa cosa (stesso modello e corsa, pioggia o neve
-   *  dall'inizio della corsa) e la differenza è grande, un avviso lo dice, con il punto usato dal grafico. */
+  /** Safety net: if the chart's total differs a lot from the map's for the same thing (same model and run, precipitation
+   *  or snow since the start of the run), a notice says so, with the point the chart used. Precipitation and snow now
+   *  come from the same model cell as the map (app/series.py), so it should not appear any more. */
   function chartPointWarning(series, request, model, run) {
     const v = dataVar();
     const sv = series.vars?.[v];
     if (!current || !sv || !["tp", "sf"].includes(v) || state.model !== model || state.run !== run) return;
-    if (!rangeMode() || intervalPrev() !== 0) return; // solo il totale dall'inizio della corsa è confrontabile
+    if (!rangeMode() || intervalPrev() !== 0) return; // only the total since the start of the run is comparable
     const i = sv.steps.indexOf(state.step);
     const onChart = i >= 0 ? sv.values[i] : null;
     const onMap = valueAt(current, request.place.lat, request.place.lon);
     if (onChart == null || onMap == null) return;
     const diff = Math.abs(onMap - onChart);
-    if (diff < 2 || diff < 0.1 * Math.max(onMap, onChart)) return; // oltre il 10% (e almeno 2 mm o 2 cm)
+    if (diff < 2 || diff < 0.1 * Math.max(onMap, onChart)) return; // beyond 10% (and at least 2 mm or 2 cm)
     const R = 6371,
       rad = Math.PI / 180;
     const km =
@@ -5306,7 +5306,7 @@
       );
     const u = current.units;
     const dec = v === "sf" ? 0 : 1;
-    // breve riga sempre visibile; la spiegazione si apre toccandola (chiusa anche su desktop)
+    // short line always visible; the explanation opens when tapped (closed on desktop too)
     const details = document.createElement("details");
     const summary = document.createElement("summary");
     summary.textContent = "Perché leggo valori diversi dalla mappa?";
@@ -5325,7 +5325,7 @@
     if (chartContext.multi) return loadMulti();
     if (chartContext.sounding) return loadSounding();
     const run = chartContext.ensemble
-      ? meta.ensemble?.[model]?.run // spaghetti: l'ultima corsa completa dell'ensemble del modello
+      ? meta.ensemble?.[model]?.run // spaghetti: the latest complete run of the model's ensemble
       : selectedRun || (runs[model] || []).find((entry) => !entry.incoming)?.run;
     const request = { ...chartContext, model, run };
     chartContext = request;
@@ -5356,7 +5356,7 @@
       }
       return;
     }
-    // periodo in date, come nella barra della mappa (i passi si riferiscono alla corsa scelta qui)
+    // period as dates, as in the map bar (the steps refer to the run chosen here)
     const at = (step) => new Date(runDate(run).getTime() + step * 3600e3);
     const period = !run
       ? ""
@@ -5376,7 +5376,7 @@
       const { lat, lon } = request.place;
       const series = await getSeries(model, run, lat, lon);
       if (chartContext !== request || !chartUi.dialog.open) return;
-      // nessun valore nel punto (es. mentre il modello si aggiorna): avviso invece di un grafico vuoto
+      // no value at the point (e.g. while the model is updating): notice instead of an empty chart
       const hasData = Object.values(series.vars || {}).some((v) =>
         v.values.some((x, i) => x != null && v.steps[i] <= request.until),
       );
@@ -5395,7 +5395,7 @@
       if (chartContext !== request || !chartUi.dialog.open) return;
       const message = document.createElement("div");
       message.className = "chart-empty";
-      // con una corsa nuova in arrivo il motivo è quasi sempre l'aggiornamento: lo si dice chiaramente
+      // with a new run incoming the reason is almost always the update: say so clearly
       message.textContent = (runs[model] || []).some((r) => r.incoming)
         ? "Il modello si sta aggiornando: il grafico sarà disponibile fra poco, appena la nuova corsa è completa."
         : `Grafico non disponibile: ${e.message}`;
@@ -5437,9 +5437,9 @@
     if (chartUi.dialog.open && chartData) drawChart();
   }).observe(chartUi.body);
 
-  // ---------- condivisione del meteogramma: immagine larga 1080 px (anche da telefono) con località, modello e corsa
-  // in alto, crediti in basso; poi come l'immagine della mappa (menu del telefono, altrimenti download)
-  /** Colori del tema attuale della pagina (chiaro o scuro), per un'immagine uguale a quella nel browser. */
+  // ---------- meteogram sharing: 1080 px wide image (from a phone too) with place, model and run
+  // at the top, credits at the bottom; then like the map image (phone menu, otherwise download)
+  /** Colours of the page's current theme (light or dark), for an image identical to the one in the browser. */
   function chartColors() {
     const cs = getComputedStyle(chartUi.dialog);
     const v = (n, d) => cs.getPropertyValue(n).trim() || d;
@@ -5452,11 +5452,11 @@
       acc:
         getComputedStyle(chartUi.body).getPropertyValue("--acc").trim() ||
         "#12357a",
-    }; // accumulo della pioggia
+    }; // precipitation accumulation
   }
   const chartCss = (c) =>
     [
-      // le classi della pagina non valgono dentro un'immagine: stessi stili e colori
+      // the page classes do not apply inside an image: same styles and colours
       `.ch-title{font:650 12.5px system-ui,sans-serif;fill:${c.fg}}.ch-note{font-weight:400;font-size:11.5px;fill:${c.muted}}.ch-leg{font:400 11.5px system-ui,sans-serif;fill:${c.muted}}.ch-leg tspan{font-weight:650;fill:${c.fg}}`,
       `.ch-tick{font:11px system-ui,sans-serif;fill:${c.muted}}.ch-grid{stroke:${c.line};stroke-width:1}`,
       `.ch-day{stroke:${c.line};stroke-width:1;stroke-dasharray:3 3}`,
@@ -5470,27 +5470,27 @@
     const { model, run } = chartData;
     const title = chartUi.title.textContent;
     const subtitle = chartData.ensemble || chartData.multi || chartData.sounding
-      ? chartUi.details.textContent // dice già "Ensemble GFS/ECMWF" o "Modelli a confronto"
+      ? chartUi.details.textContent // already says "Ensemble GFS/ECMWF" or "Modelli a confronto"
       : `${meta.models.find((entry) => entry.id === model)?.label || model} · ${chartUi.details.textContent}`;
-    // immagine verticale 4:5 (2160 × 2700 px): formato pieno su Instagram, intera nelle chat; i pannelli si allungano.
-    // Si disegna su 600 × 750 punti ingranditi 3,6 volte: testi e linee in proporzione come nella pagina sul telefono
-    // (su 1080 punti, rimpicciolita nello schermo, sembrava tutto minuscolo)
+    // 4:5 portrait image (2160 × 2700 px): full format on Instagram, whole in chats; the panels stretch.
+    // Drawn on 600 × 750 points scaled up 3.6 times: texts and lines in proportion as in the page on the phone
+    // (on 1080 points, shrunk on screen, everything looked tiny)
     const OW = 600,
       OH = 750,
       M = 28,
       K = 3.6,
-      FOOT = 30; // dimensioni, margine, scala, spazio di "Realizzato da" in fondo
-    const EW = OW - 2 * M + CHART_R; // larghezza dell'SVG (a destra il suo margine interno sostituisce M)
-    const TOP = M + 78; // titolo, sottotitolo e spazio prima dei grafici
-    const PB = { pad: 10, line: 19, font: 13 }; // riquadro dell'ora fissata
-    // righe dei valori del riquadro: una per grafico
+      FOOT = 30; // sizes, margin, scale, space for "Realizzato da" at the bottom
+    const EW = OW - 2 * M + CHART_R; // SVG width (on the right its inner margin replaces M)
+    const TOP = M + 78; // title, subtitle and space before the charts
+    const PB = { pad: 10, line: 19, font: 13 }; // pinned time box
+    // value rows of the box: one per chart
     const pbLines = (pb) => (pb.table ? pb.table.rows.length : pb.rows.length);
-    // il grafico prende tutta l'altezza: il riquadro dell'ora fissata sta sopra il grafico, in alto accanto alla sua
-    // linea (come la scheda nella pagina), e non tocca mai "Realizzato da" in fondo
+    // the chart takes the whole height: the pinned time box sits over the chart, at the top next to its
+    // line (like the card in the page), and never touches "Realizzato da" at the bottom
     const g = drawChart(EW, OH - TOP - FOOT - M);
     if (!g) throw new Error("niente da condividere");
     const c = chartColors();
-    // larghezza e altezza già alla risoluzione finale: il browser rasterizza l'SVG a quella misura (nitido)
+    // width and height already at the final resolution: the browser rasterizes the SVG at that size (sharp)
     const svgText = `<svg xmlns="http://www.w3.org/2000/svg" width="${g.W * K}" height="${g.H * K}" viewBox="0 0 ${g.W} ${g.H}"><style>${chartCss(c)}</style>${g.markup}</svg>`;
     const [img, flag] = await Promise.all([
       new Promise((resolve, reject) => {
@@ -5503,7 +5503,7 @@
       loadFlag(model, c.fg),
     ]);
     const cw = OW,
-      chh = Math.max(OH, TOP + g.H + FOOT + M); // più alta solo se i pannelli non ci stanno
+      chh = Math.max(OH, TOP + g.H + FOOT + M); // taller only if the panels do not fit
     const cv = document.createElement("canvas");
     cv.width = cw * K;
     cv.height = chh * K;
@@ -5514,10 +5514,10 @@
     ctx.textBaseline = "alphabetic";
     ctx.fillStyle = c.fg;
     ctx.font = `700 26px ${FONT}`;
-    ctx.fillText(title, M, M + 22, cw - 2 * M); // allineati ai titoli dei grafici
+    ctx.fillText(title, M, M + 22, cw - 2 * M); // aligned with the chart titles
     let sx = M;
     if (flag) {
-      // bandiera del modello (icona a livelli per la mediana) prima del sottotitolo
+      // model flag (layers icon for the median) before the subtitle
       const fh = 15,
         fw = Math.round(fh * (flag.naturalWidth / flag.naturalHeight || 4 / 3));
       ctx.drawImage(flag, M, M + 37, fw, fh);
@@ -5533,7 +5533,7 @@
     ctx.fillText(subtitle, sx, M + 50, cw - M - sx);
     ctx.drawImage(img, M, TOP, g.W, g.H);
     if (g.pinBox) {
-      // come nella pagina: la linea scende fino al riquadro con ora e valori, verso il lato con più spazio
+      // as in the page: the line goes down to the box with time and values, towards the side with more room
       const pb = g.pinBox,
         lx = M + pb.x;
       const widthOf = (parts) =>
@@ -5542,13 +5542,13 @@
           return w + ctx.measureText(t).width;
         }, 0);
       ctx.font = `400 ${PB.font}px ${FONT}`;
-      // tabella (spaghetti), più piccola: per riga "Ufficiale 3.7 °C  Media 2.3 °C", le celle dei valori tutte larghe
-      // quanto il valore più largo, così le colonne restano allineate
+      // table (spaghetti), smaller: per row "Ufficiale 3.7 °C  Media 2.3 °C", the value cells all as wide
+      // as the widest value, so the columns stay aligned
       const tb = pb.table,
-        TF = 11.5, // font della tabella
-        TL = 16, // interlinea della tabella
-        LGAP = 5, // tra etichetta e valore
-        COLGAP = 14; // tra una coppia e l'altra
+        TF = 11.5, // table font
+        TL = 16, // table line height
+        LGAP = 5, // between label and value
+        COLGAP = 14; // between one pair and the next
       let labW = [],
         valW = 0;
       if (tb) {
@@ -5558,7 +5558,7 @@
         for (const r of tb.rows) for (const v of r) valW = Math.max(valW, Math.ceil(ctx.measureText(v).width));
       }
       const tableW = labW.reduce((a, w) => a + w + LGAP + valW, 0) + COLGAP * Math.max(0, labW.length - 1);
-      const HF = tb ? TF : PB.font, // font e interlinea del riquadro (più piccoli per gli spaghetti)
+      const HF = tb ? TF : PB.font, // box font and line height (smaller for the spaghetti)
         HL = tb ? TL : PB.line,
         HP = tb ? 8 : PB.pad;
       ctx.font = `400 ${HF}px ${FONT}`;
@@ -5569,7 +5569,7 @@
         HP * 2 +
         4;
       const bh = HP * 2 + HL * (1 + pbLines(pb)) - 4;
-      // in alto, sotto il titolo del primo grafico, dal lato della linea con più spazio
+      // at the top, below the title of the first chart, on the side of the line with more room
       const by = TOP + 24,
         bx = Math.max(
           M,
@@ -5608,13 +5608,13 @@
         let tx = bx + PB.pad;
         for (const [t, b, col] of parts) {
           ctx.font = `${b ? 650 : 400} ${PB.font}px ${FONT}`;
-          ctx.fillStyle = col || c.fg; // "Ufficiale" nel verde della sua linea
+          ctx.fillStyle = col || c.fg; // "Ufficiale" in the green of its line
           ctx.fillText(t, tx, ty);
           tx += ctx.measureText(t).width;
         }
       }
     }
-    // in fondo a destra solo "Realizzato da signalkuppe.com", piccolo (niente riga dei crediti dei dati)
+    // bottom right only "Realizzato da signalkuppe.com", small (no data credits row)
     ctx.textAlign = "right";
     ctx.font = `700 9.5px ${FONT}`;
     ctx.fillStyle = c.fg;
@@ -5645,7 +5645,7 @@
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
-  /** Condividi (menu del telefono; dove non c'è, scarica) o Scarica: la stessa immagine. */
+  /** Share (phone menu; where missing, download) or Download: the same image. */
   async function chartImage(btn, share) {
     if (!chartData) return;
     btn.disabled = true;
@@ -5676,13 +5676,13 @@
       const btn = ev.target.closest("button[data-act]");
       if (!btn) return;
       if (btn.dataset.act === "remove") clearChartPin();
-      else chartImage(btn, btn.dataset.act === "share"); // stessa immagine dei pulsanti in alto, con l'ora fissata
+      else chartImage(btn, btn.dataset.act === "share"); // same image as the buttons at the top, with the pinned time
     });
   $("chart-download").addEventListener("click", (e) =>
     chartImage(e.currentTarget, false),
   );
 
-  /** 3–5 valori "tondi" fra lo e hi per l'asse. */
+  /** 3–5 "round" values between lo and hi for the axis. */
   function niceTicks(lo, hi, n = 3) {
     const raw = (hi - lo) / n || 1;
     const mag = 10 ** Math.floor(Math.log10(raw));
@@ -5700,15 +5700,15 @@
     ];
   };
 
-  /** Disegna il meteogramma nella finestra; con `exportW` restituisce invece l'SVG largo exportW (per l'immagine). */
-  /** Spaghetti di un ensemble: una linea per membro (sottili, colorate), il controllo ("ufficiale", GFS) in verde e la media spessa;
-   *  sopra la temperatura a 850 hPa, sotto la pioggia di ogni 6 ore. Tooltip con media e forbice dei membri. */
+  /** Draws the meteogram in the dialog; with `exportW` it returns instead the SVG exportW wide (for the image). */
+  /** Ensemble spaghetti: one line per member (thin, coloured), the control ("ufficiale", GFS) in green and the thick mean;
+   *  temperature at 850 hPa on top, 6-hourly precipitation below. Tooltip with mean and spread of the members. */
   function drawEnsemble(exportW, exportH) {
     const { ensemble: E, run } = chartData;
     const t0 = runDate(run).getTime();
     const W = exportW || Math.max(280, chartUi.body.clientWidth);
-    const R = exportW ? CHART_R : 14; // nella finestra a destra basta l'ultima etichetta dei giorni (niente scala della pioggia); nell'immagine fa da margine
-    let L = CHART_AXIS, // si stringe sui numeri dell'asse (vedi sotto)
+    const R = exportW ? CHART_R : 14; // in the dialog the last day label is enough on the right (no precipitation scale); in the image it acts as a margin
+    let L = CHART_AXIS, // tightened onto the axis numbers (see below)
       pw = W - L - R;
     const HEAD = 30,
       GAP = 16,
@@ -5723,12 +5723,12 @@
         const v = rows.map((r) => r[i]).filter((x) => x != null);
         return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
       });
-    const ctl = E.control ? E.members.indexOf(E.control) : -1; // l'ensemble ECMWF dei dati aperti non ha il controllo
+    const ctl = E.control ? E.members.indexOf(E.control) : -1; // the ECMWF open-data ensemble has no control
     const panels = [
       { title: "Temperatura 850 hPa", unit: "°C", rows: E.t850, dec: 1, zero: true, ph: 170, clim: chartData.clim },
       { title: "Pioggia", unit: "mm in 6 ore", rows: E.tp, dec: 1, min: 2, floor0: true, ph: 110 },
     ];
-    // altezza: quella dell'immagine o, nella finestra, tutta quella disponibile (i pannelli si allungano)
+    // height: the image's or, in the dialog, all the available one (the panels stretch)
     const fitH = exportH || (chartUi.body.clientHeight > 320 ? chartUi.body.clientHeight - 12 : null);
     const avail = fitH ? fitH - AXIS - panels.length * (HEAD + GAP) + GAP : null;
     if (avail) {
@@ -5752,7 +5752,7 @@
       p.hi = Math.max(hi, p.ticks[p.ticks.length - 1]);
     }
     {
-      // il grafico parte subito dopo il numero più largo dell'asse (11-11.5 px, ~6.6 px per cifra)
+      // the chart starts right after the widest axis number (11-11.5 px, ~6.6 px per digit)
       const chars = Math.max(...panels.flatMap((p) => p.ticks.map((t) => tickText(t).length)));
       L = Math.ceil(chars * 6.6) + 5;
       pw = W - L - R;
@@ -5786,7 +5786,7 @@
         });
         return d;
       };
-      // membri perturbati: arcobaleno come le carte classiche, sottili e un po' trasparenti
+      // perturbed members: rainbow like the classic charts, thin and slightly transparent
       p.rows.forEach((row, k) => {
         if (k === ctl) return;
         const hue = Math.round((k * 300) / p.rows.length);
@@ -5794,7 +5794,7 @@
           `<path d="${path(row)}" fill="none" stroke="hsl(${hue} 70% 50%)" stroke-width="0.8" stroke-opacity="0.6" stroke-linejoin="round"/>`,
         );
       });
-      // climatologia 1991-2020 del giorno e dell'ora: rossa continua, più spessa dei membri
+      // 1991-2020 climatology of the day and hour: solid red, thicker than the members
       if (p.clim)
         svg.push(
           `<path d="${path(p.clim)}" fill="none" stroke="${CLIM_RED}" stroke-width="${exportW ? 1.6 : 2}" stroke-linejoin="round" stroke-linecap="round"/>`,
@@ -5802,7 +5802,7 @@
       svg.push(
         `<path class="ch-ens-mean" d="${path(p.mean)}" fill="none" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>`,
       );
-      // controllo sopra a tutto, più spesso e con un bordo del colore di fondo che lo stacca dagli spaghetti
+      // control above everything, thicker and with an edge in the background colour that separates it from the spaghetti
       if (ctl >= 0) {
         const d = path(p.rows[ctl]);
         svg.push(
@@ -5814,7 +5814,7 @@
     }
     const H = panels[panels.length - 1].bot + AXIS;
     const yBot = H - AXIS;
-    // giorni a mezzanotte (ora di Roma), etichette solo se c'è spazio
+    // days at midnight (Rome time), labels only if there is room
     const hourOf = (h) =>
       +new Date(t0 + h * 3600e3).toLocaleString("it-IT", {
         timeZone: "Europe/Rome",
@@ -5836,8 +5836,8 @@
         `<text class="ch-tick" x="${X(h)}" y="${yBot + 16}" text-anchor="middle" font-weight="600">${d}</text>`,
       );
     }
-    // valori a un passo in tabella: colonne Ufficiale (il controllo, se c'è) e Media, una riga per grafico; per
-    // tooltip, scheda dell'ora fissata e immagine
+    // values at a step in a table: Ufficiale (the control, if any) and Media columns, one row per chart; for
+    // tooltip, pinned time card and image
     const valueTable = (i) => {
       const cols = [...(ctl >= 0 ? [{ t: "Ufficiale", col: OFFICIAL, row: (p) => p.rows[ctl][i] }] : []),
         { t: "Media", row: (p) => p.mean[i] }];
@@ -5849,7 +5849,7 @@
     const unitOf = (p) => (p.title === "Pioggia" ? "mm" : "°C");
     const pin = chartPin != null && steps.includes(chartPin) ? chartPin : null;
     if (exportW) {
-      // ora fissata: linea sul grafico e riquadro con ora e valori accanto, in alto (come gli altri grafici)
+      // pinned time: line on the chart and box with time and values next to it, at the top (like the other charts)
       if (pin != null)
         svg.push(`<line class="ch-pin" x1="${X(pin)}" x2="${X(pin)}" y1="${HEAD + 2}" y2="${yBot}"/>`);
       const i = steps.indexOf(pin);
@@ -5868,7 +5868,7 @@
     const rowsHtml = (st) => {
       const tb = valueTable(steps.indexOf(st));
       if (!tb) return "";
-      // una riga per grafico, "Ufficiale 3.7 °C  Media 2.3 °C": le celle dei valori hanno tutte la stessa larghezza
+      // one row per chart, "Ufficiale 3.7 °C  Media 2.3 °C": the value cells all have the same width
       const label = ({ t, col }) => `<span class="h"${col ? ` style="color:${col}"` : ""}>${t}</span>`;
       return (
         `<div class="ens-vals" style="grid-template-columns:${tb.head.map(() => "auto 1fr").join(" ")}">` +
@@ -5881,16 +5881,16 @@
       label: "Spaghetti dell'ensemble" });
   }
 
-  /** Interazioni comuni dei grafici "nel tempo" a un pannello (spaghetti, modelli a confronto): tooltip al passaggio,
-   *  ora fissata col clic destro o la pressione prolungata (scheda con Condividi · Scarica · ✕). */
-  /** Posizione verticale di un tooltip dei grafici dentro la parte visibile della finestra: vicino al fondo non deve
-   *  uscire, altrimenti la finestra si allunga e compare la barra di scorrimento. */
+  /** Shared interactions of the single-panel "over time" charts (spaghetti, model comparison): hover tooltip,
+   *  time pinned with right click or long press (card with Condividi · Scarica · ✕). */
+  /** Vertical position of a chart tooltip inside the visible part of the dialog: near the bottom it must not
+   *  overflow, otherwise the dialog grows and the scrollbar appears. */
   function tipTop(tip, top) {
     const b = chartUi.body;
     return `${Math.max(b.scrollTop + 4, Math.min(top, b.scrollTop + b.clientHeight - tip.offsetHeight - 4))}px`;
   }
-  /** Col dito: un tocco fuori dal grafico (titoli, legenda) chiude il tooltip di lettura (non la scheda dell'ora
-   *  fissata, che ha la sua ✕). Proprietà e non listener: a ogni ridisegno il gestore precedente si sostituisce. */
+  /** By touch: a tap outside the chart (titles, legend) closes the reading tooltip (not the pinned time card,
+   *  which has its own ✕). A property, not a listener: at every redraw the previous handler is replaced. */
   function closeTipOutside(tip, hide, canClose = () => !tip.classList.contains("pinned")) {
     chartUi.body.onpointerdown = (ev) => {
       if (ev.pointerType === "mouse" || tip.hidden || !canClose()) return;
@@ -5920,7 +5920,7 @@
       for (let k = 1; k < steps.length; k++) if (Math.abs(steps[k] - h) < Math.abs(steps[i] - h)) i = k;
       return steps[i];
     };
-    // tooltip di lettura (scuro) o scheda dell'ora fissata (chiara, con Condividi · Scarica · ✕)
+    // reading tooltip (dark) or pinned time card (light, with Condividi · Scarica · ✕)
     const showAt = (st, clientX, clientY, pinned = false) => {
       cursor.setAttribute("x1", X(st));
       cursor.setAttribute("x2", X(st));
@@ -5952,7 +5952,7 @@
       pinLine.setAttribute("x1", X(chartPin));
       pinLine.setAttribute("x2", X(chartPin));
     };
-    // scheda dell'ora fissata in alto, accanto alla sua linea
+    // pinned time card at the top, next to its line
     const showPinTip = () => {
       const r = svgEl.getBoundingClientRect();
       showAt(chartPin, r.left + (X(chartPin) / W) * r.width, chartUi.body.getBoundingClientRect().top + 4, true);
@@ -5971,23 +5971,23 @@
       const btn = ev.target.closest("button[data-act]");
       if (!btn) return;
       if (btn.dataset.act === "remove") unpin();
-      else chartImage(btn, btn.dataset.act === "share"); // stessa immagine dei pulsanti in alto, con l'ora fissata
+      else chartImage(btn, btn.dataset.act === "share"); // same image as the buttons at the top, with the pinned time
     });
-    // mouse: passandoci sopra si leggono i valori, il clic destro fissa l'ora. Dito: scorrendo si leggono i valori,
-    // la pressione prolungata fissa l'ora (poi trascinando la si sposta); tornando a scorrere si toglie
+    // mouse: hovering reads the values, right click pins the time. Touch: sliding reads the values,
+    // a long press pins the time (then dragging moves it); sliding again removes it
     const PRESS_MS = 450,
       SLOP = 8;
     let touch = null;
     hit.addEventListener("contextmenu", (ev) => {
       ev.preventDefault();
-      if (ev.pointerType === "touch" || touch) return; // col dito ci pensa la pressione prolungata
+      if (ev.pointerType === "touch" || touch) return; // with touch the long press takes care of it
       pinAt(stepAt(ev.clientX));
     });
     hit.addEventListener("pointerdown", (ev) => {
       if (ev.pointerType === "mouse") return;
       const st = stepAt(ev.clientX);
-      if (touch) clearTimeout(touch.timer); // secondo dito: il timer del primo non deve scattare dopo
-      // il timer usa il suo oggetto: quando scatta `touch` può essere già stato azzerato o sostituito
+      if (touch) clearTimeout(touch.timer); // second finger: the first one's timer must not fire later
+      // the timer uses its own object: when it fires `touch` may already have been reset or replaced
       const t = (touch = { x0: ev.clientX, moved: false, pinning: false });
       t.timer = setTimeout(() => {
         if (touch !== t) return;
@@ -6013,15 +6013,15 @@
         }
         return;
       }
-      if (ev.pointerType !== "mouse" || chartPin != null) return; // con l'ora fissata resta la sua scheda
+      if (ev.pointerType !== "mouse" || chartPin != null) return; // with the time pinned its card stays
       showAt(st, ev.clientX, ev.clientY);
     });
     const endTouch = (ev) => {
       if (!touch) return;
       clearTimeout(touch.timer);
       const tap = ev.type === "pointerup" && !touch.moved && !touch.pinning;
-      if (tap && chartPin != null) unpin(); // tocco breve con un'ora fissata: la toglie
-      else if (tap && !tip.hidden) hide(); // tocco breve col tooltip aperto: lo chiude
+      if (tap && chartPin != null) unpin(); // short tap with a pinned time: removes it
+      else if (tap && !tip.hidden) hide(); // short tap with the tooltip open: closes it
       else if (tap) showAt(stepAt(ev.clientX), ev.clientX, ev.clientY);
       else if (ev.type === "pointercancel" && chartPin == null) hide();
       touch = null;
@@ -6033,13 +6033,13 @@
     });
     closeTipOutside(tip, hide);
     clearChartPin = unpin;
-    renderPin(); // ridisegno (finestra ridimensionata): l'ora fissata resta
+    renderPin(); // redraw (dialog resized): the pinned time stays
     if (pin != null) showPinTip();
     }
 
-  // ---------- modelli a confronto: la precipitazione cumulata o la temperatura a 850 hPa di tutti i modelli e della
-  // media nella località, dalle serie dei meteogrammi. Le corse partono a ore diverse: il grafico parte dall'inizio della
-  // corsa più recente e la pioggia si somma da lì, così le linee partono insieme da 0 (come su Wetterzentrale).
+  // ---------- model comparison: accumulated precipitation or temperature at 850 hPa of all models and the
+  // median at the place, from the meteogram series. Runs start at different hours: the chart starts at the start of the
+  // most recent run and precipitation is summed from there, so the lines start together from 0 (like on Wetterzentrale).
   const MULTI_COLORS = {
     gfs: "#51cf66",
     ecmwf: "#20c997",
@@ -6049,7 +6049,7 @@
     "icon-ch2": "#cc5de8",
     arome: "#4dabf7",
     wrf: "#ff6b6b",
-    // la media: spessa, nel colore del testo (come la media degli spaghetti)
+    // the median: thick, in the text colour (like the spaghetti mean)
   };
   async function loadMulti() {
     const request = chartContext;
@@ -6063,7 +6063,7 @@
     $("chart-readout").hidden = true;
     writeChartHash();
     const { lat, lon } = request.place;
-    const models = meta.models; // anche la media
+    const models = meta.models; // the median too
     const got = await Promise.all(
       models.map(async (m) => {
         const r = (runs[m.id] || []).find((x) => !x.incoming && x.variables?.[v]);
@@ -6083,7 +6083,7 @@
       return;
     }
     const T0 = Math.max(...ok.map((m) => runDate(m.run).getTime()));
-    // ogni modello: cumulata dalla sua partenza (0 all'inizio della corsa), riportata a 0 all'istante comune T0
+    // each model: accumulated since its start (0 at the start of the run), brought back to 0 at the common time T0
     const lines = ok
       .map((m) => {
         const start = runDate(m.run).getTime();
@@ -6102,11 +6102,11 @@
         };
         let out;
         if (v === "tp") {
-          const base = at(0) ?? 0; // pioggia: somma dall'istante comune
+          const base = at(0) ?? 0; // precipitation: sum from the common time
           out = [[0, 0], ...pts.filter(([h]) => h > 0).map(([h, x]) => [h, Math.max(0, x - base)])];
         } else {
-          // temperatura: i valori veri dall'istante comune in poi (il punto a 0 dell'inizio corsa vale solo per la
-          // pioggia); all'istante comune il valore interpolato fra le due uscite vicine, se c'è
+          // temperature: the real values from the common time on (the 0 point at the start of the run only applies to
+          // precipitation); at the common time the value interpolated between the two nearby outputs, if any
           const real = pts.slice(1);
           const k = real.findIndex(([h]) => h >= 0);
           const first =
@@ -6134,7 +6134,7 @@
       x1 = steps[steps.length - 1];
     const valueAt = (l, h) => {
       const p = l.pts;
-      if (h > p[p.length - 1][0] + 1e-6) return null; // oltre la fine del modello
+      if (h > p[p.length - 1][0] + 1e-6) return null; // beyond the end of the model
       for (let i = 1; i < p.length; i++)
         if (p[i][0] >= h) return p[i - 1][1] + ((p[i][1] - p[i - 1][1]) * (h - p[i - 1][0])) / (p[i][0] - p[i - 1][0] || 1);
       return p[0][1];
@@ -6149,8 +6149,8 @@
       tickText = (t) => (t % 1 ? t.toFixed(1) : String(t)).replace("-", "−");
     const L = Math.ceil(Math.max(...ticks.map((t) => tickText(t).length)) * 6.6) + 5,
       pw = W - L - R;
-    // legenda sotto l'asse: colore e nome, a più colonne
-    const per = Math.max(2, Math.floor((pw + L) / 150)), // ~150 px per voce ("ICON-CH2 12.5 mm")
+    // legend below the axis: colour and name, in several columns
+    const per = Math.max(2, Math.floor((pw + L) / 150)), // ~150 px per entry ("ICON-CH2 12.5 mm")
       legRows = Math.ceil(lines.length / per),
       LEG = 14 + legRows * 18;
     const fitH = exportH || (chartUi.body.clientHeight > 320 ? chartUi.body.clientHeight - 12 : null);
@@ -6183,12 +6183,12 @@
       });
       svg.push(`<text class="ch-tick" x="${X(h)}" y="${yBot + 16}" text-anchor="middle" font-weight="600">${d}</text>`);
     }
-    // la media per ultima, sopra le altre, spessa nel colore del testo
+    // the median last, above the others, thick in the text colour
     for (const l of [...lines.filter((x) => !x.mean), ...lines.filter((x) => x.mean)])
       svg.push(
         `<path ${l.mean ? 'class="ch-ens-mean" ' : ""}d="${l.pts.map(([h, x], i) => `${i ? "L" : "M"}${X(h).toFixed(1)},${Y(x).toFixed(1)}`).join("")}" fill="none"${l.mean ? "" : ` stroke="${l.color}"`} stroke-width="${l.mean ? (exportW ? 2.4 : 3) * (temp ? 0.8 : 1) : (exportW ? 1.6 : 2) * (temp ? 0.6 : 1)}" stroke-linejoin="round" stroke-linecap="round"/>`,
       );
-    // legenda: con la pioggia dal totale più alto al più basso (col totale a fine corsa), con la temperatura i nomi
+    // legend: with precipitation from the highest total to the lowest (with the total at the end of the run), with temperature the names
     const sorted = temp ? lines : [...lines].sort((a, b) => b.pts.at(-1)[1] - a.pts.at(-1)[1]);
     const colW = (pw + L) / per;
     sorted.forEach((l, i) => {
@@ -6196,12 +6196,12 @@
         y = yBot + AXIS + 4 + Math.floor(i / per) * 18;
       svg.push(
         `<line ${l.mean ? 'class="ch-ens-mean" ' : `stroke="${l.color}" `}x1="${x}" x2="${x + 14}" y1="${y}" y2="${y}" stroke-width="3" stroke-linecap="round"/>`,
-        // ch-leg: font proprio (nell'immagine un testo senza la classe del titolo resterebbe con il font di sistema serif)
+        // ch-leg: own font (in the image a text without the title class would keep the serif system font)
         `<text class="ch-leg" x="${x + 19}" y="${y + 4}"><tspan>${l.label}</tspan>${temp ? "" : ` ${fmt(l.pts.at(-1)[1])} ${unit}`}</text>`,
       );
     });
     const H = yBot + AXIS + LEG;
-    // valori a un'ora: ogni modello, dal più alto, per tooltip, scheda dell'ora fissata e immagine
+    // values at one time: each model, from the highest, for tooltip, pinned time card and image
     const rowsAt = (h) =>
       lines
         .map((l) => ({ l, v: valueAt(l, h) }))
@@ -6231,9 +6231,9 @@
     mountTimeChart({ svg, W, H, L, pw, x0, x1, steps, X, HEAD, yBot, rowsHtml, headOf, pin, label: "Modelli a confronto" });
   }
 
-  // ---------- radiosondaggi osservati (Università del Wyoming, vedi app/soundings.py): le stazioni sulla mappa
-  // (Livelli extra, in alternativa a radar e satellite) e, toccandole, il diagramma Skew-T dell'ultimo lancio
-  // elenco delle stazioni con i lanci: si richiede dopo 15 minuti (pagina lasciata aperta, nuovi lanci) o se era fallito
+  // ---------- observed soundings (University of Wyoming, see app/soundings.py): the stations on the map
+  // (Extra layers, as an alternative to radar and satellite) and, when tapped, the Skew-T diagram of the latest launch
+  // list of stations with their launches: requested again after 15 minutes (page left open, new launches) or if it failed
   let soundingIndex = null,
     soundingIndexAt = 0;
   async function getSoundingIndex() {
@@ -6242,7 +6242,7 @@
       soundingIndex = fetch(STATIC ? "data/soundings/index.json" : "api/soundings")
         .then((r) => (r.ok ? r.json() : Promise.reject()))
         .catch(() => {
-          soundingIndexAt = 0; // al prossimo tentativo si richiede
+          soundingIndexAt = 0; // requested again at the next attempt
           return [];
         });
     }
@@ -6256,7 +6256,7 @@
     return r.json();
   }
   map.createPane("soundings");
-  map.getPane("soundings").style.zIndex = 640; // sopra le località
+  map.getPane("soundings").style.zIndex = 640; // above the places
   const soundingLayer = L.layerGroup();
   const BALLOON =
     '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">' +
@@ -6265,7 +6265,7 @@
   async function renderSoundings() {
     const on = state.extra === "snd" && !synoptic();
     const index = on ? await getSoundingIndex() : [];
-    soundingLayer.clearLayers(); // dopo l'attesa: due chiamate ravvicinate non raddoppiano le stazioni
+    soundingLayer.clearLayers(); // after the wait: two close calls do not double the stations
     if (!on || state.extra !== "snd" || synoptic()) {
       soundingLayer.remove();
       return;
@@ -6274,7 +6274,7 @@
     for (const st of index) {
       if (state.extra !== "snd") continue;
       const short = st.name.replace(/ \(.*\)$/, "");
-      const ok = st.times.length > 0; // lancio non ancora scaricato: icona d'errore e avviso al tocco
+      const ok = st.times.length > 0; // launch not downloaded yet: error icon and notice on tap
       const m = L.marker([st.lat, st.lon], {
         pane: "soundings",
         keyboard: false,
@@ -6285,7 +6285,7 @@
         }),
         title: ok ? `Radiosondaggio ${st.name}` : `${st.name}: radiosondaggio non ancora disponibile`,
       }).addTo(soundingLayer);
-      // senza dati: un avviso che sparisce da solo (un fumetto sposterebbe la mappa vicino ai bordi)
+      // without data: a notice that disappears by itself (a popup would move the map near the edges)
       m.on("click", () =>
         ok ? openSounding(st.id) : toast(`${short}: radiosondaggio non ancora disponibile, riprova più tardi`, true),
       );
@@ -6295,8 +6295,8 @@
   async function openSounding(station, time = null, pushHistory = true) {
     const st = (await getSoundingIndex()).find((x) => x.id === station);
     if (!st || !st.times.length) return;
-    const t = st.times[0]; // sempre l'ultimo lancio disponibile
-    chartUi.dialog.classList.add("side-panel"); // su desktop pannello stretto che entra da destra
+    const t = st.times[0]; // always the latest available launch
+    chartUi.dialog.classList.add("side-panel"); // on desktop a narrow panel sliding in from the right
     chartUi.title.textContent = st.name;
     chartUi.model.hidden = true;
     chartUi.multi.hidden = true;
@@ -6314,7 +6314,7 @@
     chartUi.dialog.focus();
     await loadSounding();
   }
-  // pannello laterale: un clic fuori (sulla mappa velata) lo chiude
+  // side panel: a click outside (on the veiled map) closes it
   chartUi.dialog.addEventListener("click", (e) => {
     if (e.target !== chartUi.dialog || !chartUi.dialog.classList.contains("side-panel")) return;
     const r = chartUi.dialog.getBoundingClientRect();
@@ -6329,7 +6329,7 @@
   async function loadSounding() {
     const request = chartContext;
     const { station, time } = request.sounding;
-    chartUi.details.textContent = "Radiosondaggio"; // poi ora del lancio, zero termico e base nubi (drawSkewT)
+    chartUi.details.textContent = "Radiosondaggio"; // then launch time, freezing level and cloud base (drawSkewT)
     chartUi.warn.hidden = true;
     chartUi.body.innerHTML = '<div class="chart-empty">Caricamento…</div>';
     chartData = null;
@@ -6347,12 +6347,12 @@
     }
   }
 
-  // ---------- diagramma Skew-T: pressione in scala logaritmica in verticale, isoterme inclinate di 45°; temperatura
-  // (rossa) e punto di rugiada (verde), adiabatiche secche, zero gradi evidenziato, vento a destra con le barbe
+  // ---------- Skew-T diagram: pressure on a logarithmic vertical scale, isotherms slanted at 45°; temperature
+  // (red) and dew point (green), dry adiabats, zero degrees highlighted, wind on the right with barbs
   const DEW_GREEN = "#40c057";
   const TEMP_RED = "#ff6b6b";
-  /** Indici dal profilo: zero termico (prima volta che la temperatura scende sotto 0 salendo) e base delle nubi da
-   *  sollevamento (LCL) della particella al suolo (formula di Espy, ~125 m per grado di differenza T - Td). */
+  /** Indices from the profile: freezing level (first time the temperature drops below 0 going up) and cloud base by
+   *  lifting (LCL) of the surface parcel (Espy's formula, ~125 m per degree of T - Td spread). */
   function soundingIndices(levels) {
     const lv = levels.filter((l) => l[1] != null && l[2] != null);
     let zero = null;
@@ -6364,7 +6364,7 @@
         break;
       }
     }
-    if (zero == null && lv[0]?.[2] < 0) zero = lv[0][1]; // già sotto zero al suolo
+    if (zero == null && lv[0]?.[2] < 0) zero = lv[0][1]; // already below zero at the surface
     const g = levels[0];
     const lcl = g && g[2] != null && g[3] != null ? g[1] + 125 * (g[2] - g[3]) : null;
     return { zero, lcl, ground: g?.[1] };
@@ -6373,21 +6373,21 @@
     const snd = chartData.sounding;
     const levels = snd.levels.filter((l) => l[0] >= 100);
     const avail = exportW || Math.max(280, chartUi.body.clientWidth);
-    const HEAD = 12, // ora e indici sono nel sottotitolo sotto la località
+    const HEAD = 12, // time and indices are in the subtitle below the place
       L = 34,
-      R = 46; // a destra le barbe del vento
+      R = 46; // wind barbs on the right
     const fitH = exportH || (chartUi.body.clientHeight > 320 ? chartUi.body.clientHeight - 12 : null);
-    const PH = Math.max(260, Math.min((fitH || 560) - HEAD - 40, (avail - L - R) * 2.2)); // sotto: gradi e legenda (40)
-    // diagramma più o meno quadrato: su schermi larghi non si allarga oltre (resterebbero 200 °C di scala)
+    const PH = Math.max(260, Math.min((fitH || 560) - HEAD - 40, (avail - L - R) * 2.2)); // below: degrees and legend (40)
+    // a roughly square diagram: on wide screens it does not grow further (200 °C of scale would remain)
     const pw = Math.min(avail - L - R, Math.round(PH * 0.85)),
       W = exportW || L + pw + R;
     const top = HEAD,
       bot = top + PH;
     const P0 = Math.max(1000, Math.ceil(levels[0][0] / 10) * 10 + 10),
       P1 = 100;
-    const Y = (p) => bot - ((Math.log(P0) - Math.log(p)) / (Math.log(P0) - Math.log(P1))) * PH; // 1000 hPa in basso
-    // temperature: 80 °C sulla larghezza; dal suolo a 100 hPa le isoterme si spostano di 70 °C verso destra, così
-    // il profilo resta dentro su schermi stretti e alti come su quelli larghi. Al suolo la temperatura cade a ~60%
+    const Y = (p) => bot - ((Math.log(P0) - Math.log(p)) / (Math.log(P0) - Math.log(P1))) * PH; // 1000 hPa at the bottom
+    // temperatures: 80 °C across the width; from the surface to 100 hPa the isotherms shift 70 °C to the right, so
+    // the profile stays inside on narrow, tall screens as on wide ones. At the surface the temperature falls at ~60%
     const degPx = pw / 80,
       SKEW = 70;
     const tGround = levels.find((l) => l[2] != null)?.[2] ?? 10;
@@ -6404,16 +6404,16 @@
       const d = new Date(Date.UTC(+k.slice(0, 4), +k.slice(4, 6) - 1, +k.slice(6, 8), +k.slice(8, 10)));
       return `${k.slice(8, 10)} UTC ${d.toLocaleDateString("it-IT", { timeZone: "UTC", weekday: "short", day: "numeric", month: "short" })}`;
     })();
-    // sottotitolo sotto la località (anche nell'immagine condivisa): ora del lancio, zero termico e base nubi
+    // subtitle below the place (in the shared image too): launch time, freezing level and cloud base
     chartUi.details.innerHTML = `${when} · <b class="snd-ix">Zero termico ${km(ix.zero)}</b> · <b class="snd-ix">base nubi ${km(ix.lcl)}</b>`;
-    // griglia: livelli di pressione
+    // grid: pressure levels
     for (const p of [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200, 150, 100]) {
       if (p > P0) continue;
       svg.push(`<line class="ch-grid" x1="${L}" x2="${L + pw}" y1="${Y(p)}" y2="${Y(p)}"/>`);
       svg.push(`<text class="ch-tick" x="${L - 4}" y="${Y(p) + 3.5}" text-anchor="end">${p}</text>`);
     }
     const g = [`<g clip-path="url(#skc)">`];
-    // isoterme ogni 10 °C (lo zero più marcato) e adiabatiche secche ogni 10 K
+    // isotherms every 10 °C (zero highlighted) and dry adiabats every 10 K
     for (let t = Math.floor((T0 - 100) / 10) * 10; t <= T1; t += 10)
       g.push(
         `<line x1="${X(t, P0)}" y1="${bot}" x2="${X(t, P1)}" y2="${top}" stroke="${t === 0 ? "#4dabf7" : "currentColor"}" stroke-opacity="${t === 0 ? 0.9 : 0.12}" stroke-width="${t === 0 ? 1.4 : 1}"/>`,
@@ -6434,8 +6434,8 @@
     g.push(line(3, DEW_GREEN, exportW ? 1.8 : 2.2), line(2, TEMP_RED, exportW ? 1.8 : 2.2));
     g.push("</g>");
     svg.push(...g);
-    // niente gradi sulle isoterme (troppo carico): le temperature si leggono nel tooltip, lo zero è in legenda
-    // vento: barbe a destra ai livelli principali (da dove viene; mezza barba 5 nodi, intera 10, triangolo 50)
+    // no degrees on the isotherms (too busy): temperatures are read in the tooltip, zero is in the legend
+    // wind: barbs on the right at the main levels (where it comes from; half barb 5 knots, full 10, triangle 50)
     const bx = L + pw + 24;
 
     const near = (p) => levels.reduce((a, b) => (Math.abs(b[0] - p) < Math.abs(a[0] - p) ? b : a));
@@ -6447,7 +6447,7 @@
         kt = l[5] / 1.852,
         a = (l[4] * Math.PI) / 180;
       const ux = Math.sin(a),
-        uy = -Math.cos(a); // verso da cui arriva
+        uy = -Math.cos(a); // direction it comes from
       const len = 20;
       const ex = bx + ux * len,
         ey = y + uy * len;
@@ -6455,7 +6455,7 @@
       let rest = Math.round(kt / 5) * 5,
         pos = 0;
       const px = -uy,
-        py = ux; // perpendicolare
+        py = ux; // perpendicular
       const at = (f) => [bx + ux * len * f, y + uy * len * f];
       while (rest >= 50) {
         const [x1, y1] = at(1 - pos),
@@ -6477,19 +6477,19 @@
       if (kt < 2.5) svg.push(`<circle cx="${bx}" cy="${y}" r="3" fill="none" stroke="currentColor" stroke-opacity="0.7"/>`);
       else svg.push(`<path d="${path}" fill="none" stroke="currentColor" stroke-opacity="0.8" stroke-width="1.2" stroke-linejoin="round"/>`);
     }
-    // legenda in fondo
+    // legend at the bottom
     const H = bot + 40;
     svg.push(
       `<line x1="${L}" x2="${L + 14}" y1="${H - 8}" y2="${H - 8}" stroke="${TEMP_RED}" stroke-width="3" stroke-linecap="round"/>`,
       `<text class="ch-leg" x="${L + 19}" y="${H - 4}"><tspan>Temperatura</tspan></text>`,
       `<line x1="${L + 120}" x2="${L + 134}" y1="${H - 8}" y2="${H - 8}" stroke="${DEW_GREEN}" stroke-width="3" stroke-linecap="round"/>`,
       `<text class="ch-leg" x="${L + 139}" y="${H - 4}"><tspan>Punto di rugiada</tspan></text>`,
-      // l'isoterma di zero gradi (blu, inclinata come tutte le isoterme): dove la incrocia la rossa c'è lo zero termico
+      // the zero-degree isotherm (blue, slanted like all isotherms): where the red line crosses it is the freezing level
       `<line x1="${L + 252}" x2="${L + 266}" y1="${H - 8}" y2="${H - 8}" stroke="#4dabf7" stroke-width="2" stroke-linecap="round"/>`,
       `<text class="ch-leg" x="${L + 271}" y="${H - 4}"><tspan>0 °C</tspan></text>`,
     );
     if (exportW) return { markup: svg.join("").replace(/currentColor/g, "#c9ced6"), W, H, pinBox: null };
-    // tooltip: il livello più vicino alla quota del puntatore
+    // tooltip: the level nearest to the pointer height
     chartUi.body.innerHTML =
       `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="Radiosondaggio" style="color:var(--fg);max-width:${W}px;display:block">${svg.join("")}` +
       `<line id="snd-cursor" x1="${L}" x2="${L + pw}" y1="0" y2="0" stroke="var(--fg)" stroke-opacity="0.5" visibility="hidden"/>` +
@@ -6521,7 +6521,7 @@
       tip.style.left = `${Math.min(Math.max(cx + 14 + w > br.width ? cx - 14 - w : cx + 14, 4), br.width - w - 4)}px`;
       tip.style.top = tipTop(tip, ev.clientY - br.top + chartUi.body.scrollTop - 20);
     };
-    // col dito: toccando si legge il livello, un tocco breve col tooltip già aperto lo chiude
+    // by touch: tapping reads the level, a short tap with the tooltip already open closes it
     let press = null;
     hit.addEventListener("pointermove", (ev) => {
       if (press && Math.hypot(ev.clientX - press.x, ev.clientY - press.y) > 8) press.moved = true;
@@ -6556,7 +6556,7 @@
     if (chartData.multi) return drawMulti(exportW, exportH);
     if (chartData.sounding) return drawSkewT(exportW, exportH);
     const { series, run, from, until } = chartData;
-    // Il grafico usa lo stesso intervallo della mappa. Fuori dalla modalità intervallo `from` è 0, come prima.
+    // The chart uses the same interval as the map. Outside interval mode `from` is 0, as before.
     const V = Object.fromEntries(
       Object.entries(series.vars).map(([k, v]) => {
         const keep = v.steps
@@ -6579,12 +6579,12 @@
     const t0 = runDate(run).getTime();
     const W = exportW || Math.max(280, chartUi.body.clientWidth);
     const R = CHART_R;
-    let L = CHART_AXIS, // si stringe sui numeri dell'asse, vedi sotto
+    let L = CHART_AXIS, // tightened onto the axis numbers, see below
       pw = W - L - R;
     let PH = 78;
     const HEAD = 30,
       GAP = 16,
-      AXIS = 34; // altezza grafico, titolo, spazio fra pannelli, asse dei tempi
+      AXIS = 34; // chart height, title, space between panels, time axis
     const steps = [...new Set(Object.values(V).flatMap((v) => v.steps))].sort(
       (a, b) => a - b,
     );
@@ -6594,13 +6594,13 @@
         '<div class="chart-empty">Nessun dato in questo punto.</div>';
       return;
     }
-    // l'asse parte dal primo valore (+3h: l'istante 0 dei modelli non si scarica), così le linee partono dal bordo;
-    // la pioggia delle prime ore (colonna 0-3h) resta nel totale e nell'accumulo
+    // the axis starts at the first value (+3h: the models' time 0 is not downloaded), so the lines start at the edge;
+    // the precipitation of the first hours (0-3h column) stays in the total and the accumulation
     const x0 = from > 0 ? from : steps[0],
       x1 = steps[steps.length - 1];
     const X = (h) => L + ((h - x0) / (x1 - x0 || 1)) * pw;
     const fmt = (x, d) => (x == null ? "—" : x.toFixed(d).replace("-", "−"));
-    // barre per intervallo dalle cumulate (pioggia, neve)
+    // bars per interval from the accumulations (precipitation, snow)
     const rawRain = series.vars.tp;
     const rainBaseIndex = rawRain?.steps.indexOf(from) ?? -1;
     const rainBase = from > 0 ? rawRain?.values[rainBaseIndex] : 0;
@@ -6623,9 +6623,9 @@
         };
       });
     const points = (v) => v.steps.map((x, i) => ({ x, y: v.values[i] }));
-    /** Pioggia: barre sempre al passo del modello (3 ore, 6 dopo +144h), per vedere quando piove; sopra, la curva
-     *  dell'accumulo dall'inizio del periodo mostrato (scala a destra). Il tooltip dice anche quanto vale, a ogni ora,
-     *  una finestra della stessa durata scelta sulla mappa. */
+    /** Precipitation: bars always at the model step (3 hours, 6 after +144h), to see when it rains; on top, the curve
+     *  of the accumulation since the start of the period shown (scale on the right). The tooltip also says, at each hour,
+     *  the value of a window of the same duration chosen on the map. */
     const rainHours =
       variable()?.modes?.includes("interval") && state.mode === "interval"
         ? intervalHours()
@@ -6633,7 +6633,7 @@
     const panels = [];
     if (V.tp) {
       const at = new Map(rawRain.steps.map((x, i) => [x, rawRain.values[i]]));
-      // neve (cm, 10:1 = mm d'acqua) dei modelli che la danno: per ogni barra la parte caduta come neve
+      // snow (cm, 10:1 = mm of water) of the models that provide it: for each bar the part that fell as snow
       const rawSnow = series.vars.sf;
       const snowAt = new Map((rawSnow?.steps || []).map((x, i) => [x, rawSnow.values[i]]));
       const snowBase = from > 0 ? (series.vars.sf?.values[series.vars.sf.steps.indexOf(from)] ?? null) : 0;
@@ -6646,7 +6646,7 @@
       };
       const data = intervals(V.tp).map(withSnow).map((d) => {
         if (!rainHours || d.b - d.a >= rainHours || d.cum == null) return d;
-        const a = V.tp.steps.filter((x) => x <= d.b - rainHours).pop() ?? 0; // come intervalPrev nella mappa
+        const a = V.tp.steps.filter((x) => x <= d.b - rainHours).pop() ?? 0; // like intervalPrev on the map
         const prev = a ? at.get(a) : 0;
         return {
           ...d,
@@ -6654,7 +6654,7 @@
           winH: d.b - a,
         };
       });
-      // con neve prevista il pannello diventa "Precipitazione" e la parte di neve delle barre è viola
+      // with snow forecast the panel becomes "Precipitazione" and the snow part of the bars is violet
       const snowTot = [...data].reverse().find((d) => d.snowCum != null)?.snowCum;
       const snowy = data.some((d) => d.snow >= 0.05);
       panels.push({
@@ -6666,13 +6666,13 @@
         dec: 1,
         min: 1,
         cum: data.map((d) => ({ x: d.b, y: d.cum })),
-        snowCum: snowy ? data.map((d) => ({ x: d.b, y: d.snowCum })) : null, // area viola dentro l'accumulo
+        snowCum: snowy ? data.map((d) => ({ x: d.b, y: d.snowCum })) : null, // violet area inside the accumulation
         cumLabel: from > 0 ? "periodo" : "tot",
-        // "tot. 15.2 mm (12.3 cm)": tra parentesi la neve, se c'è
+        // "tot. 15.2 mm (12.3 cm)": the snow in brackets, if any
         note:
           `${from > 0 ? "periodo" : "tot."} ${fmt([...data].reverse().find((d) => d.cum != null)?.cum, 1)} mm` +
           (snowy ? ` (${fmt(snowTot, 1)} cm)` : ""),
-        tip: (d) => `+${d.b - d.a}h`, // solo la durata della colonna: la grandezza si capisce dai mm
+        tip: (d) => `+${d.b - d.a}h`, // only the column duration: the field is clear from the mm
       });
     }
     if (V.t850)
@@ -6714,14 +6714,14 @@
         tip: () => "Vento 10 m",
       });
     }
-    // valori di un pannello a un passo: per il tooltip (con <b>) e per i titoli dell'immagine (testo semplice)
-    // barre: quella che contiene il passo (con le cumulate lunghe una barra copre più passi)
+    // values of a panel at a step: for the tooltip (with <b>) and for the image titles (plain text)
+    // bars: the one containing the step (with long accumulations one bar covers several steps)
     const valueAt = (p, st) =>
       p.data.find((e) =>
         p.kind === "bar" ? st > e.a && st <= e.b : e.x === st,
       );
     const valueText = (p, d, b = (x) => x, span = true) => {
-      // span: "in 3h" per le barre (il tooltip lo dice già)
+      // span: "in 3h" for the bars (the tooltip already says it)
       const extra =
         p.arrows && d.y != null
           ? dirName(d.u, d.v)
@@ -6733,21 +6733,21 @@
                 : "") +
               ` · ${p.cumLabel || "tot"} ${b(fmt(d.cum, p.dec))} ${p.unit}` +
               (d.snowCum >= 0.05 ? ` (${b(fmt(d.snowCum, 1))} cm)` : "")
-            : ""; // cumulata della mappa (se scelta) e totale dall'inizio
-      const snow = p.kind === "bar" && d.snow >= 0.05 ? ` (${b(fmt(d.snow, 1))} cm)` : ""; // neve, come nel titolo
+            : ""; // map accumulation (if chosen) and total since the start
+      const snow = p.kind === "bar" && d.snow >= 0.05 ? ` (${b(fmt(d.snow, 1))} cm)` : ""; // snow, as in the title
       return `${b(fmt(d.y, p.dec))} ${p.unit}${span && p.kind === "bar" ? ` in ${d.b - d.a}h` : ""}${snow}${extra}`;
     };
     const pin =
       exportW && chartPin != null && steps.includes(chartPin) ? chartPin : null;
-    // immagine verticale: i pannelli si allungano fino a riempire l'altezza disponibile
+    // portrait image: the panels stretch to fill the available height
     if (exportH && panels.length)
       PH = Math.max(
         48,
         Math.floor((exportH - AXIS) / panels.length - HEAD - GAP),
       );
     for (const p of panels) p.h = PH;
-    // a schermo: i pannelli riempiono la finestra, la precipitazione (barre fitte) un po' più alta delle curve;
-    // mai sotto PH (su schermi bassi la finestra scorre come prima) né sopra CHART_MAX_PH
+    // on screen: the panels fill the dialog, precipitation (dense bars) a bit taller than the curves;
+    // never below PH (on short screens the dialog scrolls as before) nor above CHART_MAX_PH
     if (!exportW && panels.length) {
       const body = chartUi.body;
       const free =
@@ -6762,7 +6762,7 @@
     }
     const H = panels.reduce((s, p) => s + HEAD + p.h + GAP, 0) + AXIS;
     const svg = [];
-    // giorni (mezzanotte locale) e ore ogni 6 ore, ora di Roma come nel resto della pagina
+    // days (local midnight) and hours every 6 hours, Rome time as in the rest of the page
     const hourOf = (h) =>
       +new Date(t0 + h * 3600e3).toLocaleString("it-IT", {
         timeZone: "Europe/Rome",
@@ -6778,7 +6778,7 @@
       if (hh === 0) days.push(h);
       else if (hh % every === 0) hours.push([h, hh]);
     }
-    // scala di ogni pannello (estremi e numeri dell'asse), prima di disegnare: serve la larghezza dei numeri
+    // scale of each panel (ends and axis numbers), before drawing: the width of the numbers is needed
     const tickText = (t) => fmt(t, Math.abs(t) < 10 && t % 1 ? 1 : 0);
     for (const p of panels) {
       const vals = p.data.map((d) => d.y).filter((y) => y != null);
@@ -6797,8 +6797,8 @@
       const ticks = niceTicks(lo, hi);
       p.scale = { ticks, lo: Math.min(lo, ticks[0]), hi: Math.max(hi, ticks[ticks.length - 1]) };
     }
-    // il grafico parte subito dopo il numero più largo dell'asse a sinistra (11-11.5 px, ~6.6 px per cifra): più largo
-    // soprattutto su telefono
+    // the chart starts right after the widest axis number on the left (11-11.5 px, ~6.6 px per digit): wider
+    // especially on phones
     if (panels.length) {
       const chars = Math.max(...panels.flatMap((p) => p.scale.ticks.map((t) => tickText(t).length)));
       L = Math.ceil(chars * 6.6) + 5;
@@ -6834,13 +6834,13 @@
       if (p.kind === "bar") {
         let accLine = "";
         if (p.cum) {
-          // accumulo dall'inizio della corsa: area azzurra dietro le barre, linea blu sopra, scala a destra
+          // accumulation since the start of the run: light blue area behind the bars, blue line on top, scale on the right
           const cvals = p.cum.map((d) => d.y).filter((y) => y != null);
           const cmax = Math.max(1, ...cvals),
             cticks = niceTicks(0, cmax);
           const cstep = cticks[1] - cticks[0] || 1;
           while (cticks[cticks.length - 1] < cmax)
-            cticks.push(cticks[cticks.length - 1] + cstep); // la linea resta nel pannello
+            cticks.push(cticks[cticks.length - 1] + cstep); // the line stays in the panel
           const chi = cticks[cticks.length - 1] || 1;
           const Yc = (y) => bot - (y / chi) * PH;
           let path = `M${X(x0).toFixed(1)},${bot}`,
@@ -6854,7 +6854,7 @@
             `<path class="ch-acc-area" d="${path}L${lastX.toFixed(1)},${bot}Z" stroke="none"/>`,
           );
           if (p.snowCum) {
-            // neve accumulata (cm, 10:1 = mm d'acqua: stessa scala) come area viola sotto quella della precipitazione
+            // accumulated snow (cm, 10:1 = mm of water: same scale) as a violet area below the precipitation one
             let sp = `M${X(x0).toFixed(1)},${bot}`,
               sx = X(x0);
             for (const d of p.snowCum)
@@ -6873,16 +6873,16 @@
               `<text class="ch-tick ch-acc-tick" x="${L + pw + 5}" y="${Yc(t) + 3.5}">${fmt(t, 0)}</text>`,
             );
         }
-        const flakes = []; // colonne con neve: fiocco sopra
+        const flakes = []; // columns with snow: snowflake on top
         for (const d of p.data) {
-          if (d.y == null || d.y < 0.05 || d.b <= x0) continue; // colonna prima dell'inizio dell'asse
+          if (d.y == null || d.y < 0.05 || d.b <= x0) continue; // column before the start of the axis
           const xa = X(Math.max(d.a, x0)) + 1,
             xb = X(d.b) - 1,
             y = Y(d.y);
           svg.push(
             `<rect x="${xa}" y="${y}" width="${Math.max(1, xb - xa)}" height="${Math.max(0, bot - y)}" rx="1.5" fill="${p.color}"${pin != null && pin > d.a && pin <= d.b ? ' class="ch-pin-bar"' : ""}/>`,
           );
-          // neve: la parte alta della barra, in viola (quanta della precipitazione cade come neve)
+          // snow: the upper part of the bar, in violet (how much of the precipitation falls as snow)
           if (d.snow >= 0.05) {
             const ys = y + (bot - y) * (d.snow / d.y);
             svg.push(
@@ -6891,7 +6891,7 @@
             flakes.push({ x: (xa + xb) / 2, y: y - 3, cm: d.snow });
           }
         }
-        // fiocco sopra ogni colonna con neve (\uFE0E: simbolo di testo, non l'emoji colorata)
+        // snowflake above each column with snow (︎: text symbol, not the coloured emoji)
         for (const f of flakes)
           svg.push(
             `<text x="${f.x.toFixed(1)}" y="${f.y.toFixed(1)}" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="${SNOW_BAR}">\u2744\uFE0E</text>`,
@@ -6915,11 +6915,11 @@
           p.pinDot = `<circle class="ch-pin-dot" cx="${X(pin).toFixed(1)}" cy="${Y(pd.y).toFixed(1)}" r="4" fill="${p.color}"/>`;
       }
       if (p.arrows) {
-        // frecce verso dove va il vento, una ogni ~22 px
+        // arrows pointing where the wind goes, one every ~22 px
         const k = Math.max(1, Math.ceil(22 / (pw / p.data.length)));
         p.data.forEach((d, j) => {
           if (j % k || d.u == null || d.y < 2) return;
-          const ang = (Math.atan2(-d.v, d.u) * 180) / Math.PI; // schermo: y verso il basso
+          const ang = (Math.atan2(-d.v, d.u) * 180) / Math.PI; // screen: y pointing down
           svg.push(
             `<g transform="translate(${X(d.x).toFixed(1)},${top + 7}) rotate(${ang.toFixed(0)})" stroke="${p.color}" stroke-width="1.4" fill="none" stroke-linecap="round"><path d="M-6,0H6M2.5,-3.5L6,0L2.5,3.5"/></g>`,
           );
@@ -6928,7 +6928,7 @@
     });
     const yTop = 0,
       yBot = H - AXIS;
-    // nomi dei giorni ("mer 11") se c'è spazio, altrimenti solo il numero
+    // day names ("mer 11") if there is room, otherwise just the number
     const dayFmt =
       pw / ((x1 - x0) / 24) >= 52
         ? { weekday: "short", day: "numeric" }
@@ -6953,16 +6953,16 @@
         `<text class="ch-tick" x="${X(h)}" y="${yBot + 12}" text-anchor="middle">${String(hh).padStart(2, "0")}</text>`,
       );
     if (pin != null) {
-      // linea dell'ora fissata sopra tutto, poi i pallini
+      // pinned time line above everything, then the dots
       svg.push(
         `<line class="ch-pin" x1="${X(pin)}" x2="${X(pin)}" y1="${HEAD + 2}" y2="${yBot}"/>`,
-      ); // il riquadro coi valori le sta accanto, in alto
+      ); // the box with the values sits next to it, at the top
       for (const p of panels) if (p.pinDot) svg.push(p.pinDot);
     }
     if (exportW) {
-      // riquadro dell'ora fissata, come nella pagina ma senza i link: righe di pezzi [testo, grassetto?]
+      // pinned time box, as in the page but without the links: rows of pieces [text, bold?]
       const B = "\u0001",
-        E = "\u0002"; // segnaposto del grassetto, poi divisi in pezzi
+        E = "\u0002"; // bold placeholder, then split into pieces
       const pinBox =
         pin == null
           ? null
@@ -6986,7 +6986,7 @@
     svg.push(
       `<line class="ch-cursor" id="ch-cursor" x1="0" x2="0" y1="${HEAD + 2}" y2="${yBot}" visibility="hidden"/>`,
     );
-    // ora fissata: linea e pallini sulle curve; i valori stanno nella barra in fondo alla finestra (#chart-readout)
+    // pinned time: line and dots on the curves; the values are in the bar at the bottom of the dialog (#chart-readout)
     svg.push(
       `<line class="ch-cursor pinned" id="ch-pinline" x1="0" x2="0" y1="${HEAD + 2}" y2="${yBot}" visibility="hidden"/><g id="ch-pindots"></g>`,
     );
@@ -6997,7 +6997,7 @@
       `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="Andamento nel tempo">${svg.join("")}</svg>` +
       '<div class="chart-tip" hidden></div>';
 
-    // lettura dei valori: il passo più vicino al puntatore, su tutti i pannelli
+    // reading the values: the step nearest to the pointer, on all panels
     const svgEl = chartUi.body.querySelector("svg"),
       tip = chartUi.body.querySelector(".chart-tip");
     const cursor = svgEl.querySelector("#ch-cursor"),
@@ -7011,7 +7011,7 @@
         Math.abs(b - h) < Math.abs(a - h) ? b : a,
       );
     };
-    // ora e valori di tutti i pannelli a un passo: tooltip e barra dell'ora fissata
+    // time and values of all panels at a step: tooltip and pinned time bar
     const timeHtml = (st) =>
       `<div class="t">${fmtLocal(new Date(t0 + st * 3600e3))} · +${st}h</div>`;
     const rowsHtml = (st) =>
@@ -7019,13 +7019,13 @@
         .map((p) => {
           const d = valueAt(p, st);
           if (!d) return "";
-          // stesse righe del riquadro dell'ora fissata nell'immagine (anche la pioggia: colonna e totale)
+          // same rows as the pinned time box in the image (precipitation too: column and total)
           return `<div>${p.tip(d)} ${valueText(p, d, (x) => `<b>${x}</b>`, false)}</div>`;
         })
         .join("");
-    const touchUi = !hoverMq.matches; // telefono e tablet: niente barra in fondo, valori nel tooltip
-    // above: col dito il tooltip sta sopra il punto toccato, altrimenti il dito lo copre
-    // pinned: scheda dell'ora fissata (chiara, con le azioni) al posto del tooltip scuro di lettura
+    const touchUi = !hoverMq.matches; // phone and tablet: no bar at the bottom, values in the tooltip
+    // above: by touch the tooltip sits above the touched point, otherwise the finger covers it
+    // pinned: pinned time card (light, with the actions) instead of the dark reading tooltip
     const showAt = (st, clientX, clientY, above = false, pinned = false) => {
       cursor.setAttribute("x1", X(st));
       cursor.setAttribute("x2", X(st));
@@ -7054,7 +7054,7 @@
       tip.hidden = true;
       cursor.setAttribute("visibility", "hidden");
     };
-    // ora fissata col dito: il tooltip resta sulla sua linea, in alto nella parte visibile
+    // time pinned by touch: the tooltip stays on its line, at the top of the visible part
     const showPinTip = () => {
       const r = svgEl.getBoundingClientRect();
       showAt(
@@ -7070,7 +7070,7 @@
       renderPin();
       hide();
     };
-    // azioni della scheda: stessa immagine dei pulsanti in alto, con l'ora fissata
+    // card actions: same image as the buttons at the top, with the pinned time
     tip.addEventListener("click", (ev) => {
       const btn = ev.target.closest("button[data-act]");
       if (!btn) return;
@@ -7098,10 +7098,10 @@
         timeHtml(chartPin) + rowsHtml(chartPin);
     };
     const hit = svgEl.querySelector("#ch-hit");
-    // mouse: passandoci sopra si leggono i valori. Clic fissa l'ora (un altro sulla stessa la toglie); trascinando col
-    // tasto premuto l'ora fissata segue il puntatore.
-    // dito: scorrendo in orizzontale si leggono i valori (in verticale si scorre la pagina); pressione prolungata fissa
-    // l'ora per l'immagine da condividere; un tocco breve toglie l'ora fissata o mostra i valori lì
+    // mouse: hovering reads the values. A click pins the time (another on the same one removes it); dragging with
+    // the button pressed the pinned time follows the pointer.
+    // touch: sliding horizontally reads the values (vertically the page scrolls); a long press pins
+    // the time for the image to share; a short tap removes the pinned time or shows the values there
     const PRESS_MS = 450,
       SLOP = 8;
     let drag = null;
@@ -7112,14 +7112,14 @@
         drag.moved = true;
         clearTimeout(drag.timer);
         if (drag.pinning) {
-          // dopo la pressione prolungata il dito sposta l'ora fissata
+          // after the long press the finger moves the pinned time
           if (st !== chartPin) {
             chartPin = st;
             renderPin();
             showPinTip();
           }
         } else {
-          // tornando a trascinare l'ora fissata si toglie: si torna a leggere i valori
+          // dragging again removes the pinned time: back to reading the values
           if (chartPin != null) {
             chartPin = null;
             renderPin();
@@ -7138,13 +7138,13 @@
       }
       if (ev.pointerType !== "mouse") return;
       if (st === chartPin)
-        hide(); // sull'ora fissata i valori sono già nella barra in fondo
+        hide(); // on the pinned time the values are already in the bar at the bottom
       else showAt(st, ev.clientX, ev.clientY);
     });
     hit.addEventListener("pointerdown", (ev) => {
       const st = stepAt(ev.clientX);
       if (ev.pointerType !== "mouse" && touchUi) {
-        if (drag?.timer) clearTimeout(drag.timer); // secondo dito (vedi il meteogramma)
+        if (drag?.timer) clearTimeout(drag.timer); // second finger (see the meteogram)
         const d = (drag = { touch: true, x0: ev.clientX, moved: false, pinning: false });
         d.timer = setTimeout(() => {
           if (drag !== d) return;
@@ -7169,42 +7169,42 @@
       if (drag.touch) {
         clearTimeout(drag.timer);
         const tap = ev.type === "pointerup" && !drag.moved && !drag.pinning;
-        if (tap && chartPin != null) unpin(); // tocco breve con un'ora fissata: la toglie
-        else if (tap && !tip.hidden) hide(); // tocco breve col tooltip aperto: lo chiude
+        if (tap && chartPin != null) unpin(); // short tap with a pinned time: removes it
+        else if (tap && !tip.hidden) hide(); // short tap with the tooltip open: closes it
         else if (tap) showAt(stepAt(ev.clientX), ev.clientX, ev.clientY, true);
         else if (chartPin != null) showPinTip();
-        else if (ev.type === "pointercancel") hide(); // il browser ha preso lo scorrimento verticale
+        else if (ev.type === "pointercancel") hide(); // the browser took the vertical scroll
         drag = null;
         return;
       }
       if (ev.type === "pointerup" && drag.wasPinned && !drag.moved) {
         chartPin = null;
         renderPin();
-      } // tocco sull'ora già fissata
+      } // tap on the already pinned time
       drag = null;
     };
     hit.addEventListener("pointerup", endDrag);
-    hit.addEventListener("pointercancel", endDrag); // il browser ha preso il gesto (scorrimento verticale)
+    hit.addEventListener("pointercancel", endDrag); // the browser took the gesture (vertical scroll)
     hit.addEventListener("pointerleave", (ev) => {
-      if (!drag && ev.pointerType === "mouse") hide(); // col dito arriva dopo ogni tocco: il tooltip resta
+      if (!drag && ev.pointerType === "mouse") hide(); // by touch it arrives after every tap: the tooltip stays
     });
-    // niente menu o selezione del browser alla pressione prolungata
+    // no browser menu or selection on long press
     hit.addEventListener("contextmenu", (ev) => {
       if (touchUi) ev.preventDefault();
     });
-    closeTipOutside(tip, hide, () => chartPin == null); // il tocco breve apre la scheda, ma l'ora non è fissata
+    closeTipOutside(tip, hide, () => chartPin == null); // the short tap opens the card, but the time is not pinned
     clearChartPin = () => {
       chartPin = null;
       renderPin();
       hide();
     };
-    renderPin(); // ridisegno (finestra ridimensionata): l'ora fissata resta
+    renderPin(); // redraw (dialog resized): the pinned time stays
     if (touchUi && chartPin != null && steps.includes(chartPin)) showPinTip();
   }
 
-  // ---------- tooltip puntuale (griglia nativa, nearest neighbour)
-  // Col mouse segue il puntatore. Sui dispositivi a tocco compare dove tocchi e resta ancorato a quel punto della
-  // mappa: spostando o ingrandendo la mappa si muove con lei, e cambiando passo mostra il valore nuovo.
+  // ---------- point tooltip (native grid, nearest neighbour)
+  // With the mouse it follows the pointer. On touch devices it appears where you tap and stays anchored to that point
+  // of the map: moving or zooming the map it moves with it, and changing step shows the new value.
   map.on("mousemove", (e) => {
     if (hoverMq.matches) showProbe(e);
   });
@@ -7220,7 +7220,7 @@
         containerPoint: map.latLngToContainerPoint(probeLL),
       });
   });
-  /** Tooltip del punto toccato, ricalcolato (nuovo passo, altra grandezza); niente se non ce n'è uno. */
+  /** Tooltip of the tapped point, recomputed (new step, other field); nothing if there is none. */
   function refreshProbe() {
     if (probeLL && !hoverMq.matches)
       showProbe({
@@ -7229,7 +7229,7 @@
       });
   }
   function showProbe(e) {
-    // sopra una località (o col suo riquadro aperto lì) basta il riquadro nero: un solo tooltip alla volta
+    // over a place (or with its popup open there) the black popup is enough: one tooltip at a time
     if (
       !current ||
       menuLL ||
@@ -7247,7 +7247,7 @@
     if (ix < 0 || iy < 0 || ix >= nx || iy >= ny) {
       ui.probe.hidden = true;
       return;
-    } // fuori dai dati: niente tooltip
+    } // outside the data: no tooltip
     else {
       const v = current.values[iy * nx + ix];
       if (v == null) {
@@ -7266,7 +7266,7 @@
         text += ` · ${contourName().toLowerCase()} <b>${Math.round(z)}</b> ${currentContour.units}`;
     }
     if (currentArrows) {
-      // combinata con le frecce: velocità e provenienza del vento nel punto
+      // combined with arrows: wind speed and direction at the point
       const { lat0, lon0, dlat, dlon, nx, ny } = currentArrows.grid;
       const ix = Math.round((e.latlng.lng - lon0) / dlon),
         iy = Math.round((e.latlng.lat - lat0) / dlat);
@@ -7280,7 +7280,7 @@
         text += ` · ${lcFirst(variable().arrows.label)} <b>${Math.round(Math.hypot(u, v))}</b> km/h${d ? ` da ${d.name}` : ""}`;
       }
     }
-    // seconda riga: le grandezze in più (sulla mappa della T850 la quota della superficie di 850 hPa)
+    // second line: the extra fields (on the T850 map the height of the 850 hPa surface)
     const more = extras()
       .map((d) => [d, extraValue(d, e.latlng.lat, e.latlng.lng)])
       .filter(([, x]) => x)
@@ -7291,7 +7291,7 @@
     if (more.length)
       text += `<div class="probe-more">${more.join(" · ")}</div>`;
     ui.probe.innerHTML = text;
-    // a destra del mouse, a sinistra se non ci sta; sempre dentro la finestra (8px dai bordi)
+    // right of the mouse, left if it does not fit; always inside the window (8px from the edges)
     ui.probe.hidden = false;
     const W = map.getContainer().clientWidth,
       H = map.getContainer().clientHeight;
@@ -7302,7 +7302,7 @@
     if (left + w > W - 8) left = x - 14 - w;
     left = Math.min(Math.max(left, 8), Math.max(8, W - 8 - w));
     const top = Math.min(Math.max(y - h / 2, 8), Math.max(8, H - 8 - h));
-    // punto ancorato uscito dallo schermo: il tooltip non resta appiccicato al bordo
+    // anchored point off screen: the tooltip does not stay stuck to the edge
     if (!e.originalEvent && (x < 0 || y < 0 || x > W || y > H)) {
       ui.probe.hidden = true;
       return;
@@ -7314,9 +7314,9 @@
     ui.probe.hidden = true;
   });
 
-  // ---------- menu di un punto della mappa: clic destro (desktop) o pressione prolungata (tocco).
-  // Intestazione col valore nel punto e le coordinate; Condividi (immagine col segnaposto e il valore),
-  // Aggiungi alle località (nome precompilato con le coordinate, modificabile subito), Grafico nel tempo.
+  // ---------- menu of a map point: right click (desktop) or long press (touch).
+  // Header with the value at the point and the coordinates; Condividi (image with marker and value),
+  // Aggiungi alle località (name prefilled with the coordinates, editable right away), Grafico nel tempo.
   const mapMenu = document.createElement("div");
   mapMenu.className = "map-menu";
   mapMenu.hidden = true;
@@ -7327,8 +7327,8 @@
   document.body.append(mapMenuPin, mapMenu);
   let menuOpenedAt = 0;
   const coordText = (ll) => `${ll.lat.toFixed(3)}, ${ll.lng.toFixed(3)}`;
-  /** Tutti i valori della mappa nel punto, come il tooltip, in testo semplice: colori, linee, frecce del vento e
-   *  grandezze in più ("12.4 mm · vento 10 m 25 km/h da SO"); "" senza dati. */
+  /** All map values at the point, like the tooltip, as plain text: colours, lines, wind arrows and
+   *  extra fields ("12.4 mm · vento 10 m 25 km/h da SO"); "" without data. */
   function pointValueText(ll) {
     if (!current || state.extra !== "none") return "";
     const v = valueAt(current, ll.lat, ll.lng);
@@ -7365,7 +7365,7 @@
       /[&<>"]/g,
       (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
     );
-  /** Pallino del menu fermo su un punto (anche a menu chiuso, per il caricamento dell'aggiunta). */
+  /** Menu dot fixed on a point (with the menu closed too, while adding). */
   function showPinAt(ll) {
     const cr = map.getContainer().getBoundingClientRect();
     const p = map.latLngToContainerPoint(ll);
@@ -7383,13 +7383,13 @@
     mapMenuPin.style.top = `${y}px`;
     const w = mapMenu.offsetWidth,
       h = mapMenu.offsetHeight;
-    // parte visibile della pagina: su mobile, con la tastiera aperta (campo del nome), è più bassa della finestra
+    // visible part of the page: on mobile, with the keyboard open (name field), it is shorter than the window
     const vv = window.visualViewport;
     const vx = vv?.offsetLeft ?? 0,
       vy = vv?.offsetTop ?? 0,
       vw = vv?.width ?? innerWidth,
       vh = vv?.height ?? innerHeight;
-    // in basso a destra del punto; se non ci sta a sinistra o sopra, sempre dentro la parte visibile
+    // below right of the point; if it does not fit, left or above, always inside the visible part
     let left = x + 12,
       top = y + 12;
     if (left + w > vx + vw - 8) left = x - 12 - w;
@@ -7397,18 +7397,18 @@
     mapMenu.style.left = `${Math.min(Math.max(left, vx + 8), Math.max(vx + 8, vx + vw - 8 - w))}px`;
     mapMenu.style.top = `${Math.min(Math.max(top, vy + 8), Math.max(vy + 8, vy + vh - 8 - h))}px`;
   }
-  // la tastiera si apre o si chiude (o iOS sposta la pagina): il menu resta sopra la tastiera
+  // the keyboard opens or closes (or iOS moves the page): the menu stays above the keyboard
   window.visualViewport?.addEventListener("resize", placeMapMenu);
   window.visualViewport?.addEventListener("scroll", placeMapMenu);
   function openMapMenu(ll) {
-    if (synoptic()) return; // carta sinottica: niente menu del punto
+    if (synoptic()) return; // synoptic chart: no point menu
     closePlacePop();
     probeLL = null;
     ui.probe.hidden = true;
     menuLL = ll;
     menuOpenedAt = Date.now();
     const value = pointValueText(ll);
-    // titolo: le coordinate (con la X per chiudere); sotto, piccoli, i valori della mappa nel punto
+    // title: the coordinates (with the X to close); below, small, the map values at the point
     mapMenu.innerHTML =
       `<div class="map-menu-head">` +
       `<span class="map-menu-title">${coordText(ll)}</span>` +
@@ -7421,19 +7421,19 @@
     mapMenu.hidden = false;
     mapMenuPin.classList.remove("loading");
     mapMenuPin.hidden = false;
-    document.body.classList.add("map-menu-open"); // cursore normale sulla mappa finché il menu è aperto
+    document.body.classList.add("map-menu-open"); // normal cursor on the map while the menu is open
     placeMapMenu();
     mapMenu.querySelector("[role=menuitem]:not(:disabled)")?.focus({ preventScroll: true });
   }
-  /** Località appena aggiunta dal menu: il suo segnaposto compare con un rimbalzo e un'onda (vedi .pt-num.pt-new). */
+  /** Place just added from the menu: its marker appears with a bounce and a wave (see .pt-num.pt-new). */
   function popNewPlace() {
     const num = pointMarkers.at(-1)?.getElement()?.querySelector(".pt-num");
     if (!num) return;
     num.classList.remove("pt-new");
-    void num.offsetWidth; // riparte l'animazione
+    void num.offsetWidth; // restarts the animation
     num.classList.add("pt-new");
     num.addEventListener("animationend", function done(e) {
-      if (e.pseudoElement !== "::after") return; // finisce l'onda, che dura più del rimbalzo
+      if (e.pseudoElement !== "::after") return; // the wave ends, it lasts longer than the bounce
       num.classList.remove("pt-new");
       num.removeEventListener("animationend", done);
     });
@@ -7445,7 +7445,7 @@
     mapMenuPin.hidden = true;
     document.body.classList.remove("map-menu-open");
   }
-  /** Aggiungi alle località: il menu diventa un campo col nome (le coordinate, già selezionate) e Aggiungi. */
+  /** Add to places: the menu becomes a field with the name (the coordinates, already selected) and Aggiungi. */
   function askPlaceName(ll) {
     mapMenu.innerHTML =
       `<form class="map-menu-form"><label for="map-menu-name">Nome della località</label>` +
@@ -7457,18 +7457,18 @@
     placeMapMenu();
     input.focus();
     input.select();
-    // la finestra si chiude subito; il pallino resta sul punto in caricamento, poi lascia il posto al segnaposto
-    // nuovo (rimbalzo e onda, vedi popNewPlace). Punto scelto sulla mappa: aggiunto anche vicino a una località.
+    // the dialog closes right away; the dot stays on the point while loading, then gives way to the new
+    // marker (bounce and wave, see popNewPlace). Point chosen on the map: added even near a place.
     mapMenu.querySelector("form").addEventListener("submit", (e) => {
       e.preventDefault();
       const name = input.value.trim() || coordText(ll);
-      input.blur(); // su mobile chiude la tastiera
+      input.blur(); // on mobile it closes the keyboard
       closeMapMenu();
       showPinAt(ll);
       mapMenuPin.classList.add("loading");
       setTimeout(() => {
         mapMenuPin.classList.remove("loading");
-        if (!menuLL) mapMenuPin.hidden = true; // nel frattempo può essersi aperto un altro menu
+        if (!menuLL) mapMenuPin.hidden = true; // another menu may have opened in the meantime
         if (addPlace(name, ll.lat, ll.lng, true)) popNewPlace();
       }, 450);
     });
@@ -7493,15 +7493,15 @@
     } else if (act === "chart")
       openChart({ name: coordText(ll), lat: +ll.lat.toFixed(4), lon: +ll.lng.toFixed(4) });
   });
-  // desktop: clic destro (con Mapbox arriva inoltrato da connectMapbox); col tocco si usa la pressione prolungata qui
-  // sotto, così Android (che manda anche contextmenu) e iOS (che non lo manda) si comportano uguale
+  // desktop: right click (with Mapbox it is forwarded by connectMapbox); with touch the long press here
+  // below is used, so Android (which also sends contextmenu) and iOS (which does not) behave the same
   map.on("contextmenu", (e) => {
     e.originalEvent?.preventDefault?.();
     if (!hoverMq.matches) return;
     openMapMenu(e.latlng);
   });
   const LONG_PRESS_MS = 500,
-    LONG_PRESS_SLOP = 8; // px: oltre è un trascinamento della mappa
+    LONG_PRESS_SLOP = 8; // px: beyond that it is a map drag
   let press = null;
   const onMapSurface = (t) =>
     !!t.closest?.("#map, .wm-native-map") &&
@@ -7548,13 +7548,13 @@
       },
       true,
     );
-  // menu aperto: un clic fuori lo chiude e basta (niente valore del punto); il clic che segue la pressione
-  // prolungata non deve né chiuderlo né mostrare il valore
+  // menu open: a click outside just closes it (no point value); the click that follows the long
+  // press must neither close it nor show the value
   document.addEventListener(
     "click",
     (e) => {
       if (!menuLL || mapMenu.contains(e.target)) return;
-      // anche sui segnaposto delle località: col menu aperto nessun altro riquadro
+      // on the place markers too: with the menu open no other popup
       if (e.target.closest?.("#map, .wm-native-map") && !e.target.closest(".leaflet-control, .mapboxgl-ctrl")) {
         e.stopPropagation();
         e.preventDefault();
@@ -7566,33 +7566,33 @@
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && menuLL) closeMapMenu();
   });
-  // la mappa si sposta: il menu si chiude, ma non quando a muoverla è il ridimensionamento della pagina. Su iPhone
-  // (Chrome) il campo del nome apre la tastiera e cambia l'altezza della finestra: chiudere lì faceva sparire il campo
+  // the map moves: the menu closes, but not when the page resize moves it. On iPhone
+  // (Chrome) the name field opens the keyboard and changes the window height: closing there made the field disappear
   let resizedAt = 0;
   const markResize = () => (resizedAt = Date.now());
-  window.addEventListener("resize", markResize, true); // in cattura: prima di Leaflet e Mapbox
+  window.addEventListener("resize", markResize, true); // in capture: before Leaflet and Mapbox
   window.visualViewport?.addEventListener("resize", markResize);
   function closeMapMenuOnMove() {
     if (Date.now() - resizedAt < 1000) placeMapMenu();
     else closeMapMenu();
   }
-  map.on("movestart zoomstart", closeMapMenuOnMove); // con Mapbox anche da connectMapbox, all'inizio del gesto
+  map.on("movestart zoomstart", closeMapMenuOnMove); // with Mapbox also from connectMapbox, at the start of the gesture
   map.on("resize moveend", placeMapMenu);
-  // niente menu del browser sulla mappa (pressione prolungata su Android, clic destro senza Mapbox)
+  // no browser menu on the map (long press on Android, right click without Mapbox)
   document.addEventListener("contextmenu", (e) => {
     if (onMapSurface(e.target)) e.preventDefault();
   });
 
-  // ---------- eventi
+  // ---------- events
   function setStepKeepingInterval(step) {
     state.step = step;
-    syncMode(); // con le cumulate il range resta fisso, cambia solo l'ora mostrata
+    syncMode(); // with accumulations the range stays fixed, only the time shown changes
   }
 
   function goStep(delta) {
     const s = slideSteps();
     if (dualMode()) {
-      // dentro il range, come il play: un passo con Totale, le ore scelte con i pulsanti
+      // inside the range, like play: one step with Total, the chosen hours with the buttons
       const frames = rangeFrames();
       if (!frames.length) return;
       const k = frames.indexOf(state.step);
@@ -7610,13 +7610,13 @@
     update();
   }
 
-  // icone Lucide "play" e "pause" del pulsante nella barra mobile
+  // Lucide "play" and "pause" icons of the button in the mobile bar
   const M_PLAY = ui.mPlay.innerHTML;
   const M_PAUSE =
     '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" stroke="currentColor" stroke-width="2.25" ' +
     'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="14" y="4" width="4" height="16" rx="1"/>' +
     '<rect x="6" y="4" width="4" height="16" rx="1"/></svg>';
-  // play / pausa del pannello (più piccoli, bianchi sul tondo blu)
+  // panel play / pause (smaller, white on the blue circle)
   const P_PLAY = ui.play.innerHTML;
   const P_PAUSE =
     '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">' +
@@ -7625,7 +7625,7 @@
     const on = force ?? !playTimer;
     if (on && !playTimer) {
       stopProgressAnimation();
-      // cumulate: dentro il range fisso; con Totale l'accumulo cresce, con le ore scelte un'immagine ogni tot ore
+      // accumulations: inside the fixed range; with Total the accumulation grows, with the chosen hours one image every so many hours
       const rangeStart = state.rangeFrom ?? 0;
       const rangeEnd = state.rangeTo ?? state.step;
       const playbackRange = dualMode() ? rangeFrames(rangeStart, rangeEnd) : null;
@@ -7657,7 +7657,7 @@
       ui.mPlay.innerHTML = M_PAUSE;
       ui.mPlay.setAttribute("aria-label", "Ferma animazione");
       playTimer = setInterval(() => {
-        const s = slideSteps(); // con le ore fisse uno scatto ogni `hours` ore
+        const s = slideSteps(); // with fixed hours one jump every `hours` hours
         let i = s.indexOf(state.step);
         if (playbackRange) {
           const rangeIndex = playbackRange.indexOf(state.step);
@@ -7672,7 +7672,7 @@
           i = s.indexOf(state.step);
         } else {
           const avail = availableSteps();
-          // salta i passi non disponibili, ricomincia dal primo
+          // skips unavailable steps, restarts from the first
           for (let k = 0; k < s.length; k++) {
             i = (i + 1) % s.length;
             if (avail.has(s[i])) break;
@@ -7701,7 +7701,7 @@
   });
   ui.prev?.addEventListener("click", () => goStep(-1));
   ui.next?.addEventListener("click", () => goStep(1));
-  // frecce del riquadro in basso su mobile: come quelle del pannello, ma fermano il play
+  // arrows of the bottom box on mobile: like the panel's, but they stop play
   $("m-prev").addEventListener("click", () => {
     togglePlay(false);
     goStep(-1);
@@ -7711,7 +7711,7 @@
     goStep(1);
   });
   ui.mPlay.addEventListener("click", () => togglePlay());
-  // slider della barra su mobile: come quello del pannello, ma ferma il play
+  // slider of the bar on mobile: like the panel's, but it stops play
   $("m-step").addEventListener("input", (e) => {
     togglePlay(false);
     ui.step.value = e.target.value;
@@ -7719,7 +7719,7 @@
     syncMode();
     update();
   });
-  // «: torna al primo passo disponibile della corsa
+  // «: back to the first available step of the run
   $("m-first").addEventListener("click", () => {
     togglePlay(false);
     const s = slideSteps();
@@ -7747,7 +7747,7 @@
     writeHash();
     saveSettings();
   });
-  // opacità dei confini (Impostazioni), separata da quella dei colori: vale per tutto il livello delle linee
+  // border opacity (Settings), separate from the colours': applies to the whole lines layer
   const applyBordersOpacity = () => {
     map.getPane("borders").style.opacity = state.bordersOpacity;
     map.getPane("synBorders").style.opacity = state.bordersOpacity;
@@ -7793,16 +7793,16 @@
     saveSettings();
     update();
   });
-  // ---------- sezioni del pannello (località, impostazioni, crediti): una aperta alla volta, apertura e chiusura
-  // animate. In JS e non con <details name>: così il browser chiuderebbe l'altra di colpo, senza animazione.
+  // ---------- panel sections (places, settings, credits): one open at a time, opening and closing
+  // animated. In JS and not with <details name>: that way the browser would close the other abruptly, without animation.
   const SECTIONS = [
     ...document.querySelectorAll(".panel-body > details.points-box"),
   ];
   const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
-  const wantsOpen = (d) => d._want ?? d.open; // stato verso cui sta andando (durante l'animazione di chiusura è ancora open)
+  const wantsOpen = (d) => d._want ?? d.open; // state it is heading to (during the closing animation it is still open)
   function animateSection(d, open) {
     d._want = open;
-    d.classList.toggle("is-open", open); // la freccia ruota subito, anche mentre la sezione si chiude
+    d.classList.toggle("is-open", open); // the arrow rotates right away, even while the section closes
     d._anim?.cancel();
     const cs = getComputedStyle(d);
     const px = (k) => parseFloat(cs[k]) || 0;
@@ -7835,7 +7835,7 @@
       d.style.overflow = "";
     };
   }
-  // su telefono la sezione aperta scorre: sfumatura in fondo se sotto c'è altro, ombra sotto il titolo se è già scorsa
+  // on phones the open section scrolls: fade at the bottom if there is more below, shadow under the title if it has scrolled
   function updateSectionFade(d) {
     const below = d.open && d.scrollHeight - d.scrollTop - d.clientHeight > 2;
     d.classList.toggle("more-below", below);
@@ -7848,11 +7848,11 @@
     }
   });
   for (const d of SECTIONS) {
-    d.classList.toggle("is-open", d.open); // stato iniziale (index.html)
+    d.classList.toggle("is-open", d.open); // initial state (index.html)
     d.addEventListener("scroll", () => updateSectionFade(d), { passive: true });
     d.addEventListener("toggle", () => updateSectionFade(d));
     fadeRo.observe(d);
-    for (const child of d.children) fadeRo.observe(child); // contenuto che cresce (nuove località) senza cambiare la sezione
+    for (const child of d.children) fadeRo.observe(child); // growing content (new places) without changing the section
   }
   for (const d of SECTIONS) {
     d.querySelector("summary").addEventListener("click", (e) => {
@@ -7873,14 +7873,14 @@
       collapsed ? "Apri pannello" : "Riduci pannello",
     );
     ui.collapse.title = collapsed ? "Apri pannello" : "Riduci pannello";
-    if (!collapsed) togglePlay(false); // riaprendo il menu l'animazione si ferma
+    if (!collapsed) togglePlay(false); // reopening the menu stops the animation
   }
   ui.collapse.addEventListener("click", () =>
     setPanelCollapsed(!ui.panel.classList.contains("collapsed")),
   );
-  // su mobile, col pannello aperto, un tocco sulla mappa chiude soltanto il pannello: niente valore del punto,
-  // niente riquadro della località. In cattura sul documento, prima che il clic arrivi a Leaflet (segnaposto) o
-  // alla mappa Mapbox: con lo sfondo vettoriale i tocchi vanno a .wm-native-map, non al contenitore di Leaflet
+  // on mobile, with the panel open, a tap on the map only closes the panel: no point value,
+  // no place popup. In capture on the document, before the click reaches Leaflet (markers) or
+  // the Mapbox map: with the vector basemap taps go to .wm-native-map, not to the Leaflet container
   document.addEventListener(
     "click",
     (e) => {
@@ -7922,7 +7922,7 @@
     }
     renderUpdated();
   }
-  /** Ultima riga del pannello: quando sono stati aggiornati i dati ("Aggiornamento 13/11 17:12"). */
+  /** Last row of the panel: when the data were updated ("Aggiornamento 13/11 17:12"). */
   function renderUpdated() {
     const el = $("updated-at");
     const d = publishedAt ? new Date(publishedAt) : null;
@@ -7930,7 +7930,7 @@
       $("updated-row").hidden = true;
       return;
     }
-    // formato corto: "Aggiornamento 13/11 17:12"
+    // short format: "Aggiornamento 13/11 17:12"
     const when = d
       .toLocaleString("it-IT", {
         timeZone: "Europe/Rome",
@@ -7946,21 +7946,21 @@
     $("updated-row").hidden = false;
   }
 
-  // ---------- area della mappa: quella dei dati (BBOX) o quella della carta sinottica, che cambia con la grandezza
+  // ---------- map area: the data's (BBOX) or the synoptic chart's, which changes with the field
   const toBounds = (b) =>
     L.latLngBounds([b.lat_min, b.lon_min], [b.lat_max, b.lon_max]);
-  let areaBox = null, // area in cui si può muovere la mappa adesso
+  let areaBox = null, // area the map can move in right now
     areaKey = null,
-    startView = null, // vista iniziale (Lombardia)
-    localView = null; // vista della mappa normale lasciata passando alla carta sinottica, per ritrovarla tornando
-  // Lo zoom minimo è quello per cui la vista sta tutta dentro l'area coperta dai dati:
-  // non si può mai vedere mappa senza dati. Si ricalcola se la finestra cambia dimensione.
+    startView = null, // initial view (Lombardy)
+    localView = null; // normal map view left when switching to the synoptic chart, to find it again when coming back
+  // The minimum zoom is the one at which the view lies entirely inside the area covered by the data:
+  // you can never see map without data. Recomputed if the window changes size.
   function updateMinZoom() {
     map.setMinZoom(0);
     map.setMinZoom(map.getBoundsZoom(areaBox, true));
   }
-  /** Carta sinottica: sempre allo zoom minimo (tutta l'area che sta nello schermo), centrata un po' a sud del Nord
-   *  Italia; vale per la vista, per il telefono in orizzontale e per l'immagine condivisa. */
+  /** Synoptic chart: always at minimum zoom (the whole area that fits on screen), centred a bit south of Northern
+   *  Italy; applies to the view, the phone in landscape and the shared image. */
   function synopticView() {
     const c = L.latLng(startView.getCenter().lat - 3, startView.getCenter().lng);
     map.setView(c, map.getMinZoom(), { animate: false });
@@ -7972,19 +7972,19 @@
     if (key === areaKey) return;
     if (areaKey && !document.body.classList.contains("synoptic-mode"))
       localView = map.getBounds();
-    // cambio d'area (carta a 500 hPa e ritorno): via subito i colori e le linee dell'altra area, che nella vista nuova
-    // comparirebbero per un attimo prima della mappa giusta (alla prima apertura non c'è ancora nulla)
+    // area change (500 hPa chart and back): the other area's colours and lines go away right now, otherwise in the new
+    // view they would appear for a moment before the right map (on first opening there is nothing yet)
     if (areaKey) clearOverlay();
-    if (areaKey && typeof renderSoundings === "function") queueMicrotask(renderSoundings); // niente stazioni a 500 hPa
+    if (areaKey && typeof renderSoundings === "function") queueMicrotask(renderSoundings); // no stations at 500 hPa
     areaKey = key;
     const syn = synoptic();
     document.body.classList.toggle("synoptic-mode", syn);
-    closeMapMenu(); // le voci del menu cambiano fra le due aree
-    closePlacePop(); // cambia l'area: la mappa si sposta e il riquadro resterebbe appeso nel vuoto
+    closeMapMenu(); // the menu entries change between the two areas
+    closePlacePop(); // the area changes: the map moves and the popup would be left hanging in mid-air
     ui.probe.hidden = true;
     probeLL = null;
     areaBox = toBounds(a);
-    // prima si tolgono i limiti di Mapbox: col cambio di zoom minimo riporterebbe Leaflet nella vecchia area
+    // first remove the Mapbox bounds: with the minimum zoom change it would bring Leaflet back to the old area
     glBase?.setMaxBounds(null);
     map.setMaxBounds(null);
     updateMinZoom();
@@ -7996,18 +7996,18 @@
     styleBorders();
   }
 
-  // la pagina non deve scorrere (vedi html, body in style.css): se il browser la sposta comunque (tastiera, mappa più
-  // larga durante la condivisione), si rimette in cima
-  // larga durante la condivisione), si rimette in cima. Non mentre si scrive: iOS sposta la pagina per mostrare il
-  // campo sopra la tastiera
+  // the page must not scroll (see html, body in style.css): if the browser moves it anyway (keyboard, map wider
+  // during sharing), it is put back at the top
+  // during sharing), it is put back at the top. Not while typing: iOS moves the page to show the
+  // field above the keyboard
   window.addEventListener("scroll", () => {
     if (document.activeElement?.matches?.("input, textarea")) return;
     if (window.scrollX || window.scrollY) window.scrollTo(0, 0);
   });
 
-  // ---------- telefono in orizzontale: solo la mappa a tutto schermo (niente località né tocchi) e in fondo « ‹ a
-  // sinistra, › » a destra e la data in mezzo per muoversi nel tempo (come le frecce: un passo, un intervallo con
-  // 3/6/12/24h, un passo nel periodo col Totale).
+  // ---------- phone in landscape: only the full-screen map (no places or taps) and at the bottom « ‹ on the
+  // left, › » on the right and the date in the middle to move in time (like the arrows: one step, one interval with
+  // 3/6/12/24h, one step in the period with Total).
   const landscapeMq = window.matchMedia("(orientation: landscape) and (pointer: coarse) and (max-height: 520px)");
   const lvNav = document.createElement("div");
   lvNav.className = "lv-nav";
@@ -8023,7 +8023,7 @@
     `<button type="button" data-go="1" aria-label="Avanti">${icon(["m9 18 6-6-6-6"])}</button>` +
     `<button type="button" data-go="last" aria-label="Alla fine">${icon(["m6 17 5-5-5-5", "m13 17 5-5-5-5"])}</button></div>`;
   document.body.append(lvNav);
-  /** Primo o ultimo scatto (nel periodo col Totale, sulla corsa altrimenti), come le frecce. */
+  /** First or last stop (in the period with Total, over the run otherwise), like the arrows. */
   function goEdge(last) {
     const avail = availableSteps();
     const frames = dualMode() ? rangeFrames() : slideSteps().filter((x) => avail.has(x));
@@ -8048,16 +8048,16 @@
   function applyLandscape() {
     const on = landscapeMq.matches;
     document.body.classList.toggle("landscape-view", on);
-    // niente zoom col doppio tocco: toccando in fretta i pulsanti la mappa si ingrandiva e si perdeva la zona
+    // no double-tap zoom: tapping the buttons quickly zoomed the map and the area was lost
     const dbl = glBase ? glBase.doubleClickZoom : map.doubleClickZoom;
     if (dbl) on ? dbl.disable() : dbl.enable();
     if (on) {
       closeMapMenu();
       closePlacePop();
-      probeLL = null; // via anche il tooltip del punto toccato
+      probeLL = null; // the tapped point's tooltip goes away too
       ui.probe.hidden = true;
       renderLandscapeNav();
-      // si parte sempre dalla vista intera (zoom minimo), dopo che la mappa ha preso le misure nuove
+      // always start from the whole view (minimum zoom), after the map has taken the new size
       setTimeout(() => {
         if (!landscapeMq.matches) return;
         map.invalidateSize({ pan: false });
@@ -8069,16 +8069,16 @@
   }
   landscapeMq.addEventListener("change", applyLandscape);
 
-  // ---------- app dalla schermata Home: non c'è la barra del browser, quindi niente ricarica e niente "tira giù per
-  // aggiornare". Un tasto accanto a quello del pannello ricarica la pagina (corse e passi nuovi).
+  // ---------- Home Screen app: there is no browser bar, so no reload and no "pull down to
+  // refresh". A button next to the panel's one reloads the page (new runs and steps).
   const standalone =
     window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true;
   if (standalone) {
     ui.appReload.hidden = false;
     ui.appReload.addEventListener("click", () => location.reload());
-    // riaprendo l'app iOS mostra la pagina rimasta in memoria, con le corse di allora: a ogni ritorno in primo piano
-    // si ricarica (la vista resta: modello, grandezza e ora stanno nell'indirizzo). Non se è aperta una finestra
-    // (condivisione, grafico): tornando dall'app in cui si è condiviso l'immagine si perderebbe quello che si faceva.
+    // when reopening the app iOS shows the page kept in memory, with the runs of that time: every time it comes back to the
+    // foreground it reloads (the view stays: model, field and time are in the address). Not if a dialog is open
+    // (sharing, chart): coming back from the app the image was shared to, what you were doing would be lost.
     let wasHidden = false;
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) {
@@ -8090,10 +8090,10 @@
     });
   }
 
-  // ---------- segnalazione degli errori (Sentry): solo se c'è il DSN (meta.sentry_dsn, variabile SENTRY_DSN). Niente
-  // dati personali: né indirizzo IP (sendDefaultPii: false) né la parte dopo # dell'indirizzo, che contiene
-  // coordinate e nomi delle località; niente tracciamento delle prestazioni né registrazione delle sessioni.
-  const SENTRY_SRC = "https://browser.sentry-cdn.com/11.12.0/bundle.min.js"; // solo errori (niente tracing né replay)
+  // ---------- error reporting (Sentry): only if there is a DSN (meta.sentry_dsn, SENTRY_DSN variable). No
+  // personal data: neither the IP address (sendDefaultPii: false) nor the part of the address after #, which contains
+  // coordinates and place names; no performance tracing or session recording.
+  const SENTRY_SRC = "https://browser.sentry-cdn.com/11.12.0/bundle.min.js"; // errors only (no tracing or replay)
   const SENTRY_SRI = "sha384-fpjRzLWxkdRneAxDGo5pt5gKsjCWYV5ksPD+S1lx80QHBhs6Oe58hf8sKUKubCES";
   function setupSentry(dsn) {
     if (!dsn) return;
@@ -8108,10 +8108,10 @@
         release: meta.version || undefined,
         environment: STATIC ? "production" : "local",
         sendDefaultPii: false,
-        // nessun IP: Sentry non lo ricava dalla connessione e quindi nemmeno la posizione (paese, città)
+        // no IP: Sentry does not derive it from the connection and so not the location either (country, city)
         initialScope: { user: { ip_address: null } },
         tracesSampleRate: 0,
-        // rumore dei browser, non errori dell'app
+        // browser noise, not app errors
         ignoreErrors: ["ResizeObserver loop", "AbortError", "The operation was aborted"],
         beforeSend(event) {
           if (event.request?.url) event.request.url = noHash(event.request.url);
@@ -8130,9 +8130,9 @@
     document.head.append(el);
   }
 
-  // ---------- avvio
-  /** Mapbox GL: caricato senza bloccare l'avvio della pagina, mentre si scaricano
-   *  meta e corse. Se non arrivano entro 8 s si parte con gli sfondi di riserva. */
+  // ---------- startup
+  /** Mapbox GL: loaded without blocking page startup, while meta and runs
+   *  are downloaded. If it does not arrive within 8 s the page starts with the fallback basemaps. */
   const loadScript = (src) =>
     new Promise((resolve) => {
       const el = document.createElement("script");
@@ -8158,7 +8158,7 @@
         refreshRuns(),
       ]);
       meta = m;
-      // versione dai tag git (vuota se non ci sono tag)
+      // version from the git tags (empty if there are no tags)
       if (meta.version) {
         $("app-version").textContent = meta.version;
         $("app-version").hidden = false;
@@ -8170,12 +8170,12 @@
       return;
     }
     startView = toBounds(meta.initial_view || meta.bbox);
-    applyArea(); // area della mappa o, se la grandezza scelta è la carta sinottica, la sua
-    await mapboxLib; // scaricata ed eseguita mentre arrivavano meta e corse
+    applyArea(); // map area or, if the chosen field is the synoptic chart, its own
+    await mapboxLib; // downloaded and executed while meta and runs were arriving
     setupSentry(meta.sentry_dsn);
-    setupMapbox(meta.mapbox_token); // dopo la prima vista: Leaflet aggiunge i livelli solo a mappa posizionata
-    applyLandscape(); // telefono già in orizzontale all'apertura
-    renderSoundings(); // stazioni dei radiosondaggi, se accese
+    setupMapbox(meta.mapbox_token); // after the first view: Leaflet adds layers only once the map is positioned
+    applyLandscape(); // phone already in landscape on opening
+    renderSoundings(); // sounding stations, if on
     map.on("resize", () => {
       updateMinZoom();
       if (map.getZoom() < map.getMinZoom())
@@ -8184,7 +8184,7 @@
     });
     setBorders(state.borders, false);
     setExtra(state.extra, false);
-    setBase(state.base, false); // l'ultimo scelto in "Impostazioni" (salvato nel browser), altrimenti Rilievo
+    setBase(state.base, false); // the last one chosen in "Impostazioni" (saved in the browser), otherwise Rilievo
 
     ui.opacity.value = state.opacity;
     ui.bordersOpacity.value = state.bordersOpacity;
@@ -8192,7 +8192,7 @@
     ui.crisp.checked = state.crisp;
     ui.iso.checked = state.iso;
     setupVars();
-    // stato iniziale (index.html): "Modelli e parametri" aperta, le altre sezioni chiuse, su ogni schermo
+    // initial state (index.html): "Modelli e parametri" open, the other sections closed, on every screen
     setupPoints();
     setupModels();
     setupModes();
@@ -8200,15 +8200,15 @@
     setupSteps();
     await update();
 
-    // nuove corse/passi arrivano mentre la pagina è aperta
+    // new runs/steps arrive while the page is open
     setInterval(async () => {
       try {
         await refreshRuns();
-        const changed = setupRuns(); // passa da sola alla nuova corsa quando è completa
+        const changed = setupRuns(); // switches by itself to the new run when it is complete
         if (changed) setupSteps();
         if (changed || !current) update();
       } catch {
-        /* offline: riprova al prossimo giro */
+        /* offline: retried at the next round */
       }
     }, 2 * 60e3);
   }

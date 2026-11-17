@@ -1,4 +1,4 @@
-"""Decodifica GRIB2 e ritaglio su griglie regolari lat/lon."""
+"""GRIB2 decoding and cropping onto regular lat/lon grids."""
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
@@ -14,14 +14,14 @@ EPS = 1e-6
 
 @dataclass
 class Field:
-    """Griglia regolare con righe sud→nord e colonne ovest→est.
+    """Regular grid with rows south→north and columns west→east.
 
-    `lon0` è nel range -180..180 dopo `normalize_lon`/`crop`.
+    `lon0` is in the -180..180 range after `normalize_lon`/`crop`.
     """
 
-    values: np.ndarray  # shape (ny, nx), float32, NaN = mancante
-    lat0: float  # latitudine della prima riga (la più a sud)
-    lon0: float  # longitudine della prima colonna (la più a ovest)
+    values: np.ndarray  # shape (ny, nx), float32, NaN = missing
+    lat0: float  # latitude of the first row (the southernmost)
+    lon0: float  # longitude of the first column (the westernmost)
     dlat: float
     dlon: float
     short_name: str = ""
@@ -56,7 +56,7 @@ class Field:
 
 
 def decode_grib(data: bytes) -> list[Field]:
-    """Decodifica tutti i messaggi di un buffer GRIB (regular_ll)."""
+    """Decodes all messages of a GRIB buffer (regular_ll)."""
     fields: list[Field] = []
     offset = 0
     view = memoryview(data)
@@ -64,11 +64,11 @@ def decode_grib(data: bytes) -> list[Field]:
         start = data.find(b"GRIB", offset)
         if start < 0:
             break
-        # lunghezza totale del messaggio GRIB2: 8 byte big-endian a offset 8
+        # total length of the GRIB2 message: 8 big-endian bytes at offset 8
         edition = data[start + 7]
         if edition == 2:
             length = int.from_bytes(data[start + 8 : start + 16], "big")
-        else:  # GRIB1: 3 byte a offset 4
+        else:  # GRIB1: 3 bytes at offset 4
             length = int.from_bytes(data[start + 4 : start + 7], "big")
         msg = bytes(view[start : start + length])
         offset = start + length
@@ -101,7 +101,7 @@ def _field_from_handle(gid) -> Field:
         missing = eccodes.codes_get(gid, "missingValue")
         values[values == missing] = np.nan
 
-    if not j_pos:  # righe nord→sud: inverti
+    if not j_pos:  # rows north→south: flip
         values = values[::-1, :]
     lat0 = min(lat_first, lat_last)
     if i_neg:
@@ -122,11 +122,11 @@ def _field_from_handle(gid) -> Field:
     )
 
 
-HALF_RES_BELOW = 0.05  # gradi: solo le griglie più fini si dimezzano
+HALF_RES_BELOW = 0.05  # degrees: only the finest grids are halved
 
 
 def halve(field: Field) -> Field:
-    """Una cella su due per lato (un quarto dei dati) se la griglia è più fine di 0,05°; altrimenti invariato."""
+    """One cell out of two per side (a quarter of the data) if the grid is finer than 0.05°; otherwise unchanged."""
     if field.dlat >= HALF_RES_BELOW and field.dlon >= HALF_RES_BELOW:
         return field
     return Field(values=np.ascontiguousarray(field.values[::2, ::2]), lat0=field.lat0, lon0=field.lon0,
@@ -135,8 +135,8 @@ def halve(field: Field) -> Field:
 
 
 def lambert_to_earth(u: np.ndarray, v: np.ndarray, lons: np.ndarray, lov: float, lat1: float, lat2: float):
-    """Ruota il vento dalla griglia Lambert conforme (secante a lat1 e lat2, meridiano centrale lov) al nord
-    geografico: angolo n·(lon − lov), con n il fattore del cono (come `uvmet` di wrf-python)."""
+    """Rotates the wind from the Lambert conformal grid (secant at lat1 and lat2, central meridian lov) to geographic
+    north: angle n·(lon − lov), with n the cone factor (like wrf-python's `uvmet`)."""
     p1, p2 = np.radians(lat1), np.radians(lat2)
     if abs(lat1 - lat2) < 1e-6:
         n = np.sin(p1)
@@ -148,7 +148,7 @@ def lambert_to_earth(u: np.ndarray, v: np.ndarray, lons: np.ndarray, lov: float,
 
 
 def select(fields: list[Field], selector: GribSelector) -> Field:
-    """Sceglie il messaggio che corrisponde al selettore (es. totale `0-N`)."""
+    """Picks the message matching the selector (e.g. total `0-N`)."""
     candidates = fields
     if selector.short_name:
         candidates = [f for f in candidates if f.short_name == selector.short_name]
@@ -165,12 +165,12 @@ def _norm180(lon: np.ndarray | float):
 
 
 def crop(field: Field, bbox: BBox) -> Field:
-    """Ritaglia il campo al box, gestendo longitudini 0..360 e il meridiano 0."""
+    """Crops the field to the box, handling longitudes 0..360 and the 0 meridian."""
     lons = _norm180(field.lons())
     values = field.values
     is_global = abs(field.nx * field.dlon - 360.0) < field.dlon / 2
     if is_global:
-        # ruota così la prima colonna è la più a ovest (-180)
+        # roll so the first column is the westernmost (-180)
         shift = int(np.argmin(lons))
         lons = np.roll(lons, -shift)
         values = np.roll(values, -shift, axis=1)

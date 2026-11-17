@@ -1,7 +1,7 @@
-"""Storage su disco dei campi già ritagliati e convertiti.
+"""On-disk storage of the fields, already cropped and converted.
 
 Layout: DATA_DIR/{bbox.key}/{model}/{run}/{var}/{step:03d}.npy (+ meta.json per var).
-Il namespace per box fa sì che cambiare area non mescoli griglie diverse.
+The per-box namespace keeps a change of area from mixing different grids.
 """
 from __future__ import annotations
 
@@ -25,14 +25,14 @@ class Store:
         self.root.mkdir(parents=True, exist_ok=True)
         (self.root / "bbox.json").write_text(json.dumps(self.bbox.as_dict()))
 
-    # ---- percorsi
+    # ---- paths
     def var_dir(self, model: str, run: str, var: str) -> Path:
         return self.root / model / run / var
 
     def step_path(self, model: str, run: str, var: str, step: int) -> Path:
         return self.var_dir(model, run, var) / f"{step:03d}.npy"
 
-    # ---- scrittura
+    # ---- writing
     def save(self, model: str, run: str, var: str, step: int, field: Field) -> None:
         d = self.var_dir(model, run, var)
         d.mkdir(parents=True, exist_ok=True)
@@ -49,7 +49,7 @@ class Store:
             np.save(fh, field.values.astype(np.float32))
         os.replace(tmp, self.step_path(model, run, var, step))
 
-    # ---- lettura
+    # ---- reading
     def has(self, model: str, run: str, var: str, step: int) -> bool:
         return self.step_path(model, run, var, step).exists()
 
@@ -76,13 +76,13 @@ class Store:
         d = self.root / model / run
         return sorted(p.name for p in d.iterdir() if p.is_dir()) if d.exists() else []
 
-    # ---- pulizia
+    # ---- cleanup
     def purge(self, model: str, retention: int) -> list[str]:
-        """Tiene le `retention` corse più recenti."""
+        """Keeps the `retention` most recent runs."""
         return self.purge_superseded(model, set(self.runs(model)[:retention]))
 
     def purge_superseded(self, model: str, keep: set[str]) -> list[str]:
-        """Cancella le corse del modello che non sono in `keep`."""
+        """Deletes the model's runs that are not in `keep`."""
         removed = []
         for run in self.runs(model):
             if run not in keep:

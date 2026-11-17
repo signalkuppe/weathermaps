@@ -65,7 +65,7 @@ test("playback keeps both range thumbs fixed while its progress advances", () =>
   let tick;
   const playback = vm.createContext({
     meta: {},
-    // range fisso da +3h a +12h, cumulata Totale: il play fa crescere l'accumulo dentro il range
+    // fixed range from +3h to +12h, Total accumulation: play grows the accumulation inside the range
     state: { mode: "interval", rangeFrom: 3, rangeTo: 12, cum: "total", step: 12, hours: 9 },
     playTimer: null,
     playbackSelection: null,
@@ -77,7 +77,7 @@ test("playback keeps both range thumbs fixed while its progress advances", () =>
     rangeMode: () => true,
     rangeFrames: (from, to) => [3, 6, 9, 12, 15].filter((x) => x > from && x <= to),
     syncMode() {},
-    dualMode: () => true, // Totale: slider a due maniglie
+    dualMode: () => true, // Total: two-thumb slider
     slideSteps: () => [3, 6, 9, 12, 15],
     ui: { play: button(), mPlay: button(), step: {} },
     setInterval(callback) { tick = callback; return 1; },
@@ -149,7 +149,7 @@ test("time bars show the interval as dates, with the start", () => {
       badgeText: {},
       step: { style: { setProperty() {} } },
     },
-    // come quella vera: con la corsa vuota si rompe (slice di null)
+    // like the real one: with an empty run it breaks (slice of null)
     runDate: (rid) => (rid.slice(0, 4), new Date("2026-11-13T06:00:00Z")),
     fmtLocal: () => "ven 13 nov, 15:00",
     fmtUTC: () => "14:00",
@@ -165,14 +165,14 @@ test("time bars show the interval as dates, with the start", () => {
     slideSteps: () => [3, 6, 9, 12, 24],
     $: () => ({ style: { setProperty() {} } }),
   });
-  // formattatori veri delle date (fmtDay … fmtShown) e renderTime
+  // the real date formatters (fmtDay … fmtShown) and renderTime
   vm.runInContext(
     source.slice(source.indexOf("  const fmtDay ="), source.indexOf("  const hexToRgb =")) +
       source.slice(source.indexOf("  function renderTime()"), source.indexOf("  let seq = 0;")) +
       "\nrenderTime();",
     time,
   );
-  // intervallo da +3h (10:00 a Roma) al passo mostrato +9h (16:00), stesso giorno: il giorno una volta sola
+  // interval from +3h (10:00 in Rome) to the shown step +9h (16:00), same day: the day only once
   const span = "ven 13, 10:00 → 16:00";
   assert.match(time.ui.badgeText.innerHTML, new RegExp(`badge-valid badge-d">${span}</span>`));
   assert.match(time.ui.badgeText.innerHTML, new RegExp(`badge-m-time"><b>${span}</b><span class="badge-m-range">6h</span>`));
@@ -185,22 +185,22 @@ test("time bars show the interval as dates, with the start", () => {
   vm.runInContext("renderTime();", time);
   assert.match(time.ui.badgeText.innerHTML, new RegExp(`badge-valid badge-d">${span}</span>`));
 
-  // totale dall'inizio della corsa: anche qui inizio e fine (06Z = 07:00 a Roma, +9h = 16:00) e la durata
+  // total since the start of the run: here too start and end (06Z = 07:00 in Rome, +9h = 16:00) and the duration
   state.mode = "total";
   time.playbackSelection = { from: 0, to: 24 };
   vm.runInContext("renderTime();", time);
   assert.match(time.ui.badgeText.innerHTML, /badge-valid badge-d">ven 13, 07:00 → 16:00<\/span>/);
-  // durante il play la barra dice la cumulata dell'immagine mostrata (fino a +9h), non la fine del range
+  // during play the bar shows the accumulation of the image shown (up to +9h), not the end of the range
   assert.match(time.ui.badgeText.innerHTML, /badge-m-range">9h<\/span>/);
 
-  // grandezza istantanea: niente intervallo, l'ora UTC sotto nel pannello
+  // instantaneous field: no interval, the UTC time below in the panel
   state.mode = "value";
   time.rangeMode = () => false;
   vm.runInContext("renderTime();", time);
   assert.doesNotMatch(time.ui.badgeText.innerHTML, /badge-m-range/);
   assert.equal(time.ui.range.textContent, "14:00 UTC");
 
-  // grandezza che il modello non ha: nessuna corsa, niente date (prima l'avvio si fermava con un errore)
+  // field the model does not have: no run, no dates (startup used to stop with an error)
   state.run = null;
   time.variable = () => ({ models: ["gfs"] });
   vm.runInContext("renderTime();", time);
@@ -211,9 +211,9 @@ test("time bars show the interval as dates, with the start", () => {
 test("range frames: every step with the total, one image every chosen hours otherwise", () => {
   const fnSource = source.slice(
     source.indexOf("  function rangeFrames("),
-    source.indexOf("  // durata effettiva della cumulata al passo mostrato"),
+    source.indexOf("  // actual duration of the accumulation at the step shown"),
   );
-  // passi ogni 3 ore fino a +144h, poi ogni 6 ore
+  // steps every 3 hours up to +144h, then every 6 hours
   const all = [...Array.from({ length: 48 }, (_, i) => 3 * (i + 1)), 150, 156, 162, 168];
   const ctx = vm.createContext({
     state: { rangeFrom: 6, rangeTo: 30, cum: "total", hours: 6, step: 30 },
@@ -221,12 +221,12 @@ test("range frames: every step with the total, one image every chosen hours othe
     availableSteps: () => new Set(all),
   });
   vm.runInContext(`${fnSource}\nglobalThis.frames = rangeFrames;`, ctx);
-  // Totale: ogni passo dopo l'inizio del range, fino alla fine
+  // Total: every step after the start of the range, up to the end
   assert.deepEqual([...ctx.frames()], [9, 12, 15, 18, 21, 24, 27, 30]);
-  // 6h dentro lo stesso range: 06-12, 12-18, 18-24, 24-30
+  // 6h inside the same range: 06-12, 12-18, 18-24, 24-30
   ctx.state.cum = "hours";
   assert.deepEqual([...ctx.frames()], [12, 18, 24, 30]);
-  // 3h oltre +144h (passi ogni 6 ore): una sola immagine per passo, senza doppioni
+  // 3h beyond +144h (steps every 6 hours): a single image per step, without duplicates
   Object.assign(ctx.state, { rangeFrom: 138, rangeTo: 168, hours: 3 });
   assert.deepEqual([...ctx.frames()], [141, 144, 150, 156, 162, 168]);
 });

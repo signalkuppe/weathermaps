@@ -46,11 +46,11 @@ def test_ecmwf_crop_and_units():
     assert c.lon0 == pytest.approx(4.0)
     assert c.lats()[-1] == pytest.approx(49.0)
     mm = get("tp").convert["ecmwf"](c.values)
-    assert 0 <= np.nanmax(mm) < 500  # plausibile per 24h
+    assert 0 <= np.nanmax(mm) < 500  # plausible for 24h
 
 
 def test_ecmwf_point_matches_eccodes_nearest():
-    # valore di riferimento letto con: grib_get -l 45.5,9.2,1 (Milano) = 0.000854492 m
+    # reference value read with: grib_get -l 45.5,9.2,1 (Milan) = 0.000854492 m
     c = crop(load("ec01_tp24.grb")[0], NORD_ITALIA)
     iy = round((45.5 - c.lat0) / c.dlat)
     ix = round((9.2 - c.lon0) / c.dlon)
@@ -69,7 +69,7 @@ def test_crop_across_greenwich():
     assert c.values.shape == (101, 151)
     assert c.lon0 == pytest.approx(-5.0)
     assert np.all(np.diff(c.lons()) > 0)
-    # la colonna a 0° deve coincidere con quella del box che parte a 0°
+    # the column at 0° must match that of the box starting at 0°
     ref = crop(f, BBox.parse("40,50,0,10"))
     np.testing.assert_array_equal(c.values[:, 50], ref.values[:, 0])
 
@@ -81,7 +81,7 @@ def test_bbox_validation():
         BBox.parse("42,49,4")
 
 
-# ---------- temperatura a 850 hPa
+# ---------- temperature at 850 hPa
 from app.sources import ecmwf as ecmwf_src  # noqa: E402
 
 
@@ -90,7 +90,7 @@ def test_t850_gfs_decode_and_convert():
     f = crop(select(load("gfs_t850_f024.grb"), v.selectors["gfs"]), NORD_ITALIA)
     assert f.values.shape == (29, 53) and f.units == "K" and f.step_range == "24"
     c = v.convert["gfs"](f.values)
-    # riferimento: grib_get -l 46.17,9.87,1 (Sondrio) = 277.445 K
+    # reference: grib_get -l 46.17,9.87,1 (Sondrio) = 277.445 K
     iy, ix = round((46.17 - f.lat0) / f.dlat), round((9.87 - f.lon0) / f.dlon)
     assert c[iy, ix] == pytest.approx(277.445 - 273.15, abs=0.01)
     assert -40 < np.nanmin(c) and np.nanmax(c) < 40
@@ -111,7 +111,7 @@ def test_ecmwf_index_matches_level():
     rec = next(r for r in map(__import__("json").loads, text.splitlines()) if r["param"] == "t" and r["levelist"] == "850")
     assert (offset, length) == (rec["_offset"], rec["_length"])
     url = ecmwf_src.base_url(__import__("datetime").datetime(2026, 11, 9), 24)
-    assert "/ifs/0p25/oper/" in url and url.endswith("-24h-oper-fc")  # superficie e livelli nello stesso file
+    assert "/ifs/0p25/oper/" in url and url.endswith("-24h-oper-fc")  # surface and levels in the same file
 
 
 def test_t850_meta_rank_ascending():
@@ -120,7 +120,7 @@ def test_t850_meta_rank_ascending():
     assert get("tp").as_dict()["rank"] == "desc"
 
 
-# ---------- MeteoSvizzera ICON-CH1/CH2 (griglia non strutturata)
+# ---------- MeteoSwiss ICON-CH1/CH2 (unstructured grid)
 from app.sources import meteoswiss  # noqa: E402
 
 
@@ -133,15 +133,15 @@ def test_icon_horizon_format():
 
 def test_icon_sources_configured():
     assert meteoswiss.icon_ch2.MODEL.max_step == 120 and meteoswiss.icon_ch1.MODEL.max_step == 33
-    assert meteoswiss.icon_ch1.dlat < meteoswiss.icon_ch2.dlat  # CH1 più fine
+    assert meteoswiss.icon_ch1.dlat < meteoswiss.icon_ch2.dlat  # CH1 finer
 
 
 def test_icon_regridder_nearest_and_mask():
-    # nuvola di punti irregolare su metà del box: l'altra metà deve risultare fuori dominio
+    # irregular point cloud over half the box: the other half must come out as outside the domain
     rng = np.random.default_rng(0)
     lat = rng.uniform(44, 47, 40000)
     lon = rng.uniform(6, 9, 40000)
-    vals = lat * 10 + lon  # campo noto e liscio
+    vals = lat * 10 + lon  # known, smooth field
     box = BBox.parse("44,47,6,12")
     rg = meteoswiss.Regridder.build(lat, lon, box, 0.02, 0.028)
     out = rg.apply(vals)
@@ -152,10 +152,10 @@ def test_icon_regridder_nearest_and_mask():
     glon, glat = np.meshgrid(lons, lats)
     interior = (glat > 44.1) & (glat < 46.9) & (glon > 6.1) & (glon < 8.9)
     assert np.isfinite(out[interior]).all()
-    assert np.abs(out - (glat * 10 + glon))[interior].max() < 0.25  # vicino più prossimo entro ~0.02°
+    assert np.abs(out - (glat * 10 + glon))[interior].max() < 0.25  # nearest neighbour within ~0.02°
 
 
-# ---------- ICON-D2 e ICON-2I: indirizzi dei file
+# ---------- ICON-D2 and ICON-2I: file URLs
 from datetime import datetime as _dt  # noqa: E402
 
 from app.sources import icon_2i, icon_d2  # noqa: E402
@@ -175,7 +175,7 @@ def test_icon_2i_urls():
     assert icon_2i.url(run, get("t850")).endswith("/2026110912/T/ICON_2I_SURFACE_PRESSURE_LEVELS_2026110912_isobaricInhPa-850.grib")
 
 
-# ---------- interpolazione per la media
+# ---------- interpolation for the mean
 from app.mean import bilinear  # noqa: E402
 
 
@@ -188,10 +188,10 @@ def test_bilinear_exact_on_linear_field():
     tn = np.array([4.0, 9.87, 16.99, 3.5])
     out = bilinear(vals, grid, tl, tn)
     np.testing.assert_allclose(out[:3, :3], tl[:3, None] * 2 + tn[None, :3] * 3, rtol=1e-5)
-    assert np.isnan(out[3]).all() and np.isnan(out[:, 3]).all()  # fuori griglia
+    assert np.isnan(out[3]).all() and np.isnan(out[:, 3]).all()  # outside the grid
 
 
-# ---------- MeteoHub (WRF, MOLOCH): lettura delle intestazioni GRIB2 senza decodificare i dati
+# ---------- MeteoHub (WRF, MOLOCH): reading the GRIB2 headers without decoding the data
 import eccodes  # noqa: E402
 
 from app.sources import meteohub  # noqa: E402
@@ -221,9 +221,9 @@ def test_meteohub_header_accumulated_from_start():
 
 
 def test_meteohub_header_hourly_bucket_and_instant():
-    b = meteohub.parse_header(_grib2(8, 0, 1, 8, 23, 1), offset=0)  # pioggia fra 23 e 24h (MOLOCH)
+    b = meteohub.parse_header(_grib2(8, 0, 1, 8, 23, 1), offset=0)  # precipitation between 23 and 24h (MOLOCH)
     assert b.accum_from == 23 and b.step == 24
-    t = meteohub.parse_header(_grib2(0, 0, 0, 0, 48), offset=0)  # temperatura istantanea
+    t = meteohub.parse_header(_grib2(0, 0, 0, 0, 48), offset=0)  # instantaneous temperature
     assert t.code == (0, 0, 0) and t.accum_from is None and t.step == 48
 
 
@@ -232,10 +232,10 @@ def test_meteohub_urls_and_selectors():
     assert meteohub.wrf.url(run, get("tp")).endswith("/WRF/2026110900/tp/WRF_2026110900_surface-0.grib")
     assert meteohub.wrf.url(run, get("t850")).endswith("/WRF/2026110900/t/WRF_2026110900_isobaricInhPa-850.grib")
     assert not get("tp").selectors["wrf"].hourly_buckets
-    assert "moloch" not in get("tp").selectors  # escluso per ora
+    assert "moloch" not in get("tp").selectors  # excluded for now
 
 
-# ---------- Météo-France AROME: paquets a blocchi di 6 ore
+# ---------- Météo-France AROME: packages in 6-hour blocks
 from app.sources import arome as arome_mod  # noqa: E402
 
 
@@ -245,13 +245,13 @@ def test_arome_urls_and_blocks():
     assert a.url(run, get("tp"), 3).endswith(
         "/2026-11-10T03:00:00Z/arome/0025/SP1/arome__0025__SP1__00H06H__2026-11-10T03:00:00Z.grib2")
     assert "/SP1/arome__0025__SP1__49H51H__" in a.url(run, get("tp"), 51)
-    assert "arome" not in get("t850").selectors  # solo pioggia
+    assert "arome" not in get("t850").selectors  # precipitation only
     assert [arome_mod.block(s) for s in (6, 7, 12, 48, 51)] == ["00H06H", "07H12H", "07H12H", "43H48H", "49H51H"]
     with pytest.raises(ValueError):
         arome_mod.block(54)
 
 
-# ---------- vento: metà risoluzione e rotazione della griglia Lambert (WRF)
+# ---------- wind: half resolution and rotation of the Lambert grid (WRF)
 from app.grid import Field, halve, lambert_to_earth  # noqa: E402
 
 
@@ -261,12 +261,12 @@ def test_halve_only_fine_grids():
     assert h.values.shape == (2, 3) and h.dlat == pytest.approx(0.04) and h.dlon == pytest.approx(0.05)
     assert h.values[1, 2] == fine.values[2, 4] and h.lat0 == 45 and h.lon0 == 9
     coarse = Field(values=np.zeros((4, 5), np.float32), lat0=45, lon0=9, dlat=0.1, dlon=0.1)
-    assert halve(coarse) is coarse  # ECMWF e GFS restano come sono
+    assert halve(coarse) is coarse  # ECMWF and GFS stay as they are
 
 
 def test_lambert_rotation_keeps_speed_and_turns_east_of_central_meridian():
     u, v = np.array([10.0, 10.0]), np.array([0.0, 0.0])
     ue, ve = lambert_to_earth(u, v, np.array([11.0, 17.0]), 11.0, 43.42, 37.21)
-    assert ue[0] == pytest.approx(10) and ve[0] == pytest.approx(0)  # sul meridiano centrale: nessuna rotazione
-    assert np.hypot(ue[1], ve[1]) == pytest.approx(10)  # la velocità non cambia
-    assert ve[1] < 0  # a est il "verso est" della griglia punta un po' a sud del vero est
+    assert ue[0] == pytest.approx(10) and ve[0] == pytest.approx(0)  # on the central meridian: no rotation
+    assert np.hypot(ue[1], ve[1]) == pytest.approx(10)  # the speed does not change
+    assert ve[1] < 0  # to the east the grid's "eastward" points a bit south of true east

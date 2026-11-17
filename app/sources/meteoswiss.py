@@ -1,8 +1,8 @@
-"""MeteoSvizzera ICON-CH1-EPS e ICON-CH2-EPS (corsa di controllo) via Open Data STAC API.
+"""MeteoSwiss ICON-CH1-EPS and ICON-CH2-EPS (control run) via the Open Data STAC API.
 
-I campi sono su griglia ICON non strutturata (triangoli): vengono riportati su una griglia
-regolare lat/lon con il punto del modello più vicino. Le coordinate delle celle arrivano dal
-file "horizontal_constants" della collezione e si scaricano una volta sola.
+Fields are on an unstructured ICON grid (triangles): they are remapped to a regular
+lat/lon grid with the nearest model point. The cell coordinates come from the
+collection's "horizontal_constants" file and are downloaded only once.
 """
 from __future__ import annotations
 
@@ -24,12 +24,12 @@ from . import ModelInfo, NotAvailable
 log = logging.getLogger("weathermaps.meteoswiss")
 
 STAC = "https://data.geo.admin.ch/api/stac/v1"
-MAX_DIST_KM = 3.5  # oltre questa distanza dalla cella più vicina il punto è fuori dominio
+MAX_DIST_KM = 3.5  # beyond this distance from the nearest cell the point is outside the domain
 EARTH_R_KM = 6371.0
 
 
 def horizon(step: int) -> str:
-    """Formato ISO 8601 usato dalla STAC API, es. 27 -> 'P1DT03H00M00S'."""
+    """ISO 8601 format used by the STAC API, e.g. 27 -> 'P1DT03H00M00S'."""
     return f"P{step // 24}DT{step % 24:02d}H00M00S"
 
 
@@ -40,7 +40,7 @@ def _xyz(lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
 
 @dataclass
 class Regridder:
-    """Mappa fissa: per ogni punto della griglia regolare, l'indice della cella ICON più vicina."""
+    """Fixed map: for each point of the regular grid, the index of the nearest ICON cell."""
 
     index: np.ndarray  # (ny, nx) int32
     valid: np.ndarray  # (ny, nx) bool
@@ -59,7 +59,7 @@ class Regridder:
         glon, glat = np.meshgrid(lons, lats)
         tree = cKDTree(_xyz(src_lat, src_lon))
         dist, idx = tree.query(_xyz(glat.ravel(), glon.ravel()))
-        valid = dist * EARTH_R_KM < max_dist_km  # corda ≈ arco per distanze piccole
+        valid = dist * EARTH_R_KM < max_dist_km  # chord ≈ arc for small distances
         return cls(idx.reshape(ny, nx).astype(np.int32), valid.reshape(ny, nx),
                    float(bbox.lat_min), float(bbox.lon_min), dlat, dlon)
 
@@ -80,7 +80,7 @@ class Regridder:
 
 
 def decode_unstructured(data: bytes) -> list[dict]:
-    """Decodifica messaggi GRIB su griglia non strutturata (valori + metadati utili)."""
+    """Decodes GRIB messages on an unstructured grid (values + useful metadata)."""
     out = []
     offset = 0
     while True:
@@ -108,7 +108,7 @@ def decode_unstructured(data: bytes) -> list[dict]:
 
 
 class MeteoSwissSource:
-    """Una sorgente ICON-CH: stessa API e riproiezione, cambiano collezione e griglia di arrivo."""
+    """An ICON-CH source: same API and remapping, different collection and target grid."""
 
     def __init__(self, model: ModelInfo, collection: str, hconst_asset: str, dlat: float, dlon: float):
         self.MODEL = model
@@ -118,7 +118,7 @@ class MeteoSwissSource:
         self.dlon = dlon
         self._regridders: dict[tuple[str, str], Regridder] = {}
 
-    # --- coordinate della griglia ICON e riproiezione
+    # --- ICON grid coordinates and remapping
     def _constants_path(self, uuid: str) -> Path:
         return get_data_dir() / "static" / f"{self.MODEL.id}-hgrid-{uuid}.npz"
 
@@ -127,7 +127,7 @@ class MeteoSwissSource:
         if path.exists():
             d = np.load(path)
             return d["lat"], d["lon"]
-        log.info("%s: scarico le coordinate della griglia (una tantum)", self.MODEL.id)
+        log.info("%s: downloading the grid coordinates (one-off)", self.MODEL.id)
         coll = client.get(f"{STAC}/collections/{self.collection}")
         coll.raise_for_status()
         href = coll.json()["assets"][self.hconst_asset]["href"]
@@ -154,19 +154,19 @@ class MeteoSwissSource:
             lat, lon = self._load_coordinates(client, uuid)
             rg = Regridder.build(lat, lon, bbox, self.dlat, self.dlon)
             rg.save(path)
-            log.info("%s: griglia regolare %dx%d, %.0f%% dentro il dominio",
+            log.info("%s: regular grid %dx%d, %.0f%% inside the domain",
                      self.MODEL.id, rg.index.shape[1], rg.index.shape[0], 100 * rg.valid.mean())
         self._regridders[key] = rg
         return rg
 
-    # --- dati
+    # --- data
     def find_asset(self, client: httpx.Client, run: datetime, step: int, variable: Variable) -> str:
         sel = variable.selectors[self.MODEL.id]
         body = {
             "collections": [self.collection],
             "forecast:reference_datetime": run.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "forecast:variable": sel.param,
-            "forecast:perturbed": False,  # corsa di controllo
+            "forecast:perturbed": False,  # control run
             "forecast:horizon": horizon(step),
             "limit": 1,
         }
@@ -179,7 +179,7 @@ class MeteoSwissSource:
 
     def fetch(self, client: httpx.Client, run: datetime, step: int, variable: Variable, bbox: BBox) -> Field:
         sel = variable.selectors[self.MODEL.id]
-        href = self.find_asset(client, run, step, variable)  # URL firmato: va usato subito
+        href = self.find_asset(client, run, step, variable)  # signed URL: must be used right away
         resp = client.get(href)
         if resp.status_code == 404:
             raise NotAvailable(f"{self.MODEL.id} {run:%Y%m%d%H} +{step}h file non disponibile")
@@ -208,7 +208,7 @@ icon_ch2 = MeteoSwissSource(
               )),
     collection="ch.meteoschweiz.ogd-forecasting-icon-ch2",
     hconst_asset="horizontal_constants_icon-ch2-eps.grib2",
-    dlat=0.02, dlon=0.028,  # ~2.2 km a 45°N
+    dlat=0.02, dlon=0.028,  # ~2.2 km at 45°N
 )
 
 icon_ch1 = MeteoSwissSource(
@@ -220,5 +220,5 @@ icon_ch1 = MeteoSwissSource(
               )),
     collection="ch.meteoschweiz.ogd-forecasting-icon-ch1",
     hconst_asset="horizontal_constants_icon-ch1-eps.grib2",
-    dlat=0.01, dlon=0.014,  # ~1.1 km a 45°N
+    dlat=0.01, dlon=0.014,  # ~1.1 km at 45°N
 )

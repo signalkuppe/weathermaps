@@ -1,20 +1,20 @@
-"""Mediana dei modelli (id "mean"), salvata come un modello in più.
+"""Model median (id "mean"), stored as one more model.
 
-I modelli partono a ore diverse e la pioggia è accumulata dall'inizio di ciascuna corsa,
-quindi la mediana si costruisce per istante di validità a partire da un orario comune T0:
+Models start at different hours and precipitation is accumulated from the start of each run,
+so the median is built per valid time from a common time T0:
 
-- per ogni modello si usa l'ultima corsa completa che parte non dopo T0;
-- T0 è l'inizio della corsa completa più recente, arrotondato alle 6 ore
-  (così GFS ed ECMWF hanno i passi giusti anche oltre le 144h, dove sono ogni 6 ore);
-- grandezze accumulate (pioggia, neve): per ogni intervallo si fa la mediana di quanto è caduto nell'intervallo fra i modelli
-  disponibili, poi si sommano gli intervalli. Totale e Intervallo restano coerenti anche quando
-  un modello a breve scadenza (ICON-CH1, ICON-D2...) esce dalla mediana;
-- grandezze istantanee (temperatura, zero termico): mediana dei valori all'istante.
+- each model uses its latest complete run starting no later than T0;
+- T0 is the start of the most recent complete run, rounded to 6 hours
+  (so GFS and ECMWF have the right steps beyond 144h too, where they are every 6 hours);
+- accumulated fields (precipitation, snow): for each interval, the median of what fell in the interval among the
+  available models, then the intervals are summed. Total and Interval stay consistent even when
+  a short-range model (ICON-CH1, ICON-D2...) drops out of the median;
+- instantaneous fields (temperature, freezing level): median of the values at that time.
 
-La mediana non si lascia trascinare da un modello isolato molto diverso dagli altri; con due soli
-modelli coincide con la media.
+The median is not dragged by a single model far from the others; with only two
+models it equals the mean.
 
-Tutti i campi vengono interpolati (bilineare) su una griglia comune di ~2 km.
+All fields are interpolated (bilinearly) onto a common ~2 km grid.
 """
 from __future__ import annotations
 
@@ -45,13 +45,13 @@ MODEL = ModelInfo(
 TARGET_DLAT = 0.02
 TARGET_DLON = 0.028
 ALIGN_HOURS = 6
-AREA_DSTEP = 0.25  # grandezze con area propria (carta sinottica): griglia di GFS ed ECMWF
+AREA_DSTEP = 0.25  # fields with their own area (synoptic chart): GFS and ECMWF grid
 
 _lock = threading.Lock()
 
 
 def bilinear(values: np.ndarray, grid: dict, tlats: np.ndarray, tlons: np.ndarray) -> np.ndarray:
-    """Interpola un campo su griglia regolare verso una griglia regolare (righe tlats, colonne tlons)."""
+    """Interpolates a field on a regular grid onto a regular grid (rows tlats, columns tlons)."""
     ny, nx = values.shape
     fy = (tlats - grid["lat0"]) / grid["dlat"]
     fx = (tlons - grid["lon0"]) / grid["dlon"]
@@ -73,7 +73,7 @@ def bilinear(values: np.ndarray, grid: dict, tlats: np.ndarray, tlons: np.ndarra
 
 
 def build_mean(store: Store | None = None) -> dict:
-    """Ricalcola la mediana per ogni grandezza con almeno due modelli. Salta se gli ingressi non sono cambiati."""
+    """Recomputes the median for each field with at least two models. Skips if the inputs have not changed."""
     if not _lock.acquire(blocking=False):
         return {"skipped": True}
     try:
@@ -83,7 +83,7 @@ def build_mean(store: Store | None = None) -> dict:
 
 
 def _build(store: Store) -> dict:
-    from .fetcher import latest_complete  # import locale: evita il ciclo fetcher -> mean -> fetcher
+    from .fetcher import latest_complete  # local import: avoids the cycle fetcher -> mean -> fetcher
 
     summary = {}
     bbox = store.bbox
@@ -92,9 +92,9 @@ def _build(store: Store) -> dict:
     tlats = bbox.lat_min + np.arange(ny) * TARGET_DLAT
     tlons = bbox.lon_min + np.arange(nx) * TARGET_DLON
 
-    # di ogni modello si tiene solo l'ultima corsa completa: è quella che entra nella mediana.
-    # Un solo istante di partenza T0 per tutte le grandezze (la più recente arrotondata alle 6 ore), così la mediana
-    # ha una sola corsa; i modelli partiti dopo T0 entrano dai loro primi passi (offset negativo).
+    # only the latest complete run of each model is kept: that is the one entering the median.
+    # A single start time T0 for all fields (the most recent, rounded to 6 hours), so the median has a single
+    # run; models started after T0 join from their first steps (negative offset).
     all_models = {m for var in variables.REGISTRY.values() for m in var.selectors}
     latest = {m: r for m in all_models if (r := latest_complete(store, m))}
     if not latest:
@@ -105,13 +105,13 @@ def _build(store: Store) -> dict:
     for var in variables.REGISTRY.values():
         chosen = {m: latest[m] for m in var.selectors if m in latest}
         if var.area:
-            # carta sinottica (solo GFS ed ECMWF, stessa griglia): sulla sua area, a 0,25° come i due modelli
+            # synoptic chart (GFS and ECMWF only, same grid): on its own area, at 0.25° like the two models
             a = BBox.parse(var.area)
             vdlat = vdlon = AREA_DSTEP
             vlats = a.lat_min + np.arange(int(round((a.lat_max - a.lat_min) / vdlat)) + 1) * vdlat
             vlons = a.lon_min + np.arange(int(round((a.lon_max - a.lon_min) / vdlon)) + 1) * vdlon
         else:
-            # griglia comune: per le grandezze a metà risoluzione (vento) una cella su due per lato
+            # common grid: for half-resolution fields (wind) one cell out of two per side
             k = 2 if var.half_res else 1
             vlats, vlons = tlats[::k], tlons[::k]
             vdlat, vdlon = TARGET_DLAT * k, TARGET_DLON * k
@@ -140,7 +140,7 @@ def _build(store: Store) -> dict:
 
         cum = np.zeros((len(vlats), len(vlons)), dtype=np.float32)
         ever = np.zeros((len(vlats), len(vlons)), dtype=bool)
-        last = 0  # ultimo passo incluso nella somma (pioggia)
+        last = 0  # last step included in the sum (precipitation)
         written: dict[int, list[str]] = {}
         for s in [x for x in STEPS if x <= MODEL.max_step]:
             vals, used = [], []
@@ -155,9 +155,9 @@ def _build(store: Store) -> dict:
                         vals.append(member(m, offset[m] + s))
                         used.append(m)
             if not vals:
-                continue  # nessun modello per questo passo: confluisce nel successivo
+                continue  # no model for this step: it flows into the next one
             with warnings.catch_warnings():
-                warnings.simplefilter("ignore", RuntimeWarning)  # pixel fuori da tutti i domini
+                warnings.simplefilter("ignore", RuntimeWarning)  # pixels outside all domains
                 m_val = np.nanmedian(np.stack(vals), axis=0)
             if var.kind == "accum":
                 ok = np.isfinite(m_val)
@@ -171,7 +171,7 @@ def _build(store: Store) -> dict:
                                                       dlat=vdlat, dlon=vdlon))
             written[s] = used
 
-        # passi di una versione precedente non più calcolabili
+        # steps of a previous version that can no longer be computed
         for s in store.steps("mean", rid0, var.id):
             if s not in written:
                 store.step_path("mean", rid0, var.id, s).unlink(missing_ok=True)
@@ -182,7 +182,7 @@ def _build(store: Store) -> dict:
             "steps": {str(s): u for s, u in written.items()},
         }))
         summary[var.id] = f"{rid0}: {len(written)} passi da {len(chosen)} modelli"
-        log.info("Mediana %s %s: %d passi, modelli %s", var.id, rid0, len(written), chosen)
+        log.info("Median %s %s: %d steps, models %s", var.id, rid0, len(written), chosen)
 
     store.purge_superseded("mean", {rid0})
     return summary

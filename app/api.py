@@ -1,4 +1,4 @@
-"""Endpoint JSON."""
+"""JSON endpoints."""
 from __future__ import annotations
 
 import os
@@ -39,7 +39,7 @@ def refresh_status(model: str):
 
 @router.post("/refresh")
 def refresh(request: Request, model: str):
-    """Controlla subito se sono usciti nuovi passi (invece di aspettare lo scheduler)."""
+    """Checks right away whether new steps are out (instead of waiting for the scheduler)."""
     if model not in fetcher.SOURCES:
         raise HTTPException(400, f"Modello sconosciuto o non scaricabile: {model}")
     started, reason = fetcher.request_refresh(model, _store(request))
@@ -55,15 +55,15 @@ def meta(request: Request):
             "initial_view": get_initial_view(store.bbox).as_dict(),
             "steps": STEPS,
             "version": get_version(),
-            # chiave pubblica delle tessere Thunderforest (sfondo "Rilievo"): finisce comunque nella pagina
+            # public key of the Thunderforest tiles ("Rilievo" basemap): it ends up in the page anyway
             "thunderforest_key": os.environ.get("THUNDERFOREST_KEY", "").strip(),
-            # token pubblico Mapbox (sfondi Streets/Outdoors, se c'è): limitarlo ai domini del sito nel pannello Mapbox
+            # public Mapbox token (Streets/Outdoors basemaps, if any): restrict it to the site's domains in the Mapbox dashboard
             "mapbox_token": os.environ.get("MAPBOX_TOKEN", "").strip(),
-            # segnalazione degli errori del browser (Sentry): vuoto = disattivata. Il DSN è pubblico per natura
+            # browser error reporting (Sentry): empty = disabled. The DSN is public by nature
             "sentry_dsn": os.environ.get("SENTRY_DSN", "").strip(),
-            # meteogrammi disponibili (pulsanti Grafico e Multimodel); le griglie delle serie sono in runs.json
+            # meteograms available (Grafico and Multimodel buttons); the series grids are in runs.json
             "series": {"layers": ["native", "smooth"]},
-            # ensemble di GFS ed ECMWF per gli spaghetti delle località nella carta sinottica ({modello: ...})
+            # GFS and ECMWF ensembles for the place spaghetti plots on the synoptic chart ({model: ...})
             "ensemble": ensemble.info(store),
             "models": [m.as_dict() for m in MODELS.values()],
             "variables": variables.menu(),
@@ -74,11 +74,11 @@ def meta(request: Request):
 
 @router.get("/runs")
 def runs(request: Request):
-    """Per modello: la corsa da mostrare (l'ultima completa) e, se c'è, quella più nuova ancora in arrivo
-    (marcata `incoming`: serve solo per l'avviso, i suoi campi non si mostrano né si pubblicano)."""
+    """Per model: the run to show (the latest complete one) and, if any, the newer one still incoming
+    (marked `incoming`: used only for the notice, its fields are neither shown nor published)."""
     store = _store(request)
     out: dict[str, list] = {}
-    updated = 0.0  # ultimo passo scritto fra le corse mostrate (la cartella della grandezza cambia a ogni passo)
+    updated = 0.0  # last step written among the runs shown (the field folder changes at every step)
     for model_id in MODELS:
         all_runs = store.runs(model_id)
         current = all_runs[0] if model_id == "mean" and all_runs else fetcher.latest_complete(store, model_id)
@@ -99,7 +99,7 @@ def runs(request: Request):
                     items.append({**item, "incoming": True})
         out[model_id] = items
     headers = {"Cache-Control": "max-age=120"}
-    if updated:  # come `generated_at` di runs.json nel sito statico: l'ora mostrata in fondo al pannello
+    if updated:  # like `generated_at` in the static site's runs.json: the time shown at the bottom of the panel
         headers["X-Updated-At"] = datetime.fromtimestamp(updated, timezone.utc).isoformat(timespec="seconds")
     return JSONResponse(out, headers=headers)
 
@@ -115,7 +115,7 @@ def _run_item(store: Store, model_id: str, rid: str) -> dict | None:
             continue
         info = {"steps": have, "complete": set(expected) <= set(have), "expected": len(expected)}
         if model_id == "mean":
-            # la mediana è calcolata da corse complete: non è mai "in arrivo"
+            # the median is computed from complete runs: it is never "incoming"
             info["complete"] = True
             m = mean_mod.members_info(store, rid, var_id)
             info["members"] = (m or {}).get("members", {})
@@ -131,7 +131,7 @@ def _round_list(values: np.ndarray, decimals: int) -> list:
 
 @router.get("/series")
 def series_point(request: Request, model: str, run: str, lat: float, lon: float):
-    """Meteogramma di un punto: per ogni grandezza i passi e i valori (punto della griglia delle serie più vicino)."""
+    """Meteogram of a point: for each field the steps and the values (see app/series.py)."""
     if model not in MODELS:
         raise HTTPException(400, f"Modello sconosciuto: {model}")
     store = _store(request)
@@ -142,7 +142,7 @@ def series_point(request: Request, model: str, run: str, lat: float, lon: float)
 
 @router.get("/ensemble")
 def ensemble_point(request: Request, model: str, lat: float, lon: float):
-    """Spaghetti dell'ensemble di `model` (gfs, ecmwf) nel punto più vicino: temperatura a 850 hPa e pioggia."""
+    """Ensemble spaghetti of `model` (gfs, ecmwf) at the nearest point: temperature at 850 hPa and precipitation."""
     data = ensemble.point_series(_store(request), model, lat, lon)
     if data is None:
         raise HTTPException(404, "Ensemble non disponibile")
@@ -151,13 +151,13 @@ def ensemble_point(request: Request, model: str, lat: float, lon: float):
 
 @router.get("/soundings")
 def soundings_index(request: Request):
-    """Radiosondaggi osservati: stazioni e lanci disponibili (app/soundings.py)."""
+    """Observed soundings: stations and available launches (app/soundings.py)."""
     return JSONResponse(soundings.index(_store(request)), headers={"Cache-Control": "public, max-age=300"})
 
 
 @router.get("/sounding")
 def sounding(request: Request, station: str, time: str):
-    """Un lancio: livelli [pressione, quota, temperatura, rugiada, direzione, velocità km/h]."""
+    """One launch: levels [pressure, height, temperature, dew point, direction, speed km/h]."""
     data = soundings.load(_store(request), station, time)
     if data is None:
         raise HTTPException(404, "Radiosondaggio non disponibile")
@@ -198,7 +198,7 @@ def field(
 
     p = prev_step(step)
     if mode == "interval" and prev is not None:
-        # cumulate di 6, 12, 24 ore: differenza con un passo più indietro (0 = dall'inizio della corsa)
+        # 6, 12, 24-hour accumulations: difference with an earlier step (0 = since the start of the run)
         if prev != 0 and prev not in STEPS or prev >= step:
             raise HTTPException(400, f"Passo di partenza non valido: {prev}")
         p = prev
@@ -232,5 +232,5 @@ def field(
         info = mean_mod.members_info(store, run, var) or {}
         body["members"] = info.get("steps", {}).get(str(step), [])
         body["member_runs"] = info.get("members", {})
-        cache = "public, max-age=300"  # la mediana si ricalcola quando arrivano nuovi dati
+        cache = "public, max-age=300"  # the median is recomputed when new data arrive
     return JSONResponse(body, headers={"Cache-Control": cache})

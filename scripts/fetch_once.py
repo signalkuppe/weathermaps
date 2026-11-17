@@ -1,7 +1,7 @@
-"""Popola DATA_DIR scaricando le ultime corse di tutti i modelli, poi esce.
+"""Fills DATA_DIR by downloading the latest runs of all models, then exits.
 
-Uso:  python scripts/fetch_once.py [gfs|ecmwf|gefs|ecens|soundings ...]   (gefs, ecens = ensemble, vedi
-      app/ensemble.py; soundings = radiosondaggi osservati, app/soundings.py)
+Usage:  python scripts/fetch_once.py [gfs|ecmwf|gefs|ecens|soundings ...]   (gefs, ecens = ensembles, see
+        app/ensemble.py; soundings = observed soundings, app/soundings.py)
 """
 from __future__ import annotations
 
@@ -31,14 +31,14 @@ def main(argv: list[str]) -> int:
         summary = update_model(m, store)
         print(json.dumps(summary, indent=2))
         errors += summary.get("errors", 0)
-    print("mediana:", json.dumps(build_mean(store), indent=2))
-    for sid, model in ens.items():  # spaghetti delle località nella carta sinottica
+    print("median:", json.dumps(build_mean(store), indent=2))
+    for sid, model in ens.items():  # place spaghetti plots on the synoptic chart
         if not argv or sid in argv:
             summary = ensemble.update(model, store)
             print("ensemble:", json.dumps(summary, indent=2))
             errors += summary.get("errors", 0)
-    if not argv or "soundings" in argv:  # radiosondaggi osservati: un servizio lento non deve far fallire il giro
-        print("radiosondaggi:", json.dumps(soundings.update(store)))
+    if not argv or "soundings" in argv:  # observed soundings: a slow service must not fail the round
+        print("soundings:", json.dumps(soundings.update(store)))
     return 1 if errors else 0
 
 

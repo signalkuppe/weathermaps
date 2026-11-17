@@ -1,10 +1,10 @@
-// Aiutante di tests/test_catena_valori.py: la parte "browser" della catena dei valori, con il codice vero della pagina.
-// Legge un campo in formato compatto (.bin, come sul sito statico), lo decodifica con unpackField, legge i punti con
-// valueAt (il valore del tooltip) e disegna l'immagine dei colori con wmRenderPixels (render.js, celle nette).
+// Helper of tests/test_value_chain.py: the "browser" part of the value chain, with the page's real code.
+// Reads a field in compact format (.bin, as on the static site), decodes it with unpackField, reads the points with
+// valueAt (the tooltip value) and draws the colour image with wmRenderPixels (render.js, sharp cells).
 //
-// Uso: node tests/helpers/catena_valori.mjs <richiesta.json>
-//   richiesta: { bin, decimals, scale, points: [{ lat, lon }], pixels: [[x, y]] }
-// Risposta (stdout): { grid, W, H, upscale, values: [numero|null], texts: [stringa], rgba: [[r, g, b, a]] }
+// Usage: node tests/helpers/value_chain.mjs <request.json>
+//   request: { bin, decimals, scale, points: [{ lat, lon }], pixels: [[x, y]] }
+// Response (stdout): { grid, W, H, upscale, values: [number|null], texts: [string], rgba: [[r, g, b, a]] }
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
@@ -20,15 +20,15 @@ vm.runInContext(
     "\nglobalThis.api = { unpackField, valueAt };",
   ctx,
 );
-vm.runInContext(render, ctx); // definisce wmRenderPixels sul contesto (come script normale)
+vm.runInContext(render, ctx); // defines wmRenderPixels on the context (as a plain script)
 
 const buf = readFileSync(req.bin);
 const f = ctx.api.unpackField(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
 const values = req.points.map((p) => ctx.api.valueAt(f, p.lat, p.lon));
-// testo del tooltip, come showProbe: valore con i decimali della grandezza
+// tooltip text, like showProbe: value with the field's decimals
 const texts = values.map((v) => (v == null ? null : v.toFixed(req.decimals)));
 
-// immagine come fieldImage, con "celle nette": ogni pixel prende la cella più vicina, senza ammorbidire
+// image like fieldImage, with "sharp cells": each pixel takes the nearest cell, without smoothing
 const { nx, ny, lat0, lon0, dlat, dlon } = f.grid;
 const upscale = Math.max(2, Math.ceil(1100 / nx));
 const { W, H, pixels } = ctx.wmRenderPixels({

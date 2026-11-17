@@ -1,4 +1,4 @@
-"""ECMWF IFS 0.25° Open Data: indice + download a byte-range del solo campo richiesto."""
+"""ECMWF IFS 0.25° Open Data: index + byte-range download of the requested field only."""
 from __future__ import annotations
 
 import json
@@ -15,8 +15,8 @@ MODEL = ModelInfo(
     id="ecmwf",
     label="ECMWF IFS 0.25°",
     resolution=0.25,
-    cycles=(0, 12),  # le 06/18 si fermano a 144h
-    delay_hours=6,  # la 0,25° esce un paio d'ore prima della 0,1° (e più regolarmente)
+    cycles=(0, 12),  # the 06/18 runs stop at 144h
+    delay_hours=6,  # the 0.25° comes out a couple of hours before the 0.1° (and more regularly)
     max_step=360,
     country="eu",
     description=(
@@ -30,9 +30,10 @@ ROOT = "https://data.ecmwf.int/forecasts"
 
 
 def base_url(run: datetime, step: int) -> str:
-    """A 0.25° superficie e livelli di pressione stanno nello stesso file (il levtype distingue le righe dell'indice).
+    """At 0.25° surface and pressure levels are in the same file (levtype tells the index lines apart).
 
-    Si usa la 0.25° e non la 0.1° perché esce prima e con più regolarità (a volte la 0.1° di una corsa manca del tutto).
+    The 0.25° is used rather than the 0.1° because it comes out earlier and more regularly (sometimes the 0.1° of a
+    run is missing altogether).
     """
     return f"{ROOT}/{run:%Y%m%d}/{run.hour:02d}z/ifs/0p25/oper/{run:%Y%m%d%H}0000-{step}h-oper-fc"
 

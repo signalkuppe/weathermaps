@@ -1,10 +1,10 @@
-"""Modelli ItaliaMeteo su MeteoHub ("singola variabile"): WRF (CIMA/LaMMA) e MOLOCH (CNR-ISAC).
+"""ItaliaMeteo models on MeteoHub ("single variable"): WRF (CIMA/LaMMA) and MOLOCH (CNR-ISAC).
 
-Per ogni corsa e variabile c'è un file con tutti i passi orari, anche centinaia di MB.
-Si leggono solo le intestazioni dei messaggi GRIB2 (parametro, livello, passo) con piccole
-richieste a intervalli di byte, poi si scaricano solo i messaggi dei passi necessari.
-Le griglie (Lambert per WRF, ruotata per MOLOCH) vengono riportate su una griglia regolare
-con il punto del modello più vicino; le coordinate si ricavano dal messaggio stesso.
+For each run and variable there is a file with all hourly steps, even hundreds of MB.
+Only the GRIB2 message headers (parameter, level, step) are read with small
+byte-range requests, then only the messages of the needed steps are downloaded.
+The grids (Lambert for WRF, rotated for MOLOCH) are remapped to a regular grid
+with the nearest model point; the coordinates come from the message itself.
 """
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ from .meteoswiss import Regridder
 log = logging.getLogger("weathermaps.meteohub")
 
 ROOT = "https://meteohub.agenziaitaliameteo.it/nwp"
-HEADER_BYTES = 4096  # sezioni 0–4 di un messaggio stanno quasi sempre in pochi KB
+HEADER_BYTES = 4096  # sections 0–4 of a message almost always fit in a few KB
 UNIT_HOURS = {0: 1 / 60, 1: 1, 2: 24, 10: 3, 11: 6, 12: 12, 13: 1 / 3600}
 
 
@@ -35,15 +35,15 @@ UNIT_HOURS = {0: 1 / 60, 1: 1, 2: 24, 10: 3, 11: 6, 12: 12, 13: 1 / 3600}
 class MessageInfo:
     offset: int
     length: int
-    code: tuple[int, int, int]  # disciplina, categoria, numero
+    code: tuple[int, int, int]  # discipline, category, number
     level_type: int
     level: float
-    step: float  # fine dell'intervallo (accumulate) o istante, in ore
-    accum_from: float | None  # inizio dell'intervallo per le grandezze accumulate
+    step: float  # end of the interval (accumulated) or instant, in hours
+    accum_from: float | None  # start of the interval for accumulated fields
 
 
 def parse_header(buf: bytes, offset: int) -> MessageInfo:
-    """Legge disciplina, parametro, livello e passo dalle sezioni 0–4 di un messaggio GRIB2."""
+    """Reads discipline, parameter, level and step from sections 0–4 of a GRIB2 message."""
     if buf[:4] != b"GRIB" or buf[7] != 2:
         raise ValueError(f"Intestazione GRIB2 inattesa all'offset {offset}")
     discipline = buf[6]
@@ -64,7 +64,7 @@ def parse_header(buf: bytes, offset: int) -> MessageInfo:
             scale = struct.unpack(">b", s4[23:24])[0]
             level = int.from_bytes(s4[24:28], "big") / (10 ** scale if scale else 1)
             accum_from, step = None, ftime
-            if template == 8:  # statistica su un intervallo (es. pioggia accumulata)
+            if template == 8:  # statistics over an interval (e.g. accumulated precipitation)
                 n_ranges = s4[41]
                 if n_ranges >= 1:
                     r_unit = UNIT_HOURS.get(s4[48], 1)
@@ -86,7 +86,7 @@ class MeteoHubSource:
         self.dlon = dlon
         self._index: dict[str, list[MessageInfo]] = {}
         self._regridders: dict[str, Regridder] = {}
-        # somme progressive per le piogge a intervalli orari: url -> (ultima ora sommata, somma, regridder, unità)
+        # running sums for hourly-interval precipitation: url -> (last hour summed, sum, regridder, unit)
         self._sums: dict[str, tuple[int, np.ndarray, Regridder, str]] = {}
 
     def url(self, run: datetime, variable: Variable) -> str:
@@ -126,7 +126,7 @@ class MeteoHubSource:
             out.append(info)
             off += info.length
         self._index[url] = out
-        log.info("%s: %d messaggi indicizzati in %s", self.MODEL.id, len(out), url.rsplit("/", 1)[-1])
+        log.info("%s: %d messages indexed in %s", self.MODEL.id, len(out), url.rsplit("/", 1)[-1])
         return out
 
     def _regridder(self, gid, bbox: BBox) -> Regridder:
@@ -146,7 +146,7 @@ class MeteoHubSource:
             lon = (lon + 180) % 360 - 180
             rg = Regridder.build(lat, lon, bbox, self.dlat, self.dlon)
             rg.save(path)
-            log.info("%s: griglia regolare %dx%d, %.0f%% dentro il dominio",
+            log.info("%s: regular grid %dx%d, %.0f%% inside the domain",
                      self.MODEL.id, rg.index.shape[1], rg.index.shape[0], 100 * rg.valid.mean())
         self._regridders[key] = rg
         return rg
@@ -162,11 +162,11 @@ class MeteoHubSource:
             eccodes.codes_release(gid)
 
     def _fetch_bucket_sum(self, client: httpx.Client, url: str, sel, step: int, bbox: BBox) -> Field:
-        """Totale da inizio corsa sommando le piogge orarie (k-1, k] per k = 1..step, in modo incrementale."""
+        """Total since the start of the run by summing the hourly precipitation (k-1, k] for k = 1..step, incrementally."""
         buckets = {int(round(m.step)): m for m in self.index(client, url)
                    if m.code == sel.code and m.accum_from is not None and abs(m.step - m.accum_from - 1) < 1e-6}
         last, total, rg, units = self._sums.get(url, (0, None, None, ""))
-        if last > step:  # richiesta di un passo precedente: si ricomincia
+        if last > step:  # request for an earlier step: start over
             last, total, rg = 0, None, None
         for k in range(last + 1, step + 1):
             m = buckets.get(k)
@@ -207,11 +207,11 @@ wrf = MeteoHubSource(
             "a 1,5 km sull'Italia. Corse delle 00 e 12 UTC fino a +72h, disponibili circa 8 ore dopo."
         ),
     ),
-    dataset="WRF", prefix="WRF", dlat=0.015, dlon=0.02,  # ~1.6 km a 45°N
+    dataset="WRF", prefix="WRF", dlat=0.015, dlon=0.02,  # ~1.6 km at 45°N
 )
 
-# MOLOCH: escluso per ora (pioggia ora per ora, ~430 MB per corsa da un server lento).
-# Per riattivarlo: aggiungerlo a SOURCES in fetcher.py e aggiungere in variables.py i selettori
+# MOLOCH: excluded for now (hourly precipitation, ~430 MB per run from a slow server).
+# To re-enable it: add it to SOURCES in fetcher.py and add these selectors in variables.py
 #   tp:   GribSelector(param="unknown", levtype="surface", levelist="0", code=(0, 1, 8), step_range_prefix="0-", hourly_buckets=True)
 #   t850: GribSelector(param="t", levtype="isobaricInhPa", levelist="850", code=(0, 0, 0))
 moloch = MeteoHubSource(

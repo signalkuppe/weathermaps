@@ -1,4 +1,4 @@
-"""Applicazione FastAPI: API + frontend statico + scheduler."""
+"""FastAPI application: API + static frontend + scheduler."""
 from __future__ import annotations
 
 import logging

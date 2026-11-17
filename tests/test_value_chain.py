@@ -1,14 +1,14 @@
-"""I valori sulla mappa sono quelli del modello: tutta la catena, dal GRIB al tooltip e al colore del pixel.
+"""The values on the map are the model's: the whole chain, from the GRIB to the tooltip and the pixel colour.
 
-Per ogni città il valore di riferimento lo dà ecCodes (`codes_grib_find_nearest`, il punto di griglia più vicino nel
-messaggio GRIB originale), senza passare dal nostro codice. Il valore controllato invece fa la strada vera:
+For each city the reference value comes from ecCodes (`codes_grib_find_nearest`, the nearest grid point in the
+original GRIB message), without going through our code. The checked value instead takes the real path:
 
-  GRIB -> decode_grib -> select -> crop -> conversione delle unità (come fetcher) -> Store -> /api/field
-       -> formato compatto .bin (come build_static) -> unpackField e valueAt della pagina (node) -> tooltip
-       -> wmRenderPixels (render.js, celle nette) -> colore del pixel sopra la città
+  GRIB -> decode_grib -> select -> crop -> unit conversion (like fetcher) -> Store -> /api/field
+       -> compact .bin format (like build_static) -> the page's unpackField and valueAt (node) -> tooltip
+       -> wmRenderPixels (render.js, sharp cells) -> colour of the pixel over the city
 
-Il pixel si cerca con i bordi dell'immagine sulla mappa (bordi delle celle, Mercatore), calcolati qui a parte, e il
-suo colore atteso viene dal valore di ecCodes nel centro del pixel e dalle soglie della scala che riceve la pagina.
+The pixel is found with the image bounds on the map (cell edges, Mercator), computed separately here, and its
+expected colour comes from the ecCodes value at the pixel centre and the thresholds of the scale the page receives.
 """
 
 import json
@@ -29,11 +29,11 @@ from app.main import create_app
 from app.store import Store
 
 FIX = Path(__file__).parent / "fixtures"
-HELPER = Path(__file__).parent / "helpers" / "catena_valori.mjs"
+HELPER = Path(__file__).parent / "helpers" / "value_chain.mjs"
 BOX = BBox.parse("42,49,4,17")
 RUN = "2026110900"
 
-# lontane da metà fra due punti di griglia (0.25° e 0.1°), dove "il più vicino" sarebbe ambiguo
+# away from halfway between two grid points (0.25° and 0.1°), where "the nearest" would be ambiguous
 CITIES = {
     "Milano": (45.4642, 9.19),
     "Sondrio": (46.17, 9.87),
@@ -45,7 +45,7 @@ CITIES = {
     "Genova": (44.41, 8.93),
 }
 
-# (modello, grandezza, file GRIB, passo)
+# (model, field, GRIB file, step)
 CASES = [
     ("gfs", "tp", "gfs_f024.grb", 24),
     ("gfs", "t850", "gfs_t850_f024.grb", 24),
@@ -53,14 +53,14 @@ CASES = [
     ("ecmwf", "t850", "ec_t850_24.grb", 24),
 ]
 
-pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="serve node per la parte della pagina")
+pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node is needed for the page side")
 
 
-# ---------- riferimento: ecCodes sul GRIB originale
+# ---------- reference: ecCodes on the original GRIB
 
 
 def _raw_nearest(fixture: str, meta, points):
-    """Valore grezzo del punto di griglia più vicino, per ogni (lat, lon), nel messaggio uguale a quello scelto."""
+    """Raw value of the nearest grid point, for each (lat, lon), in the message equal to the one selected."""
     with open(FIX / fixture, "rb") as fh:
         while (gid := eccodes.codes_grib_new_from_file(fh)) is not None:
             try:
@@ -77,22 +77,22 @@ def _raw_nearest(fixture: str, meta, points):
                     return out
             finally:
                 eccodes.codes_release(gid)
-    raise AssertionError(f"messaggio non trovato in {fixture}")
+    raise AssertionError(f"message not found in {fixture}")
 
 
 def _expected(var, model, raw):
-    """Conversione delle unità della grandezza (e niente negativi dove non hanno senso), su valori sciolti."""
+    """Unit conversion of the field (and no negatives where they make no sense), on plain values."""
     v = np.asarray(var.convert[model](np.asarray(raw, dtype=np.float64)), dtype=np.float64)
     if var.nonnegative:
         v = np.where(np.isnan(v), v, np.maximum(v, 0))
     return v
 
 
-# ---------- la strada vera: server, formato compatto, pagina
+# ---------- the real path: server, compact format, page
 
 
 def _through_server(tmp_path, model, var_id, fixture, step, extra=()):
-    """Salva il campo come fa fetcher e lo chiede a /api/field come fa build_static. Torna (selezionato, json)."""
+    """Stores the field like fetcher does and requests it from /api/field like build_static. Returns (selected, json)."""
     var = variables.get(var_id)
     store = Store(data_dir=tmp_path / "data", bbox=BOX)
     chosen = None
@@ -109,7 +109,7 @@ def _through_server(tmp_path, model, var_id, fixture, step, extra=()):
 
 
 def _page(tmp_path, field_json, var, points, pixels):
-    """Parte della pagina (node): decodifica, valori, testi del tooltip e colori dei pixel."""
+    """Page side (node): decoding, values, tooltip texts and pixel colours."""
     binp = tmp_path / "field.bin"
     binp.write_bytes(packed.pack(field_json))
     reqp = tmp_path / "req.json"
@@ -128,7 +128,7 @@ def _page(tmp_path, field_json, var, points, pixels):
     return json.loads(out.stdout)
 
 
-# ---------- geometria dell'immagine sulla mappa e colori attesi, rifatti qui
+# ---------- geometry of the image on the map and expected colours, recomputed here
 
 
 def _merc(lat):
@@ -140,7 +140,7 @@ def _inv_merc(y):
 
 
 def _image_geometry(grid, upscale):
-    """Bordi dell'immagine sulla mappa (bordi delle celle) e dimensioni in pixel, come la pagina la posa."""
+    """Image bounds on the map (cell edges) and size in pixels, as the page places it."""
     south = grid["lat0"] - grid["dlat"] / 2
     north = grid["lat0"] + (grid["ny"] - 1) * grid["dlat"] + grid["dlat"] / 2
     west = grid["lon0"] - grid["dlon"] / 2
@@ -151,7 +151,7 @@ def _image_geometry(grid, upscale):
 
 
 def _pixel_of(lat, lon, geo):
-    """Pixel dell'immagine sopra (lat, lon) e il punto al centro di quel pixel."""
+    """Pixel of the image over (lat, lon) and the point at the centre of that pixel."""
     south, north, west, east, W, H = geo
     x = int((lon - west) / (east - west) * W)
     y = int((_merc(north) - _merc(lat)) / (_merc(north) - _merc(south)) * H)
@@ -165,7 +165,7 @@ def _hex(c):
 
 
 def _color(scale, v):
-    """Colore atteso (r, g, b, a) per un valore: fasce nette o scala sfumata, come descritto in render.js."""
+    """Expected colour (r, g, b, a) for a value: sharp bands or smooth scale, as described in render.js."""
     if v is None or math.isnan(v):
         return [0, 0, 0, 0]
     th, cols = scale["thresholds"], [_hex(c) for c in scale["colors"]]
@@ -182,11 +182,11 @@ def _color(scale, v):
     return cols[k] + [255]
 
 
-# ---------- i test
+# ---------- the tests
 
 
 @pytest.mark.parametrize(("model", "var_id", "fixture", "step"), CASES, ids=[f"{m}-{v}" for m, v, _, _ in CASES])
-def test_tooltip_e_colore_uguali_al_grib(tmp_path, model, var_id, fixture, step):
+def test_tooltip_and_colour_match_grib(tmp_path, model, var_id, fixture, step):
     var = variables.get(var_id)
     chosen, client = _through_server(tmp_path, model, var_id, fixture, step)
     with client:
@@ -199,11 +199,11 @@ def test_tooltip_e_colore_uguali_al_grib(tmp_path, model, var_id, fixture, step)
     pix = [_pixel_of(lat, lon, geo) for lat, lon in points]
     out = _page(tmp_path, field_json, page_var, points, [p for p, _ in pix])
 
-    # stessa geometria dell'immagine calcolata qui e nella pagina
+    # same image geometry computed here and in the page
     assert (out["W"], out["H"]) == geo[4:]
 
     expected = _expected(var, model, _raw_nearest(fixture, chosen, points))
-    tol = 0.5 * 10 ** -var.decimals + 1e-6  # il formato compatto tiene i decimali della grandezza
+    tol = 0.5 * 10 ** -var.decimals + 1e-6  # the compact format keeps the field's decimals
     for name, exp, got, text in zip(CITIES, expected, out["values"], out["texts"]):
         assert got is not None, name
         assert got == pytest.approx(exp, abs=tol), f"{name}: tooltip {got}, GRIB {exp}"
@@ -215,8 +215,8 @@ def test_tooltip_e_colore_uguali_al_grib(tmp_path, model, var_id, fixture, step)
         assert all(abs(a - b) <= 3 for a, b in zip(got, want)), f"{name}: pixel {got}, atteso {want} per {exp}"
 
 
-def test_cumulata_fra_due_passi_uguale_alla_differenza_nel_grib(tmp_path):
-    """Intervallo +3h → +24h (GFS): differenza dei due totali, letti ciascuno nel proprio GRIB."""
+def test_interval_between_two_steps_matches_grib_difference(tmp_path):
+    """+3h → +24h interval (GFS): difference of the two totals, each read from its own GRIB."""
     var = variables.get("tp")
     chosen, client = _through_server(tmp_path, "gfs", "tp", "gfs_f024.grb", 24, extra=[("gfs_f003.grb", 3)])
     with client:
@@ -229,6 +229,6 @@ def test_cumulata_fra_due_passi_uguale_alla_differenza_nel_grib(tmp_path):
     first = select(decode_grib((FIX / "gfs_f003.grb").read_bytes()), var.selectors["gfs"])
     tot24 = _expected(var, "gfs", _raw_nearest("gfs_f024.grb", chosen, points))
     tot3 = _expected(var, "gfs", _raw_nearest("gfs_f003.grb", first, points))
-    tol = 10 ** -var.decimals + 1e-6  # due valori arrotondati
+    tol = 10 ** -var.decimals + 1e-6  # two rounded values
     for name, a, b, got in zip(CITIES, tot24, tot3, out["values"]):
         assert got == pytest.approx(max(0.0, a - b), abs=tol), f"{name}: tooltip {got}, GRIB {a} - {b}"

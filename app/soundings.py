@@ -1,13 +1,13 @@
-"""Radiosondaggi osservati (i palloni lanciati dalle stazioni, 00 e 12 UTC) intorno al Nord Italia.
+"""Observed soundings (the balloons launched by the stations, 00 and 12 UTC) around Northern Italy.
 
-Fonte: University of Wyoming, Department of Atmospheric Science (weather.uwyo.edu): profilo di ogni lancio in testo
-(TEXT:LIST). Il servizio è gratuito e spesso risponde "troppo occupato" (503): si riprova qualche volta con una pausa e,
-se non va, al giro successivo; intanto restano i lanci già scaricati.
+Source: University of Wyoming, Department of Atmospheric Science (weather.uwyo.edu): profile of each launch as text
+(TEXT:LIST). The service is free and often answers "too busy" (503): it is retried a few times with a pause and,
+if that fails, at the next round; meanwhile the launches already downloaded remain.
 
-Ogni lancio è un JSON in `{root}/soundings/{stazione}/{AAAAMMGGHH}.json` con i livelli
-[pressione hPa, quota m, temperatura °C, rugiada °C, direzione vento °, velocità km/h]; si tengono gli ultimi giorni.
-Un lancio che dopo `GIVE_UP` ore non c'è ancora (stazioni che lanciano una volta al giorno, o lancio saltato) si segna
-con un file `.none` e non si chiede più.
+Each launch is a JSON in `{root}/soundings/{station}/{YYYYMMDDHH}.json` with the levels
+[pressure hPa, height m, temperature °C, dew point °C, wind direction °, speed km/h]; the last few days are kept.
+A launch still missing after `GIVE_UP` hours (stations launching once a day, or a skipped launch) is marked
+with a `.none` file and no longer requested.
 """
 from __future__ import annotations
 
@@ -27,17 +27,17 @@ from .store import Store
 log = logging.getLogger(__name__)
 
 URL = "https://weather.uwyo.edu/wsgi/sounding"
-KEEP_DAYS = 3  # lanci da tenere
-LOOKBACK_H = 36  # lanci da cercare all'indietro a ogni giro
-GIVE_UP = 18  # ore dopo il lancio oltre le quali non lo si cerca più
-DELAY = timedelta(hours=2)  # i dati arrivano circa un'ora e mezza dopo il lancio (00/12 UTC)
-TRIES = 3  # tentativi per richiesta (503 frequenti)
-BUDGET = 180  # secondi al massimo per giro: il resto al giro dopo (la pubblicazione oraria non deve allungarsi)
+KEEP_DAYS = 3  # launches to keep
+LOOKBACK_H = 36  # launches to look back for at every round
+GIVE_UP = 18  # hours after the launch beyond which it is no longer looked for
+DELAY = timedelta(hours=2)  # data arrive about an hour and a half after the launch (00/12 UTC)
+TRIES = 3  # attempts per request (503s are frequent)
+BUDGET = 180  # at most this many seconds per round: the rest at the next one (the hourly publication must not get longer)
 
 
 @dataclass(frozen=True)
 class Station:
-    id: str  # codice WMO
+    id: str  # WMO code
     name: str
     lat: float
     lon: float
@@ -56,7 +56,7 @@ STATIONS = [
     Station("07645", "Nîmes", 43.86, 4.41),
 ]
 BY_ID = {s.id: s for s in STATIONS}
-MS_TO_KMH = 3.6  # il servizio dà m/s (SPED): ×3.6 in km/h
+MS_TO_KMH = 3.6  # the service gives m/s (SPED): ×3.6 for km/h
 
 
 def _dir(store: Store) -> Path:
@@ -64,7 +64,7 @@ def _dir(store: Store) -> Path:
 
 
 def parse(text: str) -> list[list[float | None]]:
-    """Livelli dalla pagina TEXT:LIST: la tabella fra le righe di trattini dopo l'intestazione PRES HGHT TEMP..."""
+    """Levels from the TEXT:LIST page: the table between the dashed lines after the PRES HGHT TEMP... header."""
     t = html.unescape(re.sub(r"<[^>]+>", "\n", text))
     i = t.find("PRES   HGHT   TEMP")
     if i < 0:
@@ -82,10 +82,10 @@ def parse(text: str) -> list[list[float | None]]:
             continue
         if not line.strip()[0].isdigit():
             break
-        cols = [line[k:k + 7].strip() for k in range(0, 77, 7)]  # colonne larghe 7 caratteri
+        cols = [line[k:k + 7].strip() for k in range(0, 77, 7)]  # 7-character-wide columns
         num = [float(c) if c else None for c in cols]
         pres, hght, temp, dwpt, _rh, _mixr, drct, sped = num[:8]
-        if pres is None or pres < 100:  # oltre i 100 hPa non serve (il diagramma arriva lì)
+        if pres is None or pres < 100:  # above 100 hPa is not needed (the diagram stops there)
             continue
         out.append([pres, hght, temp, dwpt, drct, None if sped is None else round(sped * MS_TO_KMH, 1)])
     return out
@@ -98,7 +98,7 @@ def _get(client: httpx.Client, params: dict) -> str | None:
             if r.status_code == 200:
                 return r.text
             if r.status_code == 404:
-                return ""  # il servizio non ha quel lancio (non ancora, o mai): come una pagina senza tabella
+                return ""  # the service does not have that launch (not yet, or never): like a page without a table
             if r.status_code not in (502, 503, 504):
                 return None
         except httpx.TransportError:
@@ -108,7 +108,7 @@ def _get(client: httpx.Client, params: dict) -> str | None:
 
 
 def launches(now: datetime) -> list[datetime]:
-    """Lanci (00 e 12 UTC) delle ultime LOOKBACK_H ore i cui dati dovrebbero già esserci, dal più recente."""
+    """Launches (00 and 12 UTC) of the last LOOKBACK_H hours whose data should already be there, newest first."""
     t = (now - DELAY).replace(minute=0, second=0, microsecond=0)
     t = t.replace(hour=12 if t.hour >= 12 else 0)
     out = []
@@ -119,7 +119,7 @@ def launches(now: datetime) -> list[datetime]:
 
 
 def update(store: Store, now: datetime | None = None) -> dict:
-    """Scarica i lanci mancanti di tutte le stazioni e toglie i vecchi. Ritorna un riassunto."""
+    """Downloads the missing launches of all stations and removes old ones. Returns a summary."""
     now = now or datetime.now(timezone.utc)
     base = _dir(store)
     got = missing = failed = 0
@@ -133,24 +133,24 @@ def update(store: Store, now: datetime | None = None) -> dict:
                 if (d / f"{key}.json").exists() or (d / f"{key}.none").exists():
                     continue
                 if time.monotonic() > deadline:
-                    failed += 1  # tempo finito: al prossimo giro
+                    failed += 1  # time is up: at the next round
                     continue
                 text = _get(client, {"datetime": t.strftime("%Y-%m-%d %H:%M:%S"), "id": st.id,
                                      "type": "TEXT:LIST", "src": "UNKNOWN"})
                 if text is None:
-                    failed += 1  # servizio non raggiungibile: si riprova al prossimo giro
+                    failed += 1  # service unreachable: retried at the next round
                     continue
                 levels = parse(text)
                 if len(levels) < 5:
                     if now - t > timedelta(hours=GIVE_UP):
-                        (d / f"{key}.none").write_text("")  # lancio che non arriverà più
+                        (d / f"{key}.none").write_text("")  # launch that will never arrive
                     missing += 1
                     continue
                 body = {"station": st.id, "name": st.name, "lat": st.lat, "lon": st.lon, "time": key,
                         "levels": levels}
                 (d / f"{key}.json").write_text(json.dumps(body, separators=(",", ":")))
                 got += 1
-            # via i lanci più vecchi di KEEP_DAYS
+            # drop launches older than KEEP_DAYS
             cutoff = (now - timedelta(days=KEEP_DAYS)).strftime("%Y%m%d%H")
             for p in d.iterdir():
                 if p.stem < cutoff:
@@ -159,7 +159,7 @@ def update(store: Store, now: datetime | None = None) -> dict:
 
 
 def index(store: Store) -> list[dict]:
-    """Stazioni con i loro lanci disponibili (dal più recente)."""
+    """Stations with their available launches (newest first)."""
     base = _dir(store)
     out = []
     for st in STATIONS:

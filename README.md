@@ -1,218 +1,236 @@
 # Weathermaps
 
-**App: <https://signalkuppe.github.io/weathermaps/>** (aggiornata una volta all'ora)
+**App: <https://signalkuppe.github.io/weathermaps/>** (updated once an hour)
 
-Mappe di precipitazione, temperatura a 850 hPa e a 2 m, bulbo umido a 2 m, neve, zero termico e vento previste da
-otto modelli sul Nord Italia. Sfondo [Mapbox](https://www.mapbox.com) a scelta nelle impostazioni: **Outdoors** (con il
-rilievo marcato, all'avvio) o **Base** (Streets ricolorato come una carta meteo); i colori dei dati stanno dentro la
-mappa, sotto confini e nomi delle località, che restano leggibili a qualunque opacità. Senza token Mapbox si torna alle
-tessere Thunderforest / OpenStreetMap. Sfondo, confini, opacità, celle nette e
-isolinee restano salvati nel browser:
+Forecast maps of precipitation, temperature at 850 hPa and at 2 m, wet-bulb temperature at 2 m, snow, freezing level
+and wind from eight models over Northern Italy. The [Mapbox](https://www.mapbox.com) basemap can be chosen in the
+settings: **Outdoors** (with pronounced relief, the default) or **Base** (Streets recoloured like a weather chart); the
+data colours sit inside the map, below borders and place names, which stay readable at any opacity. Without a Mapbox
+token the page falls back to Thunderforest / OpenStreetMap tiles. Basemap, borders, opacity, sharp cells and contour
+lines are saved in the browser.
 
-| Modello                  | Fonte                               | Risoluzione      | Orizzonte    | Corse       |
-| ------------------------ | ----------------------------------- | ---------------- | ------------ | ----------- |
-| GFS                      | NOAA/NCEP                           | 0.25°            | +192h        | 00/06/12/18 |
-| ECMWF IFS                | ECMWF Open Data                     | 0.25°            | +192h        | 00/12       |
-| ICON-2I                  | ItaliaMeteo (MeteoHub)              | 2.2 km           | +72h         | 00/12       |
-| WRF                      | ItaliaMeteo, CIMA, LaMMA (MeteoHub) | 1.5 km           | +72h         | 00/12       |
-| ICON-D2                  | DWD Open Data                       | 2.2 km           | +48h         | ogni 3 ore  |
-| AROME                    | Météo-France Open Data              | 0.025° (~2.5 km) | +51h         | ogni 3 ore  |
-| ICON-CH2-EPS (controllo) | MeteoSvizzera                       | ~2 km            | +120h        | ogni 6 ore  |
-| ICON-CH1-EPS (controllo) | MeteoSvizzera                       | ~1 km            | +33h         | ogni 3 ore  |
-| **Mediana modelli**      | calcolata                           | ~2 km            | fino a +192h | —           |
+The app's interface is in Italian; the code, comments and documentation are in English.
 
-Grandezze disponibili per modello:
+| Model                  | Source                              | Resolution       | Range        | Runs         |
+| ---------------------- | ----------------------------------- | ---------------- | ------------ | ------------ |
+| GFS                    | NOAA/NCEP                           | 0.25°            | +192h        | 00/06/12/18  |
+| ECMWF IFS              | ECMWF Open Data                     | 0.25°            | +192h        | 00/12        |
+| ICON-2I                | ItaliaMeteo (MeteoHub)              | 2.2 km           | +72h         | 00/12        |
+| WRF                    | ItaliaMeteo, CIMA, LaMMA (MeteoHub) | 1.5 km           | +72h         | 00/12        |
+| ICON-D2                | DWD Open Data                       | 2.2 km           | +48h         | every 3 hours |
+| AROME                  | Météo-France Open Data              | 0.025° (~2.5 km) | +51h         | every 3 hours |
+| ICON-CH2-EPS (control) | MeteoSwiss                          | ~2 km            | +120h        | every 6 hours |
+| ICON-CH1-EPS (control) | MeteoSwiss                          | ~1 km            | +33h         | every 3 hours |
+| **Model median**       | computed                            | ~2 km            | up to +192h  | —            |
 
-| Modello        | Pioggia | T 850 hPa | T e bulbo umido 2 m | Neve                            | Zero termico              |
-| -------------- | ------- | --------- | ------------------- | ------------------------------- | ------------------------- |
-| GFS            | ✓       | ✓         | ✓                   | — (non pubblica la neve caduta) | ✓                         |
-| ECMWF          | ✓       | ✓         | ✓                   | ✓                               | — (non tra i dati aperti) |
-| ICON-2I        | ✓       | ✓         | ✓                   | ✓                               | ✓                         |
-| WRF            | ✓       | ✓         | solo T              | —                               | —                         |
-| ICON-D2        | ✓       | ✓         | ✓                   | ✓                               | ✓                         |
-| AROME          | ✓       | —         | —                   | ✓                               | —                         |
-| ICON-CH2 / CH1 | ✓       | —         | ✓                   | ✓                               | ✓                         |
+Fields available per model:
 
-La **neve** è in cm di neve fresca: i modelli danno l'acqua equivalente (mm), convertita col rapporto standard
-10:1 (1 mm d'acqua = 1 cm di neve). È una stima: la neve umida si accumula meno, quella farinosa di più. Nei modelli ICON
-è la somma della neve di griglia e di quella convettiva. Lo **zero termico** è la quota (m sul livello del mare) dell'isoterma 0 °C.
-Il **bulbo umido a 2 m** si calcola da temperatura e punto di rugiada a 2 m con l'equazione psicrometrica,
-coefficiente costante A = 6,46 × 10⁻⁴ °C⁻¹ e pressione locale al suolo del modello (non ridotta al livello del mare).
-Le pressioni sono convertite in hPa, come la tensione di vapore; sotto 0 °C la neve arriva facilmente al suolo.
-WRF resta disponibile per la temperatura a 2 m, ma non per il bulbo umido: il catalogo MeteoHub non espone
-la pressione al suolo necessaria e non viene usata una pressione standard o ridotta al livello del mare.
-I campi `tw2m` già in cache non vengono ricalcolati: la correzione si applica ai nuovi download. Per rigenerare
-anche le corse esistenti, rimuovere dalla cache soltanto i campi `tw2m` (inclusa la mediana) e rilanciare il download.
+| Model          | Precipitation | T 850 hPa | T and wet bulb 2 m | Snow                                | Freezing level            |
+| -------------- | ------------- | --------- | ------------------ | ----------------------------------- | ------------------------- |
+| GFS            | ✓             | ✓         | ✓                  | — (snowfall is not published)       | ✓                         |
+| ECMWF          | ✓             | ✓         | ✓                  | ✓                                   | — (not in the open data)  |
+| ICON-2I        | ✓             | ✓         | ✓                  | ✓                                   | ✓                         |
+| WRF            | ✓             | ✓         | T only             | —                                   | —                         |
+| ICON-D2        | ✓             | ✓         | ✓                  | ✓                                   | ✓                         |
+| AROME          | ✓             | —         | —                  | ✓                                   | —                         |
+| ICON-CH2 / CH1 | ✓             | —         | ✓                  | ✓                                   | ✓                         |
 
-La **quota zero bulbo umido**, per ora solo GFS, è una grandezza separata (`hwzero`), in metri sul livello del mare.
-Usa la stessa equazione del bulbo umido a 2 m: sui 13 livelli da 1000 a 500 hPa la pressione è quella del livello
-e il punto di rugiada deriva da temperatura e umidità relativa, usando Magnus sull'acqua. Al profilo si aggiunge
-il punto a 2 m, con pressione e quota del terreno del modello. I dati arrivano in un'unica richiesta NOMADS
-ritagliata sul box; si salva soltanto la quota finale. Si interpola linearmente il primo attraversamento da
-positivo a negativo salendo, escludendo i livelli sotto il punto a 2 m. Non si interpola attraverso dati mancanti
-né si estrapola fuori dal profilo: se non c'è un attraversamento, anche con tutta la colonna sotto zero, il dato
-resta mancante. Il limite superiore di 500 hPa è circa 5.5 km, variabile nel tempo; le quote in quota sono
-geopotenziali GFS. Non è una quota neve e non entra nella mediana dei modelli.
+**Snow** is in cm of fresh snow: the models give the water equivalent (mm), converted with the standard 10:1 ratio
+(1 mm of water = 1 cm of snow). It is an estimate: wet snow accumulates less, powder snow more. In the ICON models it
+is the sum of grid-scale and convective snow. The **freezing level** is the height (m above sea level) of the 0 °C
+isotherm.
+The **wet bulb at 2 m** is computed from temperature and dew point at 2 m with the psychrometric equation, constant
+coefficient A = 6.46 × 10⁻⁴ °C⁻¹ and the model's local surface pressure (not reduced to sea level). Pressures are
+converted to hPa, like the vapour pressure; below 0 °C snow easily reaches the ground.
+WRF is available for the 2 m temperature but not for the wet bulb: the MeteoHub catalogue does not expose the
+required surface pressure, and no standard or sea-level pressure is used instead.
+`tw2m` fields already in the cache are not recomputed: the correction applies to new downloads. To regenerate
+existing runs too, remove only the `tw2m` fields (including the median) from the cache and run the download again.
 
-Di ogni modello si tiene e si mostra **solo l'ultima corsa completa**. Mentre la corsa successiva esce, la pagina
-ne mostra l'avanzamento ("12Z in arrivo · 20/56 passi"); quando è completa prende il posto della precedente, che viene cancellata.
+The **wet-bulb zero height**, for now GFS only, is a separate field (`hwzero`), in metres above sea level. It uses
+the same equation as the 2 m wet bulb: on the 13 levels from 1000 to 500 hPa the pressure is the level's own and the
+dew point comes from temperature and relative humidity, using Magnus over water. The 2 m point is added to the
+profile, with the model's surface pressure and terrain height. The data arrive in a single NOMADS request cropped to
+the box; only the final height is stored. The first positive-to-negative crossing going up is interpolated linearly,
+excluding levels below the 2 m point. There is no interpolation across missing data and no extrapolation outside the
+profile: without a crossing, even with the whole column below zero, the value stays missing. The 500 hPa upper limit
+is about 5.5 km and varies in time; heights aloft are GFS geopotential heights. It is not a snow level and is not
+part of the model median.
 
-La **mediana dei modelli** è costruita per istante di validità da un orario comune T0 (inizio della corsa completa più recente, arrotondato alle 6 ore): per ogni modello si usa la sua ultima corsa completa, e un modello partito dopo T0 entra dai suoi primi passi. Per pioggia e neve il totale è la somma delle mediane di ogni intervallo (così Totale e Intervallo restano coerenti quando un modello a breve scadenza esce); per temperatura e zero termico è la mediana dei valori. La mediana, a differenza della media, non si lascia trascinare da un modello isolato molto diverso dagli altri; con due soli modelli le due coincidono. In ogni passo la pagina indica quali modelli sono nella mediana.
+For each model **only the latest complete run** is kept and shown. While the next run is coming out, the page shows
+its progress ("12Z in arrivo · 20/56 passi", i.e. "12Z incoming · 20/56 steps"); once complete it replaces the
+previous one, which is deleted.
 
-## Cosa fa la pagina
+The **model median** is built per valid time from a common time T0 (start of the most recent complete run, rounded to
+6 hours): each model uses its latest complete run, and a model that started after T0 joins from its first steps. For
+precipitation and snow the total is the sum of the medians of each interval (so Total and Interval stay consistent
+when a short-range model drops out); for temperature and freezing level it is the median of the values. Unlike the
+mean, the median is not dragged by a single model far from the others; with only two models the two coincide. At each
+step the page shows which models are in the median.
 
-- **Navigazione:** con Mapbox, pinch, trascinamento e pulsanti di zoom usano la camera nativa, senza copie del canvas
-  o bordi sfumati. I colori meteo restano georeferenziati durante il movimento; isolinee e tooltip si nascondono
-  durante il gesto e tornano al termine. Le annotazioni Leaflet si riallineano una volta a fine movimento.
-  Senza token Mapbox o WebGL resta la navigazione Leaflet con gli sfondi di riserva.
-- **Grandezze:** Precipitazione e Neve (classifica delle località dalla più alta), Temperatura a 850 hPa e Zero termico
-  (dal più basso), più la voce combinata **Precip. e zero termico**: la precipitazione a colori con sopra le isoipse
-  dello zero termico, per i modelli che hanno entrambe le grandezze (GFS, ICON-2I, ICON-D2, ICON-CH1/CH2 e la mediana).
-  Le voci combinate (`COMBOS` in `app/variables.py`) non hanno dati propri: la pagina chiede i due campi.
-  Con le cumulate (3–24h) le isoipse mostrano lo **zero termico durante la precipitazione** (in pagina "Zero termico in 24h"): per ogni punto la media
-  dei sotto-intervalli di 3 ore (o 6) del periodo, ognuno pesato con la pioggia caduta in esso e con lo zero termico
-  medio fra i suoi estremi; dove nel periodo cadono meno di 0,1 mm si usa la media semplice. Con il Totale sono lo zero
-  termico all'ora mostrata. Il calcolo è nel browser, con i campi già pubblicati (per "24h" circa 9 totali e 9 campi
-  di zero termico, riusati dai passi vicini durante l'animazione).
-- **Modalità** Totale (accumulo da inizio corsa) e cumulate su **3, 6, 12 o 24 ore** che finiscono all'ora mostrata
-  (parametro `ore` nell'URL), con la durata sempre scritta: "Precipitazione in 24h" in legenda, nel riquadro delle
-  località e nell'immagine condivisa. Sono differenze fra due totali, quindi non pesano sui dati pubblicati; oltre le
-  +144h i passi sono ogni 6 ore e "3h" diventa 6h, all'inizio della corsa la cumulata parte da +0h.
-- **Colori:** sfumati per le grandezze continue (temperatura a 850 hPa, zero termico, vento), dove i valori esatti li
-  danno le linee e le etichette; a fasce nette per pioggia e neve, dove contano le soglie (1, 5, 10 mm…).
-- **Linee di livello** sopra i colori, con etichette: isoterme ogni 2 °C a 850 hPa (marcata quella di 0 °C) e isoipse
-  dello zero termico ogni 250 m (marcate le migliaia). Sono calcolate nel browser dal campo (ammorbidito sulle griglie
-  fini), si spengono nelle impostazioni e compaiono anche nell'immagine condivisa.
-- **Confini** sopra i colori, a scelta nelle impostazioni: Stati (con le coste), Regioni o Province, ogni livello
-  con i precedenti. Con Mapbox sono i suoi (gli stessi dello sfondo, ridisegnati scuri e continui; le province sono uno
-  strato in più sui suoi dati), le coste vengono da OpenStreetMap (`static/borders.json`, `scripts/make_borders.py --water`).
-  Senza Mapbox si usano i contorni di Natural Earth 1:10m dello stesso file, da rigenerare con
-  `scripts/make_borders.py` se cambia `BBOX`.
-- **Navigazione:** modello, istante (slider, frecce ←/→, spazio = play), opacità regolabile, celle nette senza
-  interpolazione. Su mobile c'è una barra in basso con ora, ‹ › ▶, modello e legenda compatta.
-- **Legenda** orizzontale (titolo con unità, barra dei colori con le soglie), su desktop in basso a destra e su mobile
-  nella barra.
-- **Valore sotto il cursore** (desktop), con lo zero termico nella voce combinata e, sulla mappa della T850, la quota
-  della superficie di 850 hPa in seconda riga; resta sempre dentro la finestra.
-- **Condivisione:** riquadro di ritaglio a proporzioni fisse (4:3, 1:1, 16:9) su cui si sposta e ingrandisce la mappa,
-  all'apertura il più grande possibile al centro della mappa così come la stai guardando (stessa zona, stesso zoom;
-  nessuna richiesta della posizione); intestazione con modello, corsa e ora, legenda, crediti e
-  "Realizzato da signalkuppe.com"; interruttore per includere o no le località. Si condivide l'immagine, senza testo.
-- **Stato nell'URL:** modello, grandezza, istante, modalità e opacità, quindi la vista si può condividere come link.
-  Aprendo un grafico si aggiungono località, modello del grafico, corsa e orizzonte: il link lo riapre direttamente,
-  anche senza la località nei preferiti. Indietro torna alla mappa e Avanti riapre il grafico; il cambio modello
-  aggiorna la stessa voce della cronologia. Se la corsa condivisa non è più disponibile, si usa l'ultima completa.
-- **Versione** accanto al nome dell'app, dai tag git.
+## What the page does
 
-## Avvio in locale
+- **Navigation:** with Mapbox, pinch, drag and zoom buttons use the native camera, without canvas copies or blurred
+  edges. The weather colours stay georeferenced while moving; contours and tooltip hide during the gesture and come
+  back at the end. Leaflet annotations realign once at the end of the movement. Without a Mapbox token or WebGL the
+  page keeps Leaflet navigation with the fallback basemaps.
+- **Fields:** Precipitation and Snow (places ranked from the highest), Temperature at 850 hPa and Freezing level (from
+  the lowest), plus the combined entry **Precip. e zero termico** (precipitation and freezing level): precipitation in
+  colour with freezing-level contours on top, for the models that have both fields (GFS, ICON-2I, ICON-D2,
+  ICON-CH1/CH2 and the median). Combined entries (`COMBOS` in `app/variables.py`) have no data of their own: the page
+  requests the two fields.
+  With accumulations (3–24h) the contours show the **freezing level during precipitation** (in the page "Zero termico
+  in 24h"): for each point, the mean of the 3-hour (or 6-hour) sub-intervals of the period, each weighted by the
+  precipitation that fell in it and using the mean freezing level between its ends; where less than 0.1 mm falls in
+  the period, the plain mean is used. With Total they are the freezing level at the time shown. The computation runs
+  in the browser with the already published fields (for "24h" about 9 totals and 9 freezing-level fields, reused by
+  nearby steps during the animation).
+- **Modes:** Total (accumulation since the start of the run) and accumulations over **3, 6, 12 or 24 hours** ending
+  at the time shown (`ore` parameter in the URL), with the duration always written: "Precipitazione in 24h" in the
+  legend, in the places panel and in the shared image. They are differences between two totals, so they do not add to
+  the published data; beyond +144h steps are every 6 hours and "3h" becomes 6h; at the start of the run the
+  accumulation starts from +0h.
+- **Colours:** smooth gradients for continuous fields (temperature at 850 hPa, freezing level, wind), where lines and
+  labels give the exact values; sharp bands for precipitation and snow, where thresholds matter (1, 5, 10 mm…).
+- **Contour lines** above the colours, with labels: isotherms every 2 °C at 850 hPa (0 °C highlighted) and
+  freezing-level contours every 250 m (thousands highlighted). They are computed in the browser from the field
+  (smoothed on fine grids), can be turned off in the settings and also appear in the shared image.
+- **Borders** above the colours, selectable in the settings: countries (with coastlines), regions or provinces, each
+  level with the previous ones. With Mapbox they are Mapbox's own (the same as the basemap, redrawn dark and
+  continuous; provinces are an extra layer on its data); coastlines come from OpenStreetMap (`static/borders.json`,
+  `scripts/make_borders.py --water`). Without Mapbox the Natural Earth 1:10m outlines in the same file are used,
+  regenerated with `scripts/make_borders.py` if `BBOX` changes.
+- **Controls:** model, time (slider, ←/→ arrows, space = play), adjustable opacity, sharp cells without
+  interpolation. On mobile there is a bottom bar with time, ‹ › ▶, model and compact legend.
+- **Legend:** horizontal (title with units, colour bar with thresholds), bottom right on desktop and in the bar on
+  mobile.
+- **Value under the cursor** (desktop), with the freezing level in the combined entry and, on the T850 map, the
+  height of the 850 hPa surface on a second line; it always stays inside the window.
+- **Sharing:** crop frame with fixed proportions (4:3, 1:1, 16:9) over which the map can be moved and zoomed; when
+  opened it is as large as possible in the centre of the map as you are viewing it (same area, same zoom; no location
+  request); header with model, run and time, legend, credits and "Realizzato da signalkuppe.com"; a switch to include
+  the places or not. Only the image is shared, without text.
+- **State in the URL:** model, field, time, mode and opacity, so the view can be shared as a link. Opening a chart
+  adds the place, chart model, run and range: the link reopens it directly, even without the place among the
+  favourites. Back returns to the map and Forward reopens the chart; changing the model updates the same history
+  entry. If the shared run is no longer available, the latest complete one is used.
+- **Version** next to the app name, from the git tags.
+
+## Running locally
 
 ```bash
 python3.13 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
-cp .env.example .env              # opzionale
-python scripts/fetch_once.py      # primo download (~5 min, poi incrementale)
+cp .env.example .env              # optional
+python scripts/fetch_once.py      # first download (~5 min, then incremental)
 uvicorn app.main:app --reload     # http://localhost:8000
 ```
 
-In alternativa, senza attivare l'ambiente: `./dev.sh` (stesso server, http://localhost:8000).
+Alternatively, without activating the environment: `./dev.sh` (same server, http://localhost:8000).
 
-Il server aggiorna i dati da solo ogni 10 minuti (`SCHEDULER_ENABLED=0` per disattivarlo).
-Test: `pytest`.
+The server updates the data by itself every 10 minutes (`SCHEDULER_ENABLED=0` to disable it).
+Tests: `pytest` (Python, including the parts that run the page's code in node) and `node --test tests/*.mjs`.
 
-## Configurazione (variabili d'ambiente)
+## Configuration (environment variables)
 
-| Variabile                | Default                  | Significato                                                                                                                                                                                                     |
-| ------------------------ | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BBOX`                   | `42,49,4,17`             | Area: `lat_min,lat_max,lon_min,lon_max` (lon -180..180)                                                                                                                                                         |
-| `INITIAL_VIEW`           | `44.68,46.64,8.50,11.43` | Vista all'apertura (Lombardia), stesso formato, dentro `BBOX`                                                                                                                                                   |
-| `DATA_DIR`               | `./data`                 | Cartella dati                                                                                                                                                                                                   |
-| `SCHEDULER_ENABLED`      | `1`                      | Aggiornamento automatico                                                                                                                                                                                        |
-| `SCHEDULER_INTERVAL_MIN` | `10`                     | Frequenza aggiornamento                                                                                                                                                                                         |
-| `MAPBOX_TOKEN`           | —                        | Token pubblico [Mapbox](https://account.mapbox.com) (`pk.…`) per gli sfondi Outdoors e Base: finisce nella pagina, va limitato ai domini del sito nel pannello Mapbox (nel sito statico: secret del repository) |
-| `THUNDERFOREST_KEY`      | —                        | Chiave [Thunderforest](https://manage.thunderforest.com) per lo sfondo di riserva senza Mapbox (nel sito statico: secret del repository)                                                                        |
-| `APP_VERSION`            | dai tag git              | Versione mostrata accanto al nome: di norma `git describe` (`v1.2.0` sul tag, `v1.2.0+3` tre commit dopo); da impostare dove non c'è `.git`, per esempio nell'immagine Docker. Senza tag non si mostra          |
+| Variable                 | Default                  | Meaning                                                                                                                                                                                                   |
+| ------------------------ | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BBOX`                   | `42,49,4,17`             | Area: `lat_min,lat_max,lon_min,lon_max` (lon -180..180)                                                                                                                                                   |
+| `INITIAL_VIEW`           | `44.68,46.64,8.50,11.43` | View on opening (Lombardy), same format, inside `BBOX`                                                                                                                                                    |
+| `DATA_DIR`               | `./data`                 | Data folder                                                                                                                                                                                               |
+| `SCHEDULER_ENABLED`      | `1`                      | Automatic updates                                                                                                                                                                                         |
+| `SCHEDULER_INTERVAL_MIN` | `10`                     | Update frequency                                                                                                                                                                                          |
+| `MAPBOX_TOKEN`           | —                        | Public [Mapbox](https://account.mapbox.com) token (`pk.…`) for the Outdoors and Base basemaps: it ends up in the page, so restrict it to the site's domains in the Mapbox dashboard (static site: repository secret) |
+| `THUNDERFOREST_KEY`      | —                        | [Thunderforest](https://manage.thunderforest.com) key for the fallback basemap without Mapbox (static site: repository secret)                                                                           |
+| `APP_VERSION`            | from git tags            | Version shown next to the name: normally `git describe` (`v1.2.0` on the tag, `v1.2.0+3` three commits later); set it where there is no `.git`, for example in the Docker image. Without tags nothing is shown |
 
-## Località preferite
+## Favourite places
 
-Le località sulla mappa le sceglie chi usa il sito: nella sezione **Località preferite** del pannello si cercano per
-nome e si aggiungono, poi con **Modifica** si rinominano o si eliminano (al massimo 20). Si parte senza località.
-Sulla mappa ognuna ha un cerchio con il numero della classifica (1 = più pioggia o più freddo) e un'etichetta col
-valore e l'unità (es. `2575m`); il valore è quello del punto di griglia più vicino, calcolato nel browser, quindi
-funziona anche sul sito statico.
+The places on the map are chosen by the user: in the **Località preferite** (favourite places) section of the panel
+they are searched by name and added, then renamed or deleted with **Modifica** (edit), up to 20. There are none at
+the start. On the map each one has a circle with its rank (1 = most precipitation or coldest) and a label with value
+and unit (e.g. `2575m`); the value is the one of the nearest grid cell, computed in the browser, so it also works on
+the static site.
 
-- **Etichette:** a destra del cerchio se c'è posto, altrimenti a sinistra, sopra o sotto, con un triangolino verso il
-  cerchio; se nessun lato è libero resta solo il cerchio. La posizione si ricalcola a ogni zoom e cambio di dati.
-- **Riquadro al click** (sul cerchio o sulla riga dell'elenco): nome, valore (e zero termico nella voce combinata, direzione
-  del vento, altezza della superficie di 850 hPa sulla mappa della T850) e ora,
-  con la X per chiuderlo; sempre dentro la finestra, sotto pannello e barra.
-- **Salvataggio:** nel browser (`localStorage`, chiave `weathermaps.places.v1`), quindi restano su quel browser
-  e quel dispositivo; un nuovo deploy non le tocca. Si perdono cancellando i dati del sito; Safari cancella i dati dei
-  siti non aperti da 7 giorni di utilizzo (non per le pagine aggiunte alla schermata Home). Quelle salvate in locale
-  (`localhost`) non compaiono sul sito pubblicato e viceversa. In navigazione privata o con i dati del sito bloccati
-  le modifiche durano finché resti sulla pagina.
-- **Ricerca:** prima [Open-Meteo Geocoding](https://open-meteo.com/en/docs/geocoding-api) (dati GeoNames: città,
-  paesi, cime e passi; risponde in meno di un secondo), limitata all'area della mappa. Se non trova niente o non
-  risponde entro 3,5 secondi si usa [Photon](https://photon.komoot.io) (OpenStreetMap, località abitate, cime e passi:
-  `osm_tag=place`, `natural:peak`, `mountain_pass`), più completo ma spesso molto lento. Il testo cercato viene
-  inviato al servizio utilizzato. La ricerca termina entro 10 secondi anche se entrambi non rispondono.
+- **Labels:** to the right of the circle if there is room, otherwise left, above or below, with a small triangle
+  pointing at the circle; if no side is free only the circle remains. The position is recomputed at every zoom and
+  data change.
+- **Popup on click** (on the circle or on the list row): name, value (plus the freezing level in the combined entry,
+  wind direction, height of the 850 hPa surface on the T850 map) and time, with an X to close it; always inside the
+  window, below panel and bar.
+- **Storage:** in the browser (`localStorage`, key `weathermaps.places.v1`), so they stay on that browser and that
+  device; a new deploy does not touch them. They are lost when the site data is cleared; Safari clears the data of
+  sites not opened for 7 days of use (not for pages added to the Home Screen). Places saved locally (`localhost`) do
+  not appear on the published site and vice versa. In private browsing or with site data blocked, changes last while
+  you stay on the page.
+- **Search:** first [Open-Meteo Geocoding](https://open-meteo.com/en/docs/geocoding-api) (GeoNames data: cities,
+  villages, peaks and passes; answers in under a second), limited to the map area. If it finds nothing or does not
+  answer within 3.5 seconds, [Photon](https://photon.komoot.io) is used (OpenStreetMap, inhabited places, peaks and
+  passes: `osm_tag=place`, `natural:peak`, `mountain_pass`), more complete but often very slow. The search text is
+  sent to the service used. The search ends within 10 seconds even if neither answers.
 
-## Cambiare area
+## Changing the area
 
-Imposta `BBOX` e riavvia. I dati della vecchia area vengono eliminati e la nuova viene scaricata al primo giro. Il frontend legge l'area da `/api/meta`, quindi non va toccato.
+Set `BBOX` and restart. The old area's data is deleted and the new one is downloaded on the first round. The
+frontend reads the area from `/api/meta`, so it does not need changes.
 
-## Aggiungere una grandezza
+## Adding a field
 
-Aggiungi una `Variable` in `app/variables.py` con:
+Add a `Variable` in `app/variables.py` with:
 
-- i selettori GRIB per modello: per GFS il nome NOMADS `var`/`level` (es. `TMP`, `2_m_above_ground`), per ECMWF `param`/`levtype` delle righe `.index` (es. `2t`, `sfc`), più `short_name` del messaggio decodificato;
-- la conversione di unità e la scala colori;
-- il tipo: `accum` (totale/intervallo) o `instant` (solo valore).
-- se il dato è la somma di più campi (es. neve ICON di griglia + convettiva), i selettori da aggiungere in `plus`;
-- facoltativo, `contours` per le linee di livello sopra i colori (`step`, livelli marcati in `bold`, `signed` per il segno "+").
+- the GRIB selectors per model: for GFS the NOMADS `var`/`level` name (e.g. `TMP`, `2_m_above_ground`), for ECMWF
+  `param`/`levtype` of the `.index` lines (e.g. `2t`, `sfc`), plus the `short_name` of the decoded message;
+- the unit conversion and the colour scale;
+- the kind: `accum` (total/interval) or `instant` (value only);
+- if the data is the sum of several fields (e.g. ICON grid-scale + convective snow), the selectors to add in `plus`;
+- optionally, `contours` for the contour lines above the colours (`step`, highlighted levels in `bold`, `signed` for
+  the "+" sign).
 
-Per sovrapporre le linee di una grandezza ai colori di un'altra basta una riga in `COMBOS`.
+To overlay the lines of one field on the colours of another, one line in `COMBOS` is enough.
 
-Fetcher, API e frontend la gestiscono senza altre modifiche; il selettore "Grandezza" compare quando ce n'è più d'una. Per il vento (`vector`) servirà un renderer a frecce dedicato.
+Fetcher, API and frontend handle it without other changes; the "Grandezza" (field) selector appears when there is
+more than one. Wind (`vector`) will need a dedicated arrow renderer.
 
-## Pubblicazione gratuita su GitHub Pages
+## Free publishing on GitHub Pages
 
-Il workflow `.github/workflows/pages.yml` gira una volta all'ora su GitHub Actions:
-recupera dalla cache i dati già scaricati, scarica solo i passi nuovi (`scripts/fetch_once.py`),
-genera il sito statico (`scripts/build_static.py`) e lo pubblica su GitHub Pages.
-I campi sono pubblicati in un formato compatto (`.bin`, valori in interi a 16 bit, `app/packed.py`): circa un
-terzo del JSON, per stare largamente sotto il limite di 1 GB di GitHub Pages.
-Nel sito statico la modalità Intervallo è calcolata nel browser e il pulsante "Aggiorna"
-ricarica i dati pubblicati (il download vero avviene una volta all'ora).
+The `.github/workflows/pages.yml` workflow runs once an hour on GitHub Actions: it restores the already downloaded
+data from the cache, downloads only the new steps (`scripts/fetch_once.py`), generates the static site
+(`scripts/build_static.py`) and publishes it on GitHub Pages.
+Fields are published in a compact format (`.bin`, values as 16-bit integers, `app/packed.py`): about a third of the
+JSON, to stay well below GitHub Pages' 1 GB limit.
+On the static site the Interval mode is computed in the browser and the "Aggiorna" (refresh) button reloads the
+published data (the real download happens once an hour).
 
-### Perché una volta all'ora, con un avvio esterno
+### Why once an hour, with an external trigger
 
-- **Una volta all'ora basta.** I modelli più frequenti (ICON-D2, ICON-CH1, AROME) hanno una corsa ogni 3 ore,
-  gli altri ogni 6 o 12, e i dati escono 2–8 ore dopo l'inizio della corsa: con un giro all'ora una corsa nuova
-  compare al massimo un'ora dopo la pubblicazione. Più spesso servirebbe solo a vedere prima i passi
-  di una corsa ancora parziale.
-- **Il cron di GitHub non è affidabile.** GitHub tratta gli avvii programmati come "best effort": sotto carico
-  li ritarda o li scarta senza lasciare traccia. Nelle prime 15 ore di vita del repository, con un cron ogni
-  30 minuti, è partito un solo avvio su circa trenta.
-- **Quindi l'avvio vero arriva da fuori.** Un servizio esterno ([cron-job.org](https://cron-job.org), gratuito)
-  chiama una volta all'ora l'API di GitHub per avviare il workflow (`workflow_dispatch`). Il cron nel workflow
-  (`17 * * * *`, lontano dall'ora piena, che è il momento più carico) resta come riserva. Se partono entrambi,
-  il gruppo di `concurrency` li mette in fila e il secondo giro trova poco o nulla da scaricare.
+- **Once an hour is enough.** The most frequent models (ICON-D2, ICON-CH1, AROME) have a run every 3 hours, the
+  others every 6 or 12, and the data come out 2–8 hours after the start of the run: with one round per hour a new run
+  appears at most an hour after publication. Running more often would only show the steps of a still partial run
+  earlier.
+- **GitHub's cron is not reliable.** GitHub treats scheduled runs as "best effort": under load it delays or drops
+  them without a trace. In the repository's first 15 hours, with a cron every 30 minutes, only one run out of about
+  thirty started.
+- **So the real trigger comes from outside.** An external service ([cron-job.org](https://cron-job.org), free) calls
+  the GitHub API once an hour to start the workflow (`workflow_dispatch`). The cron in the workflow (`17 * * * *`,
+  away from the full hour, the busiest moment) stays as a fallback. If both start, the `concurrency` group queues them
+  and the second round finds little or nothing to download.
 
-Configurazione dell'avvio esterno:
+Setting up the external trigger:
 
-1. Su GitHub crea un token _fine-grained_ (Settings → Developer settings → Personal access tokens →
-   Fine-grained tokens) con accesso al solo repository `weathermaps` e il solo permesso
-   **Actions: Read and write**. Annota la scadenza: alla scadenza l'avvio esterno si ferma.
-2. Su cron-job.org crea un job:
+1. On GitHub create a _fine-grained_ token (Settings → Developer settings → Personal access tokens → Fine-grained
+   tokens) with access to the `weathermaps` repository only and only the **Actions: Read and write** permission.
+   Note the expiry date: when it expires the external trigger stops.
+2. On cron-job.org create a job:
    - URL: `https://api.github.com/repos/signalkuppe/weathermaps/actions/workflows/pages.yml/dispatches`
-   - Metodo: `POST`, pianificazione: ogni ora (per esempio al minuto 47, sfalsato rispetto al cron di riserva)
-   - Intestazioni: `Authorization: Bearer <token>`, `Accept: application/vnd.github+json`,
+   - Method: `POST`, schedule: every hour (for example at minute 47, offset from the fallback cron)
+   - Headers: `Authorization: Bearer <token>`, `Accept: application/vnd.github+json`,
      `X-GitHub-Api-Version: 2022-11-28`, `Content-Type: application/json`
-   - Corpo: `{"ref":"main"}`
-3. Risposta attesa: `204 No Content`. Un `401` o `403` indica un token scaduto o senza il permesso Actions.
+   - Body: `{"ref":"main"}`
+3. Expected response: `204 No Content`. A `401` or `403` means an expired token or one without the Actions
+   permission.
 
-Prova da terminale, con lo stesso token:
+Test from a terminal, with the same token:
 
 ```bash
 curl -i -X POST \
@@ -221,35 +239,45 @@ curl -i -X POST \
   -d '{"ref":"main"}'
 ```
 
-Prova in locale:
+Local test:
 
 ```bash
 python scripts/build_static.py public
 cd public && python -m http.server 8090   # http://localhost:8090
 ```
 
-Nota: GitHub disattiva il workflow di un repository pubblico dopo 60 giorni senza commit, e da quel momento
-fallisce anche l'avvio esterno (risposta di errore su cron-job.org); basta riattivarlo dalla scheda Actions.
+Note: GitHub disables the workflow of a public repository after 60 days without commits, and from then on the
+external trigger fails too (error response on cron-job.org); just re-enable it from the Actions tab.
 
 ## API
 
-- `GET /api/meta`: versione, area, passi, modelli, grandezze (anche le combinate) con scale colori e linee di livello
-- `GET /api/runs`: per modello l'ultima corsa completa e, se c'è, quella in arrivo (`incoming`), con i passi scaricati
-- `GET /api/field?model=gfs&var=tp&run=2026110906&step=24&mode=total|interval[&prev=12]`: griglia JSON (righe sud→nord);
-  con `interval` la differenza col passo `prev` (default il precedente, `0` = dall'inizio della corsa)
+- `GET /api/meta`: version, area, steps, models, fields (including combined ones) with colour scales and contour
+  lines
+- `GET /api/runs`: per model the latest complete run and, if any, the incoming one (`incoming`), with the
+  downloaded steps
+- `GET /api/field?model=gfs&var=tp&run=2026110906&step=24&mode=total|interval[&prev=12]`: JSON grid (rows
+  south→north); with `interval` the difference from step `prev` (default the previous one, `0` = since the start of
+  the run)
 
-## Fonti dati
+## Data sources
 
-- GFS: NOAA/NCEP via [NOMADS](https://nomads.ncep.noaa.gov/) (dominio pubblico)
-- ECMWF: [Open Data](https://www.ecmwf.int/en/forecasts/datasets/open-data), licenza CC-BY-4.0
-- ItaliaMeteo: [ICON-2I su MeteoHub](https://dati.agenziaitaliameteo.it/dataset/previsioni-meteorologiche-modello-icon-2i), licenza CC-BY, servizio "singola variabile" (si scaricano solo i messaggi dei passi necessari).
-- WRF: [MeteoHub](https://meteohub.agenziaitaliameteo.it/nwp/), servizio "singola variabile"; si leggono solo le intestazioni dei messaggi GRIB2 e si scaricano i passi necessari. Griglia Lambert riportata su ~1.6 km con il punto più vicino.
-- MOLOCH (CNR-ISAC, 1.5 km): supportato da `app/sources/meteohub.py` ma escluso per ora, perché fornisce la pioggia ora per ora (~430 MB per corsa da un server lento); le istruzioni per riattivarlo sono nel modulo.
-- DWD: [Open Data ICON-D2](https://opendata.dwd.de/weather/nwp/icon-d2/), griglia regolare 0.02°.
-- Météo-France: [Paquets AROME 0,025°](https://www.data.gouv.fr/datasets/paquets-arome-resolution-0-025/), Licence Ouverte Etalab 2.0. Precipitazione e neve (paquet SP1, a blocchi di 6 ore): si leggono le intestazioni GRIB2 e si scaricano solo i messaggi necessari. I dati validi finiscono fra 13°E (a 42°N) e 14,5°E (a 49°N).
-- MeteoSvizzera: [Open Data ICON-CH1/CH2-EPS](https://opendatadocs.meteoswiss.ch/e-forecast-data/e2-e3-numerical-weather-forecasting-model), licenza CC-BY. I campi sono su griglia ICON non strutturata e vengono riportati su una griglia regolare di ~2.2 km (punto del modello più vicino); le coordinate della griglia si scaricano una volta in `DATA_DIR/static`.
-- Mappe: © [Mapbox](https://www.mapbox.com/about/maps/), © OpenStreetMap contributors (di riserva: Thunderforest)
-- Coste: [OpenStreetMap Data](https://osmdata.openstreetmap.de/) (ODbL)
-- Contorni geografici: [Natural Earth](https://www.naturalearthdata.com/) 1:10m (pubblico dominio)
-- Ricerca delle località: [Open-Meteo Geocoding](https://open-meteo.com/en/docs/geocoding-api) su dati
-  [GeoNames](https://www.geonames.org/); di riserva [Photon](https://photon.komoot.io) su dati OpenStreetMap
+- GFS: NOAA/NCEP via [NOMADS](https://nomads.ncep.noaa.gov/) (public domain)
+- ECMWF: [Open Data](https://www.ecmwf.int/en/forecasts/datasets/open-data), CC-BY-4.0 licence
+- ItaliaMeteo: [ICON-2I on MeteoHub](https://dati.agenziaitaliameteo.it/dataset/previsioni-meteorologiche-modello-icon-2i),
+  CC-BY licence, "single variable" service (only the messages of the needed steps are downloaded).
+- WRF: [MeteoHub](https://meteohub.agenziaitaliameteo.it/nwp/), "single variable" service; only the GRIB2 message
+  headers are read and the needed steps downloaded. Lambert grid remapped to ~1.6 km with the nearest point.
+- MOLOCH (CNR-ISAC, 1.5 km): supported by `app/sources/meteohub.py` but excluded for now, because it provides
+  precipitation hour by hour (~430 MB per run from a slow server); instructions to re-enable it are in the module.
+- DWD: [ICON-D2 Open Data](https://opendata.dwd.de/weather/nwp/icon-d2/), regular 0.02° grid.
+- Météo-France: [AROME 0.025° packages](https://www.data.gouv.fr/datasets/paquets-arome-resolution-0-025/), Licence
+  Ouverte Etalab 2.0. Precipitation and snow (SP1 package, in 6-hour blocks): the GRIB2 headers are read and only the
+  needed messages downloaded. Valid data end between 13°E (at 42°N) and 14.5°E (at 49°N).
+- MeteoSwiss: [ICON-CH1/CH2-EPS Open Data](https://opendatadocs.meteoswiss.ch/e-forecast-data/e2-e3-numerical-weather-forecasting-model),
+  CC-BY licence. Fields are on an unstructured ICON grid and are remapped to a regular ~2.2 km grid (nearest model
+  point); the grid coordinates are downloaded once into `DATA_DIR/static`.
+- Maps: © [Mapbox](https://www.mapbox.com/about/maps/), © OpenStreetMap contributors (fallback: Thunderforest)
+- Coastlines: [OpenStreetMap Data](https://osmdata.openstreetmap.de/) (ODbL)
+- Geographic outlines: [Natural Earth](https://www.naturalearthdata.com/) 1:10m (public domain)
+- Place search: [Open-Meteo Geocoding](https://open-meteo.com/en/docs/geocoding-api) on
+  [GeoNames](https://www.geonames.org/) data; fallback [Photon](https://photon.komoot.io) on OpenStreetMap data

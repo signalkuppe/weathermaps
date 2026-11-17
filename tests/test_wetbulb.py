@@ -1,4 +1,4 @@
-"""Bulbo umido a 2 m (app/variables.py, wet_bulb_k)."""
+"""Wet bulb at 2 m (app/variables.py, wet_bulb_k)."""
 import dataclasses
 from datetime import datetime, timezone
 from urllib.parse import parse_qs, urlparse
@@ -107,7 +107,7 @@ def test_gfs_wet_zero_rejects_bad_profile(gfs_profile, defect):
         gfs._wet_zero(gfs_profile, bbox)
 
 
-def test_equazione_con_coefficiente_costante():
+def test_equation_with_constant_coefficient():
     temperature = np.array([30.0, 20.0, 5.0, -5.0])
     dewpoint = np.array([10.0, 10.0, -5.0, -15.0])
     pressure = np.array([1013.25, 850.0, 700.0, 600.0])
@@ -118,27 +118,27 @@ def test_equazione_con_coefficiente_costante():
                        vapor_pressure, atol=1e-7, rtol=0)
 
 
-def test_valori_di_riferimento():
-    # tabelle psicrometriche a 1013 hPa: T 20 °C, rugiada 10 °C -> bulbo umido ~14,2 °C
+def test_reference_values():
+    # psychrometric tables at 1013 hPa: T 20 °C, dew point 10 °C -> wet bulb ~14.2 °C
     tw = wet_bulb_k(np.array([20 + K]), np.array([10 + K]), 1013.25)[0] - K
     assert abs(tw - 14.2) < 0.15
 
 
-def test_saturo_e_limiti():
+def test_saturated_and_limits():
     t = np.array([5, -3, 30]) + K
-    tw = wet_bulb_k(t, t, 850.0) - K  # aria satura: bulbo umido = temperatura
+    tw = wet_bulb_k(t, t, 850.0) - K  # saturated air: wet bulb = temperature
     assert np.allclose(tw, [5, -3, 30], atol=0.01)
     td = np.array([-10, -15, 5]) + K
     tw = wet_bulb_k(t, td, 850.0) - K
     assert np.all(tw <= t - K) and np.all(tw >= td - K)
 
 
-def test_mancanti_restano_mancanti():
+def test_missing_stay_missing():
     tw = wet_bulb_k(np.array([np.nan, 10 + K]), np.array([5 + K, 5 + K]), 850.0)
     assert np.isnan(tw[0]) and np.isfinite(tw[1])
 
 
-def test_registrata_con_il_punto_di_rugiada():
+def test_registered_with_dew_point():
     v = REGISTRY["tw2m"]
     assert v.combine is wet_bulb_k
     assert all(sel.dew is not None for sel in v.selectors.values())
@@ -146,7 +146,7 @@ def test_registrata_con_il_punto_di_rugiada():
     assert set(v.selectors) == set(REGISTRY["t2m"].selectors) - {"wrf"}
 
 
-def test_pressione_locale_e_mancanti():
+def test_local_pressure_and_missing():
     pressure = np.array([1013.25, 800.0, np.nan, 0.0, -1.0, np.inf])
     wet_bulb = wet_bulb_k(20 + K, 10 + K, pressure)
     assert wet_bulb[1] < wet_bulb[0]
@@ -155,7 +155,7 @@ def test_pressione_locale_e_mancanti():
 
 @pytest.mark.parametrize("model_id", REGISTRY["tw2m"].selectors)
 @pytest.mark.parametrize("units,factor", [("Pa", 100.0), ("hPa", 1.0), ("kPa", 0.1)])
-def test_fetch_con_pressione_locale(monkeypatch, model_id, units, factor):
+def test_fetch_with_local_pressure(monkeypatch, model_id, units, factor):
     variable = REGISTRY["tw2m"]
     selector = variable.selectors[model_id]
     pressure_hpa = np.array([[800.0, 1000.0]], dtype=np.float32)
@@ -183,7 +183,7 @@ def test_fetch_con_pressione_locale(monkeypatch, model_id, units, factor):
 
 
 @pytest.mark.parametrize("units,lon0,shape", [("m", 4, (1, 2)), ("Pa", 5, (1, 2)), ("Pa", 4, (2, 2))])
-def test_fetch_rifiuta_pressione_incompatibile(monkeypatch, units, lon0, shape):
+def test_fetch_rejects_incompatible_pressure(monkeypatch, units, lon0, shape):
     variable = REGISTRY["tw2m"]
     selector = variable.selectors["gfs"]
     template = Field(values=np.full((1, 2), 280.0), lat0=42, lon0=4, dlat=0.25, dlon=0.25)

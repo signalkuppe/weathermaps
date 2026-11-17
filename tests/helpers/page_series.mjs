@@ -1,10 +1,10 @@
-// Aiutante di tests/test_sito_statico.py: la parte "browser" dei meteogrammi, con il codice vero della pagina.
-// Legge le serie di un sito statico già costruito con getSeries (riquadri .bin, griglie da runs.json) e i campi della
-// mappa con unpackField e valueAt (il valore del tooltip), così il test confronta grafico, mappa e API.
+// Helper of tests/test_static_site.py: the "browser" part of the meteograms, with the page's real code.
+// Reads the series of an already built static site with getSeries (.bin tiles, grids from runs.json) and the map
+// fields with unpackField and valueAt (the tooltip value), so the test compares chart, map and API.
 //
-// Uso: node tests/helpers/serie_pagina.mjs <richiesta.json>
-//   richiesta: { site, queries: [{ model, run, lat, lon, field? }] }   field: .bin della mappa (relativo a site)
-// Risposta (stdout): [{ series: {lat, lon, vars} | { error }, map: numero|null }]
+// Usage: node tests/helpers/page_series.mjs <request.json>
+//   request: { site, queries: [{ model, run, lat, lon, field? }] }   field: map .bin (relative to site)
+// Response (stdout): [{ series: {lat, lon, vars} | { error }, map: number|null }]
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import vm from "node:vm";
@@ -23,7 +23,7 @@ const bufOf = (path) => {
   const b = readFileSync(path);
   return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
 };
-// fetch del sito statico: i file dal disco, 404 se mancano
+// fetch of the static site: files from disk, 404 if missing
 const fetch = async (url) => {
   try {
     const buf = bufOf(join(req.site, url));
@@ -37,7 +37,7 @@ const ctx = vm.createContext({ TextDecoder, F32: new WeakMap(), STATIC: true, ru
 vm.runInContext(
   slice("  function unpackField(buf) {", "  function getIntervalStatic(") +
     slice("  function valueAt(f, lat, lon) {", "  function loadPlaces() {") +
-    slice("  /** Serie nel punto: dal server (api/series)", "  /** Climatologia della T850") +
+    slice("  async function getSeries(", "  let climFile = null;") +
     "\nglobalThis.api = { unpackField, valueAt, getSeries };",
   ctx,
 );

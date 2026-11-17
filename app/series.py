@@ -1,21 +1,21 @@
-"""Serie temporali di una località (meteogramma): i valori di ogni grandezza a ogni passo, in un punto.
+"""Time series of a place (meteogram): the values of each field at each step, at one point.
 
-Due griglie, ciascuna in riquadri di celle (`layers`):
+Two grids, each split into tiles of cells (`layers`):
 
-- "native": pioggia e neve nella cella del modello più vicina, sulla stessa griglia della mappa. Grafico e tooltip
-  della mappa leggono la stessa cella e danno lo stesso numero (in montagna pioggia e neve cambiano molto in pochi
-  km, e un punto di un'altra griglia a 2-3 km di distanza finiva facilmente su un altro versante).
-- "smooth": temperatura a 850 hPa, zero termico e vento, che cambiano dolcemente, su una griglia regolare di 0,1°
-  (interpolata, modelli globali) o 0,05° (cella più vicina, alta risoluzione): sulla griglia del modello
-  peserebbero il doppio della pioggia senza cambiare il grafico, e il sito statico deve stare sotto 1 GB.
+- "native": precipitation and snow in the nearest model cell, on the same grid as the map. Chart and map tooltip
+  read the same cell and give the same number (in the mountains precipitation and snow change a lot within a few
+  km, and a point of another grid 2-3 km away easily ended up on another slope).
+- "smooth": temperature at 850 hPa, freezing level and wind, which change smoothly, on a regular grid of 0.1°
+  (interpolated, global models) or 0.05° (nearest cell, high resolution): on the model grid they would weigh twice
+  as much as precipitation without changing the chart, and the static site must stay under 1 GB.
 
-Il sito statico non può leggere un punto da tutte le mappe di una corsa, quindi la build prepara i riquadri nel
-formato compatto di app/packed.py: il browser scarica solo quelli della località. Le griglie di ogni corsa vanno in
-runs.json (`series`), così il browser sa quale riquadro e quale cella leggere. Sul server lo stesso risultato si
-ottiene con `point_series`, dai campi salvati.
+The static site cannot read a point from all the maps of a run, so the build prepares the tiles in the compact
+format of app/packed.py: the browser downloads only those of the place. The grids of each run go into runs.json
+(`series`), so the browser knows which tile and which cell to read. On the server the same result comes from
+`point_series`, from the stored fields.
 
-I valori sono interi scalati (vedi SCALE): es. la pioggia in decimi di mm. Le grandezze sono quelle del
-meteogramma: pioggia, neve, temperatura a 850 hPa, zero termico, vento a 10 m.
+Values are scaled integers (see SCALE): e.g. precipitation in tenths of mm. The fields are those of the
+meteogram: precipitation, snow, temperature at 850 hPa, freezing level, wind at 10 m.
 """
 from __future__ import annotations
 
@@ -26,23 +26,23 @@ import numpy as np
 from .mean import bilinear
 from .store import Store
 
-# grandezze del meteogramma e fattore per salvarle come interi (valore = intero / fattore)
-SCALE = {"tp": 10, "sf": 10, "t850": 10, "hzero": 0.1, "u10": 1, "v10": 1}  # sf: neve (cm), colora le barre della pioggia
+# meteogram fields and the factor to store them as integers (value = integer / factor)
+SCALE = {"tp": 10, "sf": 10, "t850": 10, "hzero": 0.1, "u10": 1, "v10": 1}  # sf: snow (cm), colours the precipitation bars
 GRID_KEYS = ("lat0", "lon0", "dlat", "dlon", "ny", "nx")
-NATIVE = ("tp", "sf")  # nella cella della mappa; le altre sulla griglia regolare
-DSTEP = 0.1  # griglia regolare dei modelli globali (GFS, ECMWF a 0,25°): interpolata
-FINE_DSTEP = 0.05  # alta risoluzione: cella più vicina (i picchi in montagna restano)
+NATIVE = ("tp", "sf")  # in the map cell; the others on the regular grid
+DSTEP = 0.1  # regular grid of the global models (GFS, ECMWF at 0.25°): interpolated
+FINE_DSTEP = 0.05  # high resolution: nearest cell (mountain peaks are kept)
 COARSE = {"gfs", "ecmwf"}
-TILE = 2.0  # lato dei riquadri della griglia regolare, gradi
+TILE = 2.0  # side of the regular-grid tiles, degrees
 
 
 def block_for(grid: dict) -> int:
-    """Celle per lato di un riquadro: 32 sulle griglie fini (~0,6°, qualche centinaio di kB), 8 su quelle a 0,25°."""
+    """Cells per tile side: 32 on fine grids (~0.6°, a few hundred kB), 8 on 0.25° grids."""
     return 32 if max(grid["dlat"], grid["dlon"]) < 0.1 else 8
 
 
 def cell_of(grid: dict, lat: float, lon: float) -> tuple[int, int] | None:
-    """Cella più vicina (riga, colonna), con lo stesso arrotondamento del tooltip della mappa (valueAt in app.js)."""
+    """Nearest cell (row, column), with the same rounding as the map tooltip (valueAt in app.js)."""
     iy = math.floor((lat - grid["lat0"]) / grid["dlat"] + 0.5)
     ix = math.floor((lon - grid["lon0"]) / grid["dlon"] + 0.5)
     if not (0 <= iy < grid["ny"] and 0 <= ix < grid["nx"]):
@@ -55,7 +55,7 @@ def _same_grid(a: dict, b: dict) -> bool:
 
 
 def _on_grid(values: np.ndarray, g: dict, grid: dict) -> np.ndarray:
-    """Campo portato sulla griglia della serie (cella più vicina): serve solo se una grandezza ha una griglia sua."""
+    """Field brought onto the series grid (nearest cell): only needed if a field has a grid of its own."""
     if _same_grid(g, grid):
         return values
     lats = grid["lat0"] + np.arange(grid["ny"]) * grid["dlat"]
@@ -69,7 +69,7 @@ def _on_grid(values: np.ndarray, g: dict, grid: dict) -> np.ndarray:
 
 
 def native_grid(store: Store, model: str, run: str) -> dict | None:
-    """Griglia del modello in questa corsa (quella della pioggia, la grandezza della mappa principale)."""
+    """The model grid in this run (the precipitation one, the main map field)."""
     for var in NATIVE:
         steps = store.steps(model, run, var)
         if steps:
@@ -89,7 +89,7 @@ def smooth_grid(store: Store, model: str) -> dict:
 
 
 def _sample(model: str, values: np.ndarray, g: dict, grid: dict) -> np.ndarray:
-    """Campo sulla griglia di una serie: cella più vicina, o bilineare per i globali sulla griglia regolare."""
+    """Field on a series grid: nearest cell, or bilinear for the global models on the regular grid."""
     if model in COARSE and not _same_grid(g, grid):
         lats = grid["lat0"] + np.arange(grid["ny"]) * grid["dlat"]
         lons = grid["lon0"] + np.arange(grid["nx"]) * grid["dlon"]
@@ -98,7 +98,7 @@ def _sample(model: str, values: np.ndarray, g: dict, grid: dict) -> np.ndarray:
 
 
 def layers(store: Store, model: str, run: str) -> dict[str, tuple[dict, tuple[str, ...]]]:
-    """Le griglie delle serie di una corsa e le grandezze di ciascuna: {nome: (griglia, grandezze)}."""
+    """The series grids of a run and the fields of each: {name: (grid, fields)}."""
     out = {}
     g = native_grid(store, model, run)
     if g:
@@ -114,9 +114,9 @@ def _encode(var: str, values: np.ndarray) -> list:
 
 
 def build_tiles(store: Store, model: str, run: str) -> tuple[dict, dict[tuple[str, int, int], dict]]:
-    """Griglie e riquadri delle serie di una corsa: ({nome: griglia}, {(nome, riga, colonna): riquadro}). Ogni
-    grandezza ha i suoi passi; i valori sono disposti cella per cella (tutti i passi di una cella sono contigui),
-    righe da sud, colonne da ovest. I riquadri senza nessun valore (fuori dal dominio del modello) non si scrivono."""
+    """Series grids and tiles of a run: ({name: grid}, {(name, row, column): tile}). Each
+    field has its own steps; values are laid out cell by cell (all steps of a cell are contiguous),
+    rows from the south, columns from the west. Tiles without any value (outside the model domain) are not written."""
     grids, tiles = {}, {}
     for name, (grid, names) in layers(store, model, run).items():
         cube: dict[str, tuple[list[int], np.ndarray]] = {}
@@ -139,10 +139,10 @@ def build_tiles(store: Store, model: str, run: str) -> tuple[dict, dict[tuple[st
                 body = {"ny": len(range(grid["ny"])[ys]), "nx": len(range(grid["nx"])[xs]), "vars": {}}
                 empty = True
                 for var, (steps, arr) in cube.items():
-                    blk = arr[:, ys, xs]  # passi × righe × colonne
+                    blk = arr[:, ys, xs]  # steps × rows × columns
                     if np.isfinite(blk).any():
                         empty = False
-                    # cella per cella: (righe × colonne) × passi
+                    # cell by cell: (rows × columns) × steps
                     body["vars"][var] = {"scale": SCALE[var], "steps": steps,
                                          "values": _encode(var, np.moveaxis(blk, 0, -1))}
                 if not empty:
@@ -151,7 +151,7 @@ def build_tiles(store: Store, model: str, run: str) -> tuple[dict, dict[tuple[st
 
 
 def point_series(store: Store, model: str, run: str, lat: float, lon: float) -> dict:
-    """Serie nel punto, stesso risultato dei riquadri. Posizione: la cella della pioggia (quella della mappa)."""
+    """Series at the point, same result as the tiles. Position: the precipitation cell (the map's)."""
     out = {"lat": lat, "lon": lon, "vars": {}}
     for name, (grid, names) in layers(store, model, run).items():
         cell = cell_of(grid, lat, lon)

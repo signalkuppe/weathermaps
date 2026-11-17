@@ -1,4 +1,4 @@
-"""GFS 0.25° via filtro GRIB di NOMADS, già ritagliato sul box."""
+"""GFS 0.25° via the NOMADS GRIB filter, already cropped to the box."""
 from __future__ import annotations
 
 from dataclasses import replace
@@ -97,7 +97,7 @@ def _wet_zero(fields: list[Field], bbox: BBox) -> Field:
 def fetch(client: httpx.Client, run: datetime, step: int, variable: Variable, bbox: BBox) -> Field:
     resp = client.get(url(run, step, variable, bbox))
     if resp.status_code == 404 or (resp.status_code == 200 and not resp.content.startswith(b"GRIB")):
-        # NOMADS risponde con HTML/testo se il file non esiste ancora
+        # NOMADS answers with HTML/text if the file does not exist yet
         raise NotAvailable(f"GFS {run:%Y%m%d%H} f{step:03d} non disponibile")
     resp.raise_for_status()
     fields = decode_grib(resp.content)

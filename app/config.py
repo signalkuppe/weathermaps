@@ -1,6 +1,6 @@
-"""Configurazione centrale: area geografica, passi temporali, percorsi.
+"""Central configuration: geographic area, time steps, paths.
 
-Tutto ciò che dipende dall'area della mappa deriva da `BBOX`, letto dall'ambiente.
+Everything that depends on the map area derives from `BBOX`, read from the environment.
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from pathlib import Path
 class BBox:
     lat_min: float
     lat_max: float
-    lon_min: float  # gradi -180..180
+    lon_min: float  # degrees -180..180
     lon_max: float
 
     @classmethod
@@ -37,7 +37,7 @@ class BBox:
 
     @property
     def key(self) -> str:
-        """Identificativo breve e stabile, usato come namespace dello storage."""
+        """Short, stable identifier, used as the storage namespace."""
         raw = f"{self.lat_min:g},{self.lat_max:g},{self.lon_min:g},{self.lon_max:g}"
         return hashlib.sha1(raw.encode()).hexdigest()[:10]
 
@@ -51,7 +51,7 @@ class BBox:
 
 
 def _load_dotenv(path: Path = Path(__file__).resolve().parent.parent / ".env") -> None:
-    """Carica un eventuale .env locale senza sovrascrivere variabili già impostate."""
+    """Loads a local .env if present, without overwriting variables already set."""
     if not path.exists():
         return
     for line in path.read_text().splitlines():
@@ -66,13 +66,13 @@ _load_dotenv()
 
 DEFAULT_BBOX = "42,49,4,17"
 
-# Area della carta sinottica (geopotenziale a 500 hPa e pressione): Atlantico ed Europa, come le carte classiche.
-# Solo per le grandezze con `area` (vedi variables.Variable): non dipende da BBOX.
-# Largo come uno schermo 16:9, così la carta lo riempie senza bordi; a sud fino a 25° per poterla centrare sul Nord
-# Italia (vedi applyArea in static/app.js) con circa 90° di longitudine sullo schermo, come le carte di Meteociel
+# Area of the synoptic chart (500 hPa geopotential and pressure): Atlantic and Europe, like the classic charts.
+# Only for fields with `area` (see variables.Variable): it does not depend on BBOX.
+# As wide as a 16:9 screen, so the chart fills it without margins; south down to 25° so it can be centred on Northern
+# Italy (see applyArea in static/app.js) with about 90° of longitude on screen, like the Meteociel charts
 SYNOPTIC_BBOX = "25,72,-70,64"
 
-# Passi comuni a GFS e ECMWF: 3h fino a 144h, poi 6h fino a 192h.
+# Steps shared by GFS and ECMWF: 3h up to 144h, then 6h up to 192h.
 STEPS: list[int] = list(range(3, 145, 3)) + list(range(150, 193, 6))
 
 HTTP_TIMEOUT = float(os.environ.get("HTTP_TIMEOUT", "30"))
@@ -83,12 +83,12 @@ def get_bbox() -> BBox:
     return BBox.parse(os.environ.get("BBOX", DEFAULT_BBOX))
 
 
-# Vista iniziale della mappa (default: Lombardia). Deve stare dentro BBOX.
+# Initial map view (default: Lombardy). Must lie inside BBOX.
 DEFAULT_INITIAL_VIEW = "44.68,46.64,8.50,11.43"
 
 
 def get_initial_view(bbox: BBox) -> BBox:
-    """Vista iniziale ritagliata dentro il box; se non lo interseca, usa il box intero."""
+    """Initial view cropped inside the box; if it does not intersect it, the whole box is used."""
     try:
         view = BBox.parse(os.environ.get("INITIAL_VIEW", DEFAULT_INITIAL_VIEW))
     except ValueError:
@@ -105,16 +105,16 @@ def get_initial_view(bbox: BBox) -> BBox:
 
 
 def parse_describe(text: str) -> str:
-    """Da `git describe --tags --long` ("v1.2.0-3-gabc1234") alla versione mostrata: "v1.2.0" sul tag,
-    "v1.2.0+3" con 3 commit dopo il tag."""
+    """From `git describe --tags --long` ("v1.2.0-3-gabc1234") to the version shown: "v1.2.0" on the tag,
+    "v1.2.0+3" with 3 commits after the tag."""
     tag, ahead, _sha = text.strip().rsplit("-", 2)
     return tag if ahead == "0" else f"{tag}+{ahead}"
 
 
 @lru_cache(maxsize=1)
 def get_version() -> str:
-    """Versione dell'app dai tag git; `APP_VERSION` la sostituisce (es. nell'immagine Docker, che non ha .git).
-    Stringa vuota se non ci sono tag: la pagina allora non mostra la versione."""
+    """App version from the git tags; `APP_VERSION` overrides it (e.g. in the Docker image, which has no .git).
+    Empty string if there are no tags: the page then does not show the version."""
     env = os.environ.get("APP_VERSION", "").strip()
     if env:
         return env
@@ -125,7 +125,7 @@ def get_version() -> str:
         )
     except (OSError, subprocess.SubprocessError):
         return ""
-    if out.returncode != 0:  # nessun tag (o niente git)
+    if out.returncode != 0:  # no tag (or no git)
         return ""
     return parse_describe(out.stdout)
 
@@ -139,6 +139,6 @@ def scheduler_enabled() -> bool:
 
 
 def prev_step(step: int) -> int:
-    """Passo precedente nella lista comune (0 per il primo)."""
+    """Previous step in the shared list (0 for the first)."""
     i = STEPS.index(step)
     return STEPS[i - 1] if i > 0 else 0

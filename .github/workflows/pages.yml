@@ -2,10 +2,10 @@ name: Aggiorna dati e pubblica
 
 on:
   schedule:
-    # riserva: l'avvio vero arriva ogni ora da un servizio esterno via workflow_dispatch, perché GitHub
-    # ritarda o salta spesso gli avvii programmati (vedi README, "Perché una volta all'ora")
+    # fallback: the real trigger arrives every hour from an external service via workflow_dispatch, because GitHub
+    # often delays or skips scheduled runs (see README, "Why once an hour")
     - cron: "17 * * * *"
-  workflow_dispatch: {} # avvio orario dal servizio esterno (cron-job.org) e manuale dalla scheda Actions
+  workflow_dispatch: {} # hourly trigger from the external service (cron-job.org) and manual from the Actions tab
   push:
     branches: [main]
 
@@ -21,17 +21,17 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60 # il primo giro dopo una grandezza nuova scarica molto di più
+    timeout-minutes: 60 # the first round after a new field downloads much more
     env:
       DATA_DIR: ${{ github.workspace }}/data
       SCHEDULER_ENABLED: "0"
-      THUNDERFOREST_KEY: ${{ secrets.THUNDERFOREST_KEY }} # sfondo "Rilievo" (chiave pubblica, finisce nella pagina)
-      MAPBOX_TOKEN: ${{ secrets.MAPBOX_TOKEN }} # sfondi Mapbox (token pubblico pk., finisce nella pagina)
-      SENTRY_DSN: ${{ secrets.SENTRY_DSN }} # errori del browser su Sentry (DSN pubblico, finisce nella pagina; vuoto = spento)
+      THUNDERFOREST_KEY: ${{ secrets.THUNDERFOREST_KEY }} # "Rilievo" basemap (public key, it ends up in the page)
+      MAPBOX_TOKEN: ${{ secrets.MAPBOX_TOKEN }} # Mapbox basemaps (public pk. token, it ends up in the page)
+      SENTRY_DSN: ${{ secrets.SENTRY_DSN }} # browser errors on Sentry (public DSN, it ends up in the page; empty = off)
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0 # serve la storia con i tag per la versione mostrata accanto al nome (git describe)
+          fetch-depth: 0 # the history with the tags is needed for the version shown next to the name (git describe)
 
       - uses: actions/setup-node@v6
         with:
@@ -45,7 +45,7 @@ jobs:
       - name: Installa dipendenze
         run: pip install -r requirements.txt
 
-      # i dati già scaricati passano da un'esecuzione all'altra: si scaricano solo i passi nuovi
+      # already downloaded data carry over from one run to the next: only the new steps are downloaded
       - name: Recupera dati precedenti
         uses: actions/cache/restore@v6
         with:
@@ -54,7 +54,7 @@ jobs:
           restore-keys: data-
 
       - name: Scarica nuove corse e passi
-        # un errore temporaneo di una sorgente non deve bloccare la pubblicazione delle altre
+        # a temporary error of one source must not block publishing the others
         run: python scripts/fetch_once.py || echo "::warning::alcuni download non sono riusciti, riprovo al prossimo giro"
 
       - name: Genera sito statico
@@ -81,5 +81,5 @@ jobs:
       - id: deployment
         uses: actions/deploy-pages@v5
         with:
-          # ~600 MB in un migliaio di file: a volte GitHub Pages resta in "syncing_files" oltre i 10 minuti di default
+          # ~600 MB in about a thousand files: sometimes GitHub Pages stays in "syncing_files" beyond the default 10 minutes
           timeout: 1800000

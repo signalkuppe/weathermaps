@@ -1,7 +1,7 @@
-"""DWD ICON-D2 (2.2 km) dal server Open Data del Deutscher Wetterdienst.
+"""DWD ICON-D2 (2.2 km) from the Deutscher Wetterdienst Open Data server.
 
-Un file per passo, compresso bz2, già su griglia regolare lat/lon a 0.02°.
-Dominio ~43.2–58.1°N, -3.9–20.3°E: copre il Nord Italia (non la fascia più a sud del box).
+One file per step, bz2-compressed, already on a regular 0.02° lat/lon grid.
+Domain ~43.2–58.1°N, -3.9–20.3°E: it covers Northern Italy (not the southernmost strip of the box).
 """
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ ROOT = "https://opendata.dwd.de/weather/nwp/icon-d2/grib"
 
 
 def url(run: datetime, step: int, variable: Variable) -> str:
-    """Es. .../12/tot_prec/icon-d2_germany_regular-lat-lon_single-level_2026110912_024_2d_tot_prec.grib2.bz2"""
+    """E.g. .../12/tot_prec/icon-d2_germany_regular-lat-lon_single-level_2026110912_024_2d_tot_prec.grib2.bz2"""
     sel = variable.selectors["icon-d2"]
     level = "2d" if sel.levtype == "single-level" else sel.levelist
     name = f"icon-d2_germany_regular-lat-lon_{sel.levtype}_{run:%Y%m%d%H}_{step:03d}_{level}_{sel.param}.grib2.bz2"

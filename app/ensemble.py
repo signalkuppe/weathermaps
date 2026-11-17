@@ -1,16 +1,16 @@
-"""Ensemble di GFS ed ECMWF: gli "spaghetti" di una località nella carta sinottica.
+"""GFS and ECMWF ensembles: the "spaghetti" plots of a place on the synoptic chart.
 
-Temperatura a 850 hPa e pioggia di ogni 6 ore, un valore per membro, solo sulla nostra area (BBOX) e solo per le corse
-delle 00 e 12 UTC. Si salvano nello Store come modelli in più (non sono nel menu dei modelli), con grandezze
-"t850.<membro>" e "tp.<membro>"; si tiene l'ultima corsa completa (più quella in arrivo).
+Temperature at 850 hPa and 6-hourly precipitation, one value per member, only over our area (BBOX) and only for the
+00 and 12 UTC runs. They are stored in the Store as extra models (not in the model menu), with fields
+"t850.<member>" and "tp.<member>"; the latest complete run is kept (plus the incoming one).
 
-- GFS (GEFS 0,5°, dati aperti NOAA su AWS, noaa-gefs-pds): controllo c00 e 30 membri p01...p30, fino a +384h. Un file
-  per membro e passo: si legge l'indice .idx e poi solo i due campi. La pioggia è già a intervalli di 6 ore (0-6,
-  6-12...). L'ensemble a 0,25° non ha la temperatura a 850 hPa.
-- ECMWF (ENS 0,25°, dati aperti ECMWF): 50 membri perturbati (il controllo non è nei dati aperti), fino a +360h. Un
-  file per passo con tutti i membri: si legge l'indice e poi, per ogni grandezza, il blocco dei 50 membri (sono uno
-  dopo l'altro). La pioggia è cumulata dall'inizio della corsa, in metri: nei punti per la pagina diventa quella di
-  ogni 6 ore (differenza fra passi).
+- GFS (GEFS 0.5°, NOAA open data on AWS, noaa-gefs-pds): control c00 and 30 members p01...p30, up to +384h. One file
+  per member and step: the .idx index is read and then only the two fields. Precipitation is already in 6-hour
+  intervals (0-6, 6-12...). The 0.25° ensemble has no temperature at 850 hPa.
+- ECMWF (ENS 0.25°, ECMWF open data): 50 perturbed members (the control is not in the open data), up to +360h. One
+  file per step with all members: the index is read and then, for each field, the block of the 50 members (they are
+  one after the other). Precipitation is accumulated since the start of the run, in metres: in the points for the
+  page it becomes 6-hourly (difference between steps).
 """
 from __future__ import annotations
 
@@ -39,19 +39,19 @@ DECIMALS = 1
 
 @dataclass(frozen=True)
 class Source:
-    model: str  # modello della pagina (bandiera, selettore del grafico): "gfs" o "ecmwf"
-    store_id: str  # "modello" nello Store
+    model: str  # the page's model (flag, chart selector): "gfs" or "ecmwf"
+    store_id: str  # "model" in the Store
     label: str
     members: tuple[str, ...]
     steps: tuple[int, ...]
-    info: ModelInfo  # corse e ritardo (candidate_runs)
-    control: str | None  # membro di controllo, disegnato a parte
-    tp_cumulative: bool  # pioggia cumulata dall'inizio: nei punti si fanno le differenze
-    download: Callable  # (client, run, rid, store, source) -> (scaricati, errori)
+    info: ModelInfo  # runs and delay (candidate_runs)
+    control: str | None  # control member, drawn separately
+    tp_cumulative: bool  # precipitation accumulated since the start: differences are taken in the points
+    download: Callable  # (client, run, rid, store, source) -> (downloaded, errors)
 
 
 def _get(client: httpx.Client, url: str, **kw) -> httpx.Response:
-    """GET con qualche nuovo tentativo sugli errori di rete passeggeri (connessioni chiuse, DNS)."""
+    """GET with a few retries on transient network errors (closed connections, DNS)."""
     for attempt in range(RETRIES):
         try:
             return client.get(url, **kw)
@@ -75,10 +75,10 @@ def _field(data: bytes, var: str, store: Store) -> Field:
     return f
 
 
-# ---------- GFS: GEFS 0,5°, un file per membro e passo
+# ---------- GFS: GEFS 0.5°, one file per member and step
 
 GEFS_ROOT = "https://noaa-gefs-pds.s3.amazonaws.com"
-GEFS_WORKERS = 12  # membri scaricati insieme: con tutti e 31 la rete di casa perdeva connessioni
+GEFS_WORKERS = 12  # members downloaded together: with all 31 the home network dropped connections
 
 
 def gefs_url(run: datetime, member: str, step: int) -> str:
@@ -87,7 +87,7 @@ def gefs_url(run: datetime, member: str, step: int) -> str:
 
 
 def gefs_ranges(index_text: str, step: int) -> dict[str, tuple[int, int | None]]:
-    """Intervalli di byte (inizio, fine compresa o None = fino in fondo) dei due campi nell'indice wgrib2."""
+    """Byte ranges (start, inclusive end or None = to the end) of the two fields in the wgrib2 index."""
     lines = [ln.split(":") for ln in index_text.splitlines() if ln.strip()]
     out: dict[str, tuple[int, int | None]] = {}
     for i, parts in enumerate(lines):
@@ -115,8 +115,8 @@ def _gefs_download(client: httpx.Client, run: datetime, rid: str, store: Store, 
             try:
                 base = gefs_url(run, member, step)
                 idx = _get(client, base + ".idx")
-                if idx.status_code in (403, 404):  # S3 risponde 403 per i file che non ci sono (ancora)
-                    break  # i passi escono in ordine
+                if idx.status_code in (403, 404):  # S3 answers 403 for files that are not there (yet)
+                    break  # steps come out in order
                 idx.raise_for_status()
                 fields = {}
                 for var, (a, b) in gefs_ranges(idx.text, step).items():
@@ -139,10 +139,10 @@ def _gefs_download(client: httpx.Client, run: datetime, rid: str, store: Store, 
     return got, errors
 
 
-# ---------- ECMWF: ENS 0,25°, un file per passo con tutti i membri
+# ---------- ECMWF: ENS 0.25°, one file per step with all members
 
 ECENS_ROOT = "https://data.ecmwf.int/forecasts"
-ECENS_WORKERS = 4  # passi scaricati insieme (ogni passo sono due blocchi da ~15 MB)
+ECENS_WORKERS = 4  # steps downloaded together (each step is two blocks of ~15 MB)
 
 
 def ecens_url(run: datetime, step: int) -> str:
@@ -150,7 +150,7 @@ def ecens_url(run: datetime, step: int) -> str:
 
 
 def ecens_records(index_text: str, members: tuple[str, ...]) -> dict[str, dict[str, tuple[int, int]]]:
-    """{grandezza: {membro: (offset, lunghezza)}} dall'indice JSON dei dati aperti ECMWF."""
+    """{field: {member: (offset, length)}} from the JSON index of the ECMWF open data."""
     out: dict[str, dict[str, tuple[int, int]]] = {v: {} for v in VARS}
     for line in index_text.splitlines():
         if not line.strip():
@@ -173,7 +173,7 @@ def ecens_records(index_text: str, members: tuple[str, ...]) -> dict[str, dict[s
 
 
 def _blocks(recs: dict[str, tuple[int, int]]) -> list[tuple[int, int, list[str]]]:
-    """Membri vicini nel file uniti in blocchi da leggere con una richiesta sola: (inizio, fine compresa, membri)."""
+    """Members close together in the file merged into blocks read with a single request: (start, inclusive end, members)."""
     out: list[tuple[int, int, list[str]]] = []
     for m, (off, length) in sorted(recs.items(), key=lambda kv: kv[1][0]):
         if out and off == out[-1][1] + 1:
@@ -191,7 +191,7 @@ def _ecens_download(client: httpx.Client, run: datetime, rid: str, store: Store,
             base = ecens_url(run, step)
             idx = _get(client, base + ".index")
             if idx.status_code == 404:
-                return 0, 0  # passo non ancora pubblicato
+                return 0, 0  # step not published yet
             idx.raise_for_status()
             records = ecens_records(idx.text, src.members)
             fields: list[tuple[str, str, Field]] = []
@@ -207,7 +207,7 @@ def _ecens_download(client: httpx.Client, run: datetime, rid: str, store: Store,
             return 0, 1
         for var, m, f in fields:
             if var == "tp":
-                f.values = f.values * 1000.0  # metri -> mm
+                f.values = f.values * 1000.0  # metres -> mm
             store.save(src.store_id, rid, _var(var, m), step, f)
         return 1, 0
 
@@ -245,7 +245,7 @@ def latest_complete(store: Store, src: Source) -> str | None:
 
 
 def update(model: str, store: Store | None = None, now: datetime | None = None) -> dict:
-    """Scarica quello che manca delle ultime corse dell'ensemble di `model` ("gfs" o "ecmwf"). Idempotente."""
+    """Downloads what is missing from the latest ensemble runs of `model` ("gfs" or "ecmwf"). Idempotent."""
     src = SOURCES[model]
     if not _locks[model].acquire(blocking=False):
         return {"model": src.store_id, "skipped": True}
@@ -256,7 +256,7 @@ def update(model: str, store: Store | None = None, now: datetime | None = None) 
         with make_client() as client:
             for run in candidates:
                 rid = run_id(run)
-                # c'è già una corsa più nuova completa: questa non serve
+                # a newer complete run already exists: this one is not needed
                 if any(r > rid and is_complete(store, src, r) for r in store.runs(src.store_id)):
                     continue
                 got, errors = src.download(client, run, rid, store, src)
@@ -279,7 +279,7 @@ def update_all(store: Store | None = None) -> list[dict]:
     return [update(m, store) for m in SOURCES]
 
 
-# ---------- punti per la pagina
+# ---------- points for the page
 
 
 def _grid(store: Store, src: Source, rid: str) -> dict:
@@ -287,7 +287,7 @@ def _grid(store: Store, src: Source, rid: str) -> dict:
 
 
 def info(store: Store) -> dict:
-    """Per /api/meta: per ogni modello con l'ensemble pronto, corsa, membri e griglia dei punti."""
+    """For /api/meta: for each model with the ensemble ready, run, members and point grid."""
     out = {}
     for model, src in SOURCES.items():
         rid = latest_complete(store, src)
@@ -304,13 +304,13 @@ def point_index(grid: dict, lat: float, lon: float) -> tuple[int, int]:
 
 
 def _cube(store: Store, src: Source, rid: str, rows=slice(None), cols=slice(None)) -> dict[str, np.ndarray]:
-    """{grandezza: array[membri, passi, righe, colonne]}, con la pioggia già di ogni 6 ore."""
+    """{field: array[members, steps, rows, columns]}, with precipitation already 6-hourly."""
     out = {}
     for v in VARS:
         a = np.stack([np.stack([store.load(src.store_id, rid, _var(v, m), s)[0][rows, cols] for s in src.steps])
                       for m in src.members])
         if v == "tp" and src.tp_cumulative:
-            a = np.maximum(np.diff(a, axis=1, prepend=0), 0)  # passi ogni 6 ore dal primo (+6h, cumulata da 0)
+            a = np.maximum(np.diff(a, axis=1, prepend=0), 0)  # steps every 6 hours from the first (+6h, accumulated from 0)
         out[v] = a
     return out
 
@@ -336,7 +336,7 @@ def point_series(store: Store, model: str, lat: float, lon: float) -> dict | Non
 
 
 def all_points(store: Store):
-    """Per il sito statico: (modello, riga, colonna, json) di ogni punto delle ultime corse complete."""
+    """For the static site: (model, row, column, json) of each point of the latest complete runs."""
     for model, src in SOURCES.items():
         rid = latest_complete(store, src)
         if not rid:
@@ -349,7 +349,7 @@ def all_points(store: Store):
                                             iy, ix)
 
 
-if __name__ == "__main__":  # python -m app.ensemble [gfs|ecmwf]: scarica le ultime corse
+if __name__ == "__main__":  # python -m app.ensemble [gfs|ecmwf]: downloads the latest runs
     import sys
 
     logging.basicConfig(level=logging.INFO)

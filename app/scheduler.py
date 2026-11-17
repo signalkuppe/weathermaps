@@ -1,4 +1,4 @@
-"""Job periodico che aggiorna i dati dei modelli."""
+"""Periodic job that updates the model data."""
 from __future__ import annotations
 
 import logging
@@ -18,10 +18,10 @@ log = logging.getLogger("weathermaps.scheduler")
 def start(store: Store) -> BackgroundScheduler:
     sched = BackgroundScheduler(timezone="UTC")
     first = datetime.now(timezone.utc) + timedelta(seconds=2)
-    # pulizia aree vecchie una volta all'avvio
+    # clean up old areas once at startup
     removed = store.purge_other_bboxes()
     if removed:
-        log.info("Rimossi dati di aree precedenti: %s", removed)
+        log.info("Removed data of previous areas: %s", removed)
     for model_id in SOURCES:
         sched.add_job(
             update_model,
@@ -33,7 +33,7 @@ def start(store: Store) -> BackgroundScheduler:
             max_instances=1,
             coalesce=True,
         )
-    # la mediana si ricontrolla a ogni giro (se gli ingressi non cambiano non ricalcola nulla)
+    # the median is rechecked at every round (if the inputs do not change nothing is recomputed)
     sched.add_job(
         build_mean,
         "interval",
@@ -44,7 +44,7 @@ def start(store: Store) -> BackgroundScheduler:
         max_instances=1,
         coalesce=True,
     )
-    # ensemble di GFS ed ECMWF (spaghetti delle località nella carta sinottica)
+    # GFS and ECMWF ensembles (place spaghetti plots on the synoptic chart)
     for model, src in ensemble.SOURCES.items():
         sched.add_job(
             ensemble.update,
@@ -56,7 +56,7 @@ def start(store: Store) -> BackgroundScheduler:
             max_instances=1,
             coalesce=True,
         )
-    # radiosondaggi osservati (00 e 12 UTC, Università del Wyoming)
+    # observed soundings (00 and 12 UTC, University of Wyoming)
     sched.add_job(
         soundings.update,
         "interval",
@@ -68,5 +68,5 @@ def start(store: Store) -> BackgroundScheduler:
         coalesce=True,
     )
     sched.start()
-    log.info("Scheduler avviato: ogni %d minuti per %s", SCHEDULER_INTERVAL_MIN, list(SOURCES))
+    log.info("Scheduler started: every %d minutes for %s", SCHEDULER_INTERVAL_MIN, list(SOURCES))
     return sched

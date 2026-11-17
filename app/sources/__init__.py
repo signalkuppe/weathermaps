@@ -1,4 +1,4 @@
-"""Sorgenti dati dei modelli. Ogni modulo espone MODEL, una `ModelSource` e `fetch()`."""
+"""Model data sources. Each module exposes MODEL, a `ModelSource` and `fetch()`."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -12,7 +12,7 @@ USER_AGENT = "weathermaps/0.1"
 
 
 class NotAvailable(Exception):
-    """Il passo/corsa non è (ancora) pubblicato: non è un errore, si riprova più tardi."""
+    """The step/run is not published (yet): not an error, retry later."""
 
 
 @dataclass(frozen=True)
@@ -20,14 +20,14 @@ class ModelInfo:
     id: str
     label: str
     resolution: float
-    cycles: tuple[int, ...]  # ore UTC delle corse usate
-    delay_hours: float  # ritardo tipico prima che i primi passi siano disponibili
+    cycles: tuple[int, ...]  # UTC hours of the runs used
+    delay_hours: float  # typical delay before the first steps are available
     max_step: int
-    description: str = ""  # testo per l'icona informazioni accanto al selettore del modello
-    country: str = ""  # codice dell'ente (us, eu, it, de, ch) per la bandiera nel selettore
+    description: str = ""  # text for the info icon next to the model selector
+    country: str = ""  # code of the agency (us, eu, it, de, ch) for the flag in the selector
 
     def candidate_runs(self, now: datetime | None = None, count: int = 3) -> list[datetime]:
-        """Ultime `count` corse plausibilmente pubblicate, dalla più recente."""
+        """Latest `count` runs plausibly published, newest first."""
         now = now or datetime.now(timezone.utc)
         t = (now - timedelta(hours=self.delay_hours)).replace(minute=0, second=0, microsecond=0)
         runs: list[datetime] = []
