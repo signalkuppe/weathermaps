@@ -281,10 +281,26 @@
                 hidden
               ></ul>
             </div>
-            <button id="places-edit" class="places-edit" type="button" hidden>
-              Modifica
+            <button
+              id="folder-new"
+              class="places-edit places-icon folder-new"
+              type="button"
+              title="Nuova cartella"
+              aria-label="Nuova cartella"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/><path d="M12 11v6M9 14h6"/></svg>
             </button>
+            <button
+              id="places-edit"
+              class="places-edit places-icon"
+              type="button"
+              title="Modifica"
+              aria-label="Modifica località e cartelle"
+              hidden
+            ></button>
           </div>
+          <!-- folders (outside them) or the open folder's header; only the open folder's places on the map and in the list -->
+          <div id="folders" class="folders"></div>
           <ol id="points" class="points"></ol>
         </details>
         <details id="settings" class="points-box settings">

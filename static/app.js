@@ -70,6 +70,8 @@
     placeQ: $("place-q"),
     placeResults: $("place-results"),
     placesEdit: $("places-edit"),
+    folders: $("folders"),
+    folderNew: $("folder-new"),
     modelInfo: $("model-info"),
     modelInfoBtn: $("model-info-btn"),
     privacyOpen: $("privacy-open"),
@@ -3272,11 +3274,21 @@
 
   // ---------- favourite places: chosen by the user via search, saved in the browser (localStorage).
   // Each one has a numbered marker + value on the map and a row in the panel list.
+  // Folders, like a file system with one level: at the top of the list the folders, then the places outside them;
+  // a folder is entered (only its places, on the map too) and left with "‹". A place belongs to one folder (or to
+  // none) from when it is added, with no moving (delete and add again); additions go into the open folder.
+  // `allPlaces` is everything saved, `places` what is shown (markers, rows and ranking).
   const PLACES_KEY = "weathermaps.places.v1";
+  // folders in their own key: an older page (still open in another tab, or the app not reloaded) saves only the
+  // places, and keeps the "folder" of each one (it rewrites the objects as they are), so nothing is lost
+  const FOLDERS_KEY = "weathermaps.folders.v1";
   const pointMarkers = [];
   const pointRows = [];
-  let places = loadPlaces();
+  let { places: allPlaces, folders, open: openFolder } = loadPlaces();
+  let places = [];
   let editing = false;
+  let naming = null; // id of the folder just created: its row shows the name field
+  let confirmDelete = null; // id of the folder whose ✕ was pressed once: the second press deletes it
 
   /** Value of the nearest grid point (like the tooltip), null if outside the grid or missing. */
   function valueAt(f, lat, lon) {
@@ -3291,23 +3303,40 @@
     try {
       const d = JSON.parse(localStorage.getItem(PLACES_KEY) || "null");
       if (Array.isArray(d?.places)) {
-        return d.places
+        // folders: added later (the places saved before have none and stay outside). In the places key in the
+        // first version of the folders: read from there if their own key is not there yet
+        let fd = null;
+        try {
+          fd = JSON.parse(localStorage.getItem(FOLDERS_KEY) || "null");
+        } catch {
+          /* corrupted: as if missing */
+        }
+        if (!Array.isArray(fd?.folders)) fd = d;
+        const folders = (Array.isArray(fd.folders) ? fd.folders : []).filter(
+          (f) => f && typeof f.id === "string" && typeof f.name === "string",
+        );
+        const ids = new Set(folders.map((f) => f.id));
+        const places = d.places
           .filter(
             (p) =>
               p &&
               typeof p.name === "string" &&
               Number.isFinite(p.lat) &&
               Number.isFinite(p.lon),
-          );
+          )
+          .map((p) => (p.folder && !ids.has(p.folder) ? { ...p, folder: undefined } : p));
+        return { places, folders, open: ids.has(fd.open) ? fd.open : null };
       }
     } catch {
       /* storage unavailable or corrupted data: start empty */
     }
-    return [];
+    return { places: [], folders: [], open: null };
   }
   function savePlaces() {
     try {
-      localStorage.setItem(PLACES_KEY, JSON.stringify({ v: 1, places }));
+      // still v1: the places stay readable by an older page (it ignores folders and shows them all)
+      localStorage.setItem(PLACES_KEY, JSON.stringify({ v: 1, places: allPlaces }));
+      localStorage.setItem(FOLDERS_KEY, JSON.stringify({ v: 1, folders, open: openFolder }));
     } catch {
       /* private browsing or full storage: changes last while you stay on the page */
     }
@@ -3326,6 +3355,8 @@
   /** Rebuilds markers and list from `places` (after each addition, edit or deletion). */
   function setupPoints() {
     closePlacePop(); // indexes may change (deletion)
+    places = allPlaces.filter((p) => (p.folder || null) === openFolder);
+    renderFolders();
     for (const m of pointMarkers) m.remove();
     pointMarkers.length = 0;
     pointRows.length = 0;
@@ -3373,9 +3404,9 @@
         del.title = `Elimina ${p.name}`;
         del.setAttribute("aria-label", `Elimina ${p.name}`);
         del.addEventListener("click", () => {
-          places.splice(idx, 1);
+          allPlaces.splice(allPlaces.indexOf(p), 1);
           savePlaces();
-          if (!places.length) editing = false;
+          if (!openFolder && !allPlaces.some((q) => !q.folder)) editing = false;
           setupPoints();
         });
         li.querySelector(".pt-v").replaceWith(del);
@@ -3391,19 +3422,186 @@
       ui.points.append(li);
       pointRows.push(li);
     });
-    ui.placesEdit.hidden = !places.length;
-    ui.placesEdit.textContent = editing ? "Fine" : "Modifica";
+    ui.placesEdit.hidden = !places.length && !openFolder && !folders.length; // folders, even empty: rename, delete
+    // icon only (pencil, check when editing): more room for the search field
+    ui.placesEdit.innerHTML = editing ? CHECK_ICON : PENCIL_ICON;
+    ui.placesEdit.title = editing ? "Fine" : "Modifica";
+    ui.placesEdit.setAttribute("aria-label", editing ? "Fine modifica" : "Modifica località e cartelle");
     ui.placesEdit.setAttribute("aria-pressed", String(editing));
     if (meta && variable()) renderPoints();
   }
 
   ui.placesEdit.addEventListener("click", () => {
     editing = !editing;
+    confirmDelete = null;
     setupPoints();
   });
 
+  const PENCIL_ICON =
+    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>';
+  const CHECK_ICON =
+    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+  const FOLDER_ICON =
+    // viewBox cropped around the drawing (x 2-22): the folder is about as wide as the 18px circle of the places
+    '<svg width="18" height="18" viewBox="2 2.5 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/></svg>';
+
+  /** Above the list: the folders (outside them) or the open folder's header with "‹" (inside). */
+  function renderFolders() {
+    const box = ui.folders;
+    box.replaceChildren();
+    ui.folderNew.hidden = !!openFolder; // one level: folders only outside folders
+    const row = (cls) => {
+      const r = document.createElement("div");
+      r.className = cls;
+      box.append(r);
+      return r;
+    };
+    if (openFolder) {
+      const f = folders.find((x) => x.id === openFolder);
+      // "..": back to the places outside folders, as in a file system
+      const up = row("folder-row folder-up");
+      up.innerHTML = '<span class="folder-dots">..</span>';
+      up.title = "Torna alle località";
+      up.setAttribute("role", "button");
+      up.setAttribute("aria-label", "Torna alle località");
+      up.tabIndex = 0;
+      const back = () => {
+        openFolder = null;
+        editing = false;
+        savePlaces();
+        setupPoints();
+      };
+      up.addEventListener("click", back);
+      up.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          back();
+        }
+      });
+      // the open folder, then its places: same columns (icon/number, name)
+      const r = row("folder-row folder-head");
+      r.innerHTML = FOLDER_ICON;
+      if (editing) r.append(nameInput(f), folderDelButton(f));
+      else {
+        const n = document.createElement("span");
+        n.className = "folder-name";
+        n.textContent = f.name;
+        r.append(n);
+      }
+      if (!places.length) {
+        // inside the folder like its places: text in the names' column
+        const h = row("folder-row folders-hint");
+        h.innerHTML = "<span></span><span></span>";
+        h.lastChild.textContent = "La cartella è vuota";
+      }
+      return;
+    }
+    for (const f of folders) {
+      const n = allPlaces.filter((p) => p.folder === f.id).length;
+      const r = row("folder-row");
+      r.innerHTML = FOLDER_ICON;
+      if (editing || naming === f.id) {
+        r.append(nameInput(f));
+        if (editing) r.append(folderDelButton(f));
+        continue;
+      }
+      r.insertAdjacentHTML("beforeend", `<span class="folder-name"></span><span class="folder-n">${n}</span><span class="folder-go" aria-hidden="true">›</span>`);
+      r.querySelector(".folder-name").textContent = f.name;
+      r.title = `Apri ${f.name}`;
+      r.setAttribute("role", "button");
+      r.tabIndex = 0;
+      const enter = () => {
+        openFolder = f.id;
+        savePlaces();
+        setupPoints();
+      };
+      r.addEventListener("click", enter);
+      r.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          enter();
+        }
+      });
+    }
+  }
+
+  /** ✕ of a folder (in the list or in its header when open): the second press deletes it with its places. */
+  function folderDelButton(f) {
+    const n = allPlaces.filter((p) => p.folder === f.id).length;
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "folder-del" + (confirmDelete === f.id ? " confirm" : "");
+    del.textContent =
+      confirmDelete === f.id ? (n ? `Elimina con ${n === 1 ? "1 località" : `${n} località`}` : "Elimina") : "✕";
+    del.setAttribute("aria-label", `Elimina la cartella ${f.name}`);
+    del.addEventListener("click", () => {
+      if (confirmDelete !== f.id) {
+        confirmDelete = f.id;
+        renderFolders();
+        return;
+      }
+      allPlaces = allPlaces.filter((p) => p.folder !== f.id);
+      folders = folders.filter((x) => x.id !== f.id);
+      if (openFolder === f.id) openFolder = null; // deleted from inside: back outside folders
+      confirmDelete = null;
+      if (!folders.length && !allPlaces.length) editing = false;
+      savePlaces();
+      setupPoints();
+    });
+    return del;
+  }
+
+  /** Field with the folder's name: saved on change; the new folder's field closes with Enter or on leaving it. */
+  function nameInput(f) {
+    const input = document.createElement("input");
+    input.className = "pt-name pt-rename";
+    input.value = f.name;
+    input.maxLength = 40;
+    input.setAttribute("aria-label", `Nome della cartella ${f.name}`);
+    const commit = () => {
+      const name = input.value.trim();
+      if (name) f.name = name;
+      else input.value = f.name;
+      savePlaces();
+    };
+    input.addEventListener("change", commit);
+    if (naming === f.id) {
+      const done = () => {
+        if (naming !== f.id) return;
+        commit();
+        naming = null;
+        setupPoints();
+      };
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === "Escape") done();
+      });
+      input.addEventListener("blur", done);
+    }
+    return input;
+  }
+
+  ui.folderNew.addEventListener("click", () => {
+    // new empty folder at the top of the list, with its name to write
+    const id = Date.now().toString(36);
+    folders.unshift({ id, name: "Nuova cartella" });
+    naming = id;
+    savePlaces();
+    setupPoints();
+    // focus right away, inside the tap: iOS opens the keyboard only then (not in a later frame)
+    const input = ui.folders.querySelector(".pt-rename");
+    input?.focus();
+    input?.select();
+  });
+
   /** false if there is already a place there (from search). custom: point chosen on the map, always added. */
-  function addPlace(name, lat, lon, custom = false) {
+  function addPlace(name, lat, lon, custom = false, folder = openFolder) {
+    // into another folder than the open one: that folder opens, so the new marker is seen
+    if (folder !== openFolder) {
+      openFolder = folder;
+      editing = false;
+      setupPoints();
+    }
+    // the same place can be in more than one folder (and outside), not twice in the same one
     if (
       !custom &&
       places.some(
@@ -3413,11 +3611,12 @@
       toast(`${name} è già fra le località.`);
       return false;
     }
-    places.push({
+    allPlaces.push({
       id: Date.now().toString(36),
       name,
       lat: +lat.toFixed(4),
       lon: +lon.toFixed(4),
+      ...(folder ? { folder } : {}), // into the chosen folder (the open one by default)
     });
     savePlaces();
     setupPoints();
@@ -5456,11 +5655,14 @@
         "#12357a",
     }; // precipitation accumulation
   }
+  const WARN_AMBER = "#f59f00"; // notice next to a panel title: same amber as .chart-warn
   const chartCss = (c) =>
     [
       // the page classes do not apply inside an image: same styles and colours
       `.ch-title{font:650 12.5px system-ui,sans-serif;fill:${c.fg}}.ch-note{font-weight:400;font-size:11.5px;fill:${c.muted}}.ch-leg{font:400 11.5px system-ui,sans-serif;fill:${c.muted}}.ch-leg tspan{font-weight:650;fill:${c.fg}}`,
       `.ch-tick{font:11px system-ui,sans-serif;fill:${c.muted}}.ch-grid{stroke:${c.line};stroke-width:1}`,
+      `.ch-info-bg{fill:${c.bg}}.ch-info{fill:${WARN_AMBER};fill-opacity:.12;stroke:${WARN_AMBER};stroke-opacity:.55;stroke-width:1}`,
+      `.ch-info-text{font:11.5px system-ui,sans-serif;fill:${c.fg}}`,
       `.ch-day{stroke:${c.line};stroke-width:1;stroke-dasharray:3 3}`,
       `.ch-zero{stroke:${c.muted};stroke-width:1}text{font-variant-numeric:tabular-nums}`,
       `.ch-pin{stroke:${c.fg};stroke-width:1.5;opacity:.75}.ch-pin-dot{stroke:${c.bg};stroke-width:2}`,
@@ -5714,8 +5916,8 @@
     const R = exportW ? CHART_R : 14; // in the dialog the last day label is enough on the right (no precipitation scale); in the image it acts as a margin
     let L = CHART_AXIS, // tightened onto the axis numbers (see below)
       pw = W - L - R;
-    const HEAD = 30,
-      GAP = 16,
+    const HEAD = 36,
+      GAP = 32,
       AXIS = 34;
     const steps = E.steps,
       x0 = 0,
@@ -5777,7 +5979,7 @@
       const Y = (y) => bot - ((y - lo) / (hi - lo || 1)) * p.ph;
       Object.assign(p, { top, bot, Y });
       svg.push(
-        `<text class="ch-title" x="0" y="${top - 14}">${p.title} <tspan class="ch-note">(${p.unit})</tspan></text>`,
+        `<text class="ch-title" x="0" y="${top - 20}">${p.title} <tspan class="ch-note">(${p.unit})</tspan></text>`,
       );
       for (const t of ticks) {
         svg.push(`<line class="ch-grid" x1="${L}" x2="${L + pw}" y1="${Y(t)}" y2="${Y(t)}"/>`);
@@ -6163,7 +6365,7 @@
     const unit = temp ? "°C" : "mm";
     const W = exportW || Math.max(280, chartUi.body.clientWidth);
     const R = exportW ? CHART_R : 14,
-      HEAD = 30,
+      HEAD = 36,
       AXIS = 34;
     const steps = [...new Set(lines.flatMap((l) => l.pts.map(([h]) => h)))].sort((a, b) => a - b);
     const x0 = 0,
@@ -6196,7 +6398,7 @@
     const X = (h) => L + ((h - x0) / (x1 - x0 || 1)) * pw;
     const Y = (y) => bot - ((y - lo) / (hiT - lo || 1)) * PH;
     const svg = [
-      `<text class="ch-title" x="0" y="${top - 14}">${temp ? "Temperatura 850 hPa" : "Precipitazione"} <tspan class="ch-note">(${temp ? unit : `${unit}, cumulata`})</tspan></text>`,
+      `<text class="ch-title" x="0" y="${top - 20}">${temp ? "Temperatura 850 hPa" : "Precipitazione"} <tspan class="ch-note">(${temp ? unit : `${unit}, cumulata`})</tspan></text>`,
     ];
     if (temp && lo < 0) svg.push(`<line class="ch-zero" x1="${L}" x2="${L + pw}" y1="${Y(0)}" y2="${Y(0)}"/>`);
     for (const t of ticks) {
@@ -6618,8 +6820,8 @@
     let L = CHART_AXIS, // tightened onto the axis numbers, see below
       pw = W - L - R;
     let PH = 78;
-    const HEAD = 30,
-      GAP = 16,
+    const HEAD = 36,
+      GAP = 32,
       AXIS = 34; // chart height, title, space between panels, time axis
     const steps = [...new Set(Object.values(V).flatMap((v) => v.steps))].sort(
       (a, b) => a - b,
@@ -6722,16 +6924,32 @@
         zero: true,
         tip: () => "T 850 hPa",
       });
-    if (V.hzero)
+    // freezing level: the model gives no value where it is below the ground (the whole column below 0 °C, e.g. on high
+    // peaks); if it is below the ground for the whole series there is nothing to draw
+    if (V.hzero?.values.some((x) => x != null)) {
+      const data = points(V.hzero);
+      // mostly missing: say why, otherwise a few dots look like broken data
+      const missing = data.filter((d) => d.y == null).length;
+      const lastValue = data.findLastIndex((d) => d.y != null);
+      // [long, short]: the short one if the long one does not fit next to the title (phones)
+      const info =
+        missing * 2 < data.length
+          ? undefined
+          : data.slice(0, lastValue).every((d) => d.y != null)
+            ? ["sotto il suolo per il resto del periodo", "poi sotto il suolo"]
+            : ["dove manca è sotto il suolo", "a tratti sotto il suolo"];
       panels.push({
         title: "Zero termico",
         unit: "m",
         kind: "line",
         color: "#0b7285",
-        data: points(V.hzero),
+        data,
+        info,
         dec: 0,
+        span: 1000, // at least 1000 m on the axis: a few values (freezing level mostly below the ground) do not look broken
         tip: () => "Zero termico",
       });
+    }
     if (V.u10 && V.v10) {
       const data = V.u10.steps.map((x, i) => {
         const u = V.u10.values[i],
@@ -6828,6 +7046,11 @@
         const pad = (hi - lo) * 0.1 || 1;
         lo -= p.min != null && lo >= 0 ? 0 : pad;
         hi += pad;
+        if (p.span && hi - lo < p.span) {
+          const mid = (hi + lo) / 2; // minimum width of the scale, around the values
+          lo = mid - p.span / 2;
+          hi = mid + p.span / 2;
+        }
       }
       if (p.min != null && p.kind === "line") lo = Math.max(0, lo);
       const ticks = niceTicks(lo, hi);
@@ -6853,7 +7076,7 @@
       p.bot = bot;
       const pd = pin != null ? valueAt(p, pin) : null;
       svg.push(
-        `<text class="ch-title" x="0" y="${top - 14}">${p.title} <tspan class="ch-note">(${p.unit})${p.note ? " · " + p.note : ""}</tspan></text>`,
+        `<text class="ch-title" x="0" y="${top - 20}">${p.title} <tspan class="ch-note">(${p.unit})${p.note ? " · " + p.note : ""}</tspan></text>`,
       );
       for (const t of ticks) {
         svg.push(
@@ -6936,14 +7159,18 @@
       } else {
         let path = "",
           pen = false;
-        for (const d of p.data) {
+        p.data.forEach((d, j) => {
           if (d.y == null) {
             pen = false;
-            continue;
+            return;
           }
           path += `${pen ? "L" : "M"}${X(d.x).toFixed(1)},${Y(d.y).toFixed(1)}`;
           pen = true;
-        }
+          // isolated value (missing before and after, e.g. the freezing level above the ground for one step only):
+          // a line of a single point is invisible, so a dot
+          if (p.data[j - 1]?.y == null && p.data[j + 1]?.y == null)
+            svg.push(`<circle cx="${X(d.x).toFixed(1)}" cy="${Y(d.y).toFixed(1)}" r="3" fill="${p.color}"/>`);
+        });
         svg.push(
           `<path d="${path}" fill="none" stroke="${p.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`,
         );
@@ -6960,6 +7187,21 @@
             `<g transform="translate(${X(d.x).toFixed(1)},${top + 7}) rotate(${ang.toFixed(0)})" stroke="${p.color}" stroke-width="1.4" fill="none" stroke-linecap="round"><path d="M-6,0H6M2.5,-3.5L6,0L2.5,3.5"/></g>`,
           );
         });
+      }
+      if (p.info) {
+        // notice next to the title, like the chart notices (amber). Widths estimated from the characters: title
+        // 12.5 px bold ~7.3 px, unit 11.5 px ~6.3 px, box text 11.5 px ~6.2 px
+        const bx = Math.ceil(p.title.length * 7.3 + (p.unit.length + 3) * 6.3) + 8,
+          room = W - R - bx,
+          text = p.info.find((t) => t.length * 6.2 + 16 <= room) ?? p.info[p.info.length - 1],
+          bw = Math.ceil(text.length * 6.2) + 16,
+          bh = 19,
+          by = top - 20 - 13.5;
+        svg.push(
+          `<rect class="ch-info-bg" x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="5"/>`,
+          `<rect class="ch-info" x="${bx + 0.5}" y="${by + 0.5}" width="${bw - 1}" height="${bh - 1}" rx="5"/>`,
+          `<text class="ch-info-text" x="${bx + 8}" y="${top - 20}">${text}</text>`,
+        );
       }
     });
     const yTop = 0,
@@ -7409,7 +7651,9 @@
     mapMenuPin.style.top = `${cr.top + p.y}px`;
     mapMenuPin.hidden = false;
   }
-  function placeMapMenu() {
+  /** keep: the visible part changed (keyboard, iOS moving the page): the menu stays where it is while it is
+   *  still entirely visible, and moves only if it would end up hidden (no jumps when opening the folder list). */
+  function placeMapMenu(keep = false) {
     if (!menuLL) return;
     const cr = map.getContainer().getBoundingClientRect();
     const p = map.latLngToContainerPoint(menuLL);
@@ -7425,6 +7669,10 @@
       vy = vv?.offsetTop ?? 0,
       vw = vv?.width ?? innerWidth,
       vh = vv?.height ?? innerHeight;
+    if (keep && !mapMenu.hidden) {
+      const r = mapMenu.getBoundingClientRect();
+      if (r.top >= vy + 4 && r.bottom <= vy + vh - 4 && r.left >= vx + 4 && r.right <= vx + vw - 4) return;
+    }
     // below right of the point; if it does not fit, left or above, always inside the visible part
     let left = x + 12,
       top = y + 12;
@@ -7434,8 +7682,8 @@
     mapMenu.style.top = `${Math.min(Math.max(top, vy + 8), Math.max(vy + 8, vy + vh - 8 - h))}px`;
   }
   // the keyboard opens or closes (or iOS moves the page): the menu stays above the keyboard
-  window.visualViewport?.addEventListener("resize", placeMapMenu);
-  window.visualViewport?.addEventListener("scroll", placeMapMenu);
+  window.visualViewport?.addEventListener("resize", () => placeMapMenu(true));
+  window.visualViewport?.addEventListener("scroll", () => placeMapMenu(true));
   function openMapMenu(ll) {
     if (synoptic()) return; // synoptic chart: no point menu
     closePlacePop();
@@ -7481,15 +7729,76 @@
     mapMenuPin.hidden = true;
     document.body.classList.remove("map-menu-open");
   }
-  /** Add to places: the menu becomes a field with the name (the coordinates, already selected) and Aggiungi. */
+  /** Add to places: the menu becomes a field with the name (the coordinates, already selected), the folder (if
+   *  there is at least one; the open one is preselected) and Aggiungi. */
   function askPlaceName(ll) {
+    const esc = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+    // folder: compact select of our own (looks like the model one). Not a <select>: on phones tapping it closes the
+    // keyboard and opens the system picker, and the menu jumps; here the name field keeps the focus
+    const opts = [{ id: "", name: "Nessuna" }, ...folders];
+    const folderField = folders.length
+      ? `<span class="map-menu-label" id="map-menu-folder-l">Cartella</span>` +
+        `<div class="fsel">` +
+        `<button type="button" class="fsel-btn" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="map-menu-folder-l"></button>` +
+        `<div class="fsel-list" role="listbox" aria-labelledby="map-menu-folder-l" hidden>` +
+        opts
+          .map((f) => `<div role="option" data-folder="${f.id}" aria-selected="false">${f.id ? FOLDER_ICON : '<span class="fsel-none"></span>'}<span>${esc(f.name)}</span></div>`)
+          .join("") +
+        `</div></div>`
+      : "";
     mapMenu.innerHTML =
       `<form class="map-menu-form"><label for="map-menu-name">Nome della località</label>` +
       `<input id="map-menu-name" type="text" maxlength="60" autocomplete="off" required>` +
+      folderField +
       `<div class="map-menu-row"><button type="button" data-act="cancel">Annulla</button>` +
       `<button type="submit" class="primary">Aggiungi</button></div></form>`;
     const input = mapMenu.querySelector("input");
     input.value = coordText(ll);
+    // preselected: the folder you are in, "Nessuna" outside folders
+    let folder = openFolder;
+    const fsel = mapMenu.querySelector(".fsel");
+    if (fsel) {
+      const btn = fsel.querySelector(".fsel-btn"),
+        list = fsel.querySelector(".fsel-list");
+      const show = () => {
+        const f = opts.find((o) => o.id === (folder || ""));
+        btn.innerHTML = `${f.id ? FOLDER_ICON : ""}<span class="fsel-text"></span>`;
+        btn.querySelector(".fsel-text").textContent = f.name;
+        list.querySelectorAll("[data-folder]").forEach((o) => o.setAttribute("aria-selected", String(o.dataset.folder === f.id)));
+      };
+      const toggle = (open) => {
+        list.hidden = !open;
+        btn.setAttribute("aria-expanded", String(open));
+        if (!open) return;
+        // below the button; above if it does not fit in the visible part (keyboard open)
+        const vv = window.visualViewport;
+        const bottom = (vv ? vv.offsetTop + vv.height : innerHeight) - 8;
+        list.classList.toggle("up", btn.getBoundingClientRect().bottom + 4 + list.offsetHeight > bottom);
+      };
+      // pointerdown without default: the focus stays in the name field (keyboard open, menu still)
+      for (const el of [btn, list]) el.addEventListener("pointerdown", (e) => e.preventDefault());
+      btn.addEventListener("click", () => toggle(list.hidden));
+      // closes with a tap elsewhere in the menu (name field, buttons) and with Esc
+      // on the form, rebuilt at each opening: no listeners piling up on the menu
+      const form = mapMenu.querySelector("form");
+      form.addEventListener("pointerdown", (e) => {
+        if (!list.hidden && !fsel.contains(e.target)) toggle(false);
+      });
+      form.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && !list.hidden) {
+          e.stopPropagation(); // only the list, not the whole menu
+          toggle(false);
+        }
+      });
+      list.addEventListener("click", (e) => {
+        const o = e.target.closest("[data-folder]");
+        if (!o) return;
+        folder = o.dataset.folder || null;
+        show();
+        toggle(false);
+      });
+      show();
+    }
     placeMapMenu();
     input.focus();
     input.select();
@@ -7505,7 +7814,7 @@
       setTimeout(() => {
         mapMenuPin.classList.remove("loading");
         if (!menuLL) mapMenuPin.hidden = true; // another menu may have opened in the meantime
-        if (addPlace(name, ll.lat, ll.lng, true)) popNewPlace();
+        if (addPlace(name, ll.lat, ll.lng, true, folder)) popNewPlace();
       }, 450);
     });
   }
@@ -7609,7 +7918,7 @@
   window.addEventListener("resize", markResize, true); // in capture: before Leaflet and Mapbox
   window.visualViewport?.addEventListener("resize", markResize);
   function closeMapMenuOnMove() {
-    if (Date.now() - resizedAt < 1000) placeMapMenu();
+    if (Date.now() - resizedAt < 1000) placeMapMenu(true); // still if it stays visible
     else closeMapMenu();
   }
   map.on("movestart zoomstart", closeMapMenuOnMove); // with Mapbox also from connectMapbox, at the start of the gesture
@@ -7836,43 +8145,50 @@
   ];
   const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
   const wantsOpen = (d) => d._want ?? d.open; // state it is heading to (during the closing animation it is still open)
-  function animateSection(d, open) {
-    d._want = open;
-    d.classList.toggle("is-open", open); // the arrow rotates right away, even while the section closes
-    d._anim?.cancel();
-    const cs = getComputedStyle(d);
-    const px = (k) => parseFloat(cs[k]) || 0;
-    const closedH =
-      d.querySelector("summary").getBoundingClientRect().height +
-      px("paddingTop") +
-      px("paddingBottom") +
-      px("borderTopWidth") +
-      px("borderBottomWidth");
-    const from = d.getBoundingClientRect().height;
-    if (open) d.open = true;
-    const to = open ? d.getBoundingClientRect().height : closedH;
-    if (reduceMotion.matches || Math.abs(to - from) < 1) {
-      if (!open) d.open = false;
-      return;
-    }
-    d.style.overflow = "hidden";
-    const a = d.animate(
-      { height: [`${from}px`, `${to}px`] },
-      { duration: 240, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" },
-    );
-    d._anim = a;
-    a.onfinish = () => {
-      if (!open) d.open = false;
+  /** Opens/closes sections together: [[details, open], ...]. The final heights are measured with all of them
+   *  already in their final state (on phones the open section gets the space the other one leaves), then the
+   *  state goes back and the heights are animated: no jump when the animation ends. */
+  function animateSections(changes) {
+    const items = changes.map(([d, open]) => {
+      d._want = open;
+      d.classList.toggle("is-open", open); // the arrow rotates right away, even while the section closes
+      d._anim?.cancel();
       d.style.overflow = "";
-      d._anim = null;
+      return { d, open, was: d.open, from: d.getBoundingClientRect().height };
+    });
+    for (const it of items) it.d.open = it.open;
+    for (const it of items) it.to = it.d.getBoundingClientRect().height;
+    for (const it of items) it.d.open = it.open || it.was; // while closing it stays open until the end
+    for (const { d, open, from, to } of items) {
+      if (reduceMotion.matches || Math.abs(to - from) < 1) {
+        if (!open) d.open = false;
+        continue;
+      }
+      d.style.overflow = "hidden";
+      const a = d.animate(
+        { height: [`${from}px`, `${to}px`] },
+        { duration: 260, easing: "cubic-bezier(0.25, 0.1, 0.25, 1)" }, // "ease": no long slow tail
+      );
+      d._anim = a;
       updateSectionFade(d);
-    };
-    a.oncancel = () => {
-      d.style.overflow = "";
-    };
+      a.onfinish = () => {
+        if (!open) d.open = false;
+        d.style.overflow = "";
+        d._anim = null;
+        updateSectionFade(d);
+      };
+      a.oncancel = () => {
+        d.style.overflow = "";
+      };
+    }
   }
   // on phones the open section scrolls: fade at the bottom if there is more below, shadow under the title if it has scrolled
   function updateSectionFade(d) {
+    // during the open/close animation the section is cut on purpose: no fade (it would vanish at the end, a jump)
+    if (d._anim) {
+      d.classList.remove("more-below", "more-above");
+      return;
+    }
     const below = d.open && d.scrollHeight - d.scrollTop - d.clientHeight > 2;
     d.classList.toggle("more-below", below);
     d.classList.toggle("more-above", d.open && d.scrollTop > 2);
@@ -7894,10 +8210,8 @@
     d.querySelector("summary").addEventListener("click", (e) => {
       e.preventDefault();
       const open = !wantsOpen(d);
-      if (open)
-        for (const o of SECTIONS)
-          if (o !== d && wantsOpen(o)) animateSection(o, false);
-      animateSection(d, open);
+      const others = open ? SECTIONS.filter((o) => o !== d && wantsOpen(o)) : [];
+      animateSections([...others.map((o) => [o, false]), [d, open]]);
     });
   }
 
