@@ -97,3 +97,48 @@ def test_incomplete_run_not_shown_and_old_one_kept(tmp_path: Path):
     store.save(GFS.store_id, RUN, "t850.c00", 6,
                Field(values=np.zeros((3, 3), np.float32), lat0=45, lon0=9, dlat=0.5, dlon=0.5))
     assert ensemble.latest_complete(store, GFS) == "2026111412"
+
+
+def test_ecmwf_operational_index():
+    recs = [
+        {"type": "fc", "param": "t", "levelist": "500", "levtype": "pl", "_offset": 5, "_length": 5},
+        {"type": "fc", "param": "t", "levelist": "850", "levtype": "pl", "_offset": 100, "_length": 50},
+        {"type": "fc", "param": "tp", "levtype": "sfc", "_offset": 300, "_length": 70},
+    ]
+    assert ensemble.ecmwf_op_records("\n".join(json.dumps(x) for x in recs)) == {"t850": (100, 50), "tp": (300, 70)}
+    with pytest.raises(LookupError):
+        ensemble.ecmwf_op_records(json.dumps(recs[0]))
+
+
+def test_operational_run_on_its_own_grid(tmp_path: Path):
+    """The operational run (member "op") has its own grid (GFS 0.25° under the GEFS 0.5° points): it is read at the
+    nearest cell of each point; missing steps stay missing and the run is complete without it."""
+    store = Store(data_dir=tmp_path, bbox=BOX)
+    _fill(store, GFS)
+    d = ensemble.point_series(store, "gfs", 45.5, 10)
+    assert d["op"] is None  # not downloaded: spaghetti without the operational run
+    for s in GFS.steps[:-1]:  # the last step is missing
+        t = np.full((5, 5), 20.0, np.float32)
+        t[2, 4] = s / 10  # the cell under (45.5, 10.0) on the 0.25° grid
+        store.save(GFS.store_id, RUN, "t850.op", s, Field(values=t, lat0=45, lon0=9, dlat=0.25, dlon=0.25))
+        store.save(GFS.store_id, RUN, "tp.op", s, Field(values=np.full((5, 5), 2.0, np.float32), lat0=45, lon0=9,
+                                                         dlat=0.25, dlon=0.25))
+    assert ensemble.latest_complete(store, GFS) == RUN
+    d = ensemble.point_series(store, "gfs", 45.5, 10)
+    assert d["op"]["t850"][:2] == [0.6, 1.2] and d["op"]["t850"][-1] is None
+    assert d["op"]["tp"][:2] == [2.0, 2.0]  # GFS: already 6-hour buckets
+    pts = {(iy, ix): p for _, iy, ix, p in ensemble.all_points(store)}
+    assert pts[(1, 2)]["op"]["t850"][0] == 0.6 and pts[(0, 0)]["op"]["t850"][0] == 20.0
+
+
+def test_ecmwf_operational_precipitation_from_accumulated(tmp_path: Path):
+    store = Store(data_dir=tmp_path, bbox=BOX)
+    _fill(store, EC, cumulative=True)
+    for j, s in enumerate(EC.steps[:4]):
+        if s == 18:
+            continue  # a missing step: the 6 hours after it cannot be computed
+        for v, val in (("t850", 1.0), ("tp", 3.0 * (j + 1))):
+            store.save(EC.store_id, RUN, f"{v}.op", s, Field(values=np.full((3, 3), val, np.float32), lat0=45,
+                                                             lon0=9, dlat=0.5, dlon=0.5))
+    d = ensemble.point_series(store, "ecmwf", 45.5, 10)
+    assert d["op"]["tp"][:4] == [3.0, 3.0, None, None] and d["op"]["tp"][4] is None

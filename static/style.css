@@ -2563,10 +2563,10 @@ body.radar-mode .badge-radar .badge-btn:hover {
   font-weight: 650;
 }
 /* time pinned by touch: light bordered card (the reading tooltip is dark), with Condividi · Scarica · ✕ */
-/* spaghetti: one row per chart "Ufficiale x  Media y", value cells of equal width (1fr), digits of equal width */
+/* spaghetti: a row per line ("Ufficiale 3.7 °C 0.4 mm"), a column per field, digits of equal width */
 .chart-tip .ens-vals {
   display: grid;
-  column-gap: 5px;
+  column-gap: 12px;
   row-gap: 1px;
   justify-items: start;
   font-variant-numeric: tabular-nums;
@@ -2575,7 +2575,7 @@ body.radar-mode .badge-radar .badge-btn:hover {
   opacity: 0.75;
 }
 .chart-tip .ens-vals b {
-  margin-right: 9px; /* gap before the next pair */
+  justify-self: end; /* right-aligned: units under each other, also with negative values */
 }
 .chart-tip.pinned {
   pointer-events: auto;
@@ -3162,12 +3162,17 @@ body.synoptic-mode .iso-lbl span {
     0 0 3px rgba(0, 0, 0, 0.8);
 }
 
-/* GFS ensemble spaghetti: thick mean in the text colour (white with the dark theme), control in green */
+/* ensemble spaghetti: thick mean in the text colour (white with the dark theme), operational run in green, control
+   dashed in the text colour */
 .ch-ens-mean {
   stroke: var(--fg);
 }
+.ch-ens-op {
+  stroke: #22c55e; /* "ufficiale": the operational run, the maps' one */
+}
 .ch-ens-ctl {
-  stroke: #22c55e; /* "ufficiale" (control) in green */
+  stroke: var(--fg);
+  stroke-opacity: 0.75;
 }
 .ch-ens-halo {
   stroke: var(--bg);

@@ -5048,7 +5048,7 @@
   const CHART_AXIS = 40; // space for the axis numbers inside the SVG, left of the chart
   const CLIM_RED = "#ef4444"; // climatology in the spaghetti
   const SNOW_BAR = "#a78bfa"; // snow part of the precipitation bars in the meteograms
-  const OFFICIAL = "#22c55e"; // green of the official run (control) in the spaghetti
+  const OFFICIAL = "#22c55e"; // green of the official (operational) run in the spaghetti
   const CHART_MAX_PH = 280; // maximum height of a panel on screen: beyond that the curves stretch without saying more
   const CHART_R = 30; // inside the SVG, on the right: the precipitation accumulation scale and the last time on the axis
   chartUi.close.addEventListener("click", () => chartUi.dialog.close());
@@ -5345,7 +5345,9 @@
         const ens = await getEnsemble(model, request.place.lat, request.place.lon);
         const clim = await climT850(ens.lat, ens.lon, runDate(run).getTime(), ens.steps);
         if (chartContext !== request || !chartUi.dialog.open) return;
-        chartData = { ensemble: ens, clim, model, run, from: 0, until: 384 };
+        // operational run of the same cycle, downloaded with the ensemble over its whole range (app/ensemble.py)
+        const op = ens.op && { t850: ens.op.t850, tp: ens.op.tp };
+        chartData = { ensemble: ens, clim, op, model, run, from: 0, until: 384 };
         drawChart();
       } catch (e) {
         if (chartContext !== request || !chartUi.dialog.open) return;
@@ -5464,7 +5466,7 @@
       `.ch-pin{stroke:${c.fg};stroke-width:1.5;opacity:.75}.ch-pin-dot{stroke:${c.bg};stroke-width:2}`,
       `.ch-pin-bar{stroke:${c.fg};stroke-width:1.5}`,
       `.ch-acc{stroke:${c.acc}}.ch-acc-area{fill:${c.acc};fill-opacity:.1}.ch-acc-tick{fill:${c.acc}}`,
-      `.ch-ens-mean{stroke:${c.fg}}.ch-ens-ctl{stroke:${OFFICIAL}}.ch-ens-halo{stroke:${c.bg}}`,
+      `.ch-ens-mean{stroke:${c.fg}}.ch-ens-op{stroke:${OFFICIAL}}.ch-ens-ctl{stroke:${c.fg}}.ch-ens-halo{stroke:${c.bg}}`,
     ].join("");
   async function makeChartFile() {
     const { model, run } = chartData;
@@ -5542,22 +5544,22 @@
           return w + ctx.measureText(t).width;
         }, 0);
       ctx.font = `400 ${PB.font}px ${FONT}`;
-      // table (spaghetti), smaller: per row "Ufficiale 3.7 °C  Media 2.3 °C", the value cells all as wide
-      // as the widest value, so the columns stay aligned
+      // table (spaghetti), smaller: a row per line ("Ufficiale  3.7 °C  0.4 mm"), each column as wide as its widest
+      // value, so the values of the same field are under each other
       const tb = pb.table,
         TF = 11.5, // table font
         TL = 16, // table line height
-        LGAP = 5, // between label and value
-        COLGAP = 14; // between one pair and the next
-      let labW = [],
-        valW = 0;
+        COLGAP = 12; // between columns
+      let labW = 0,
+        colW = [];
       if (tb) {
         ctx.font = `400 ${TF}px ${FONT}`;
-        labW = tb.head.map((h) => Math.ceil(ctx.measureText(h.t).width));
+        labW = Math.max(...tb.rows.map((r) => Math.ceil(ctx.measureText(r.t).width)));
+        colW = tb.cols.map(() => 0);
         ctx.font = `650 ${TF}px ${FONT}`;
-        for (const r of tb.rows) for (const v of r) valW = Math.max(valW, Math.ceil(ctx.measureText(v).width));
+        for (const r of tb.rows) r.vals.forEach((v, k) => (colW[k] = Math.max(colW[k], Math.ceil(ctx.measureText(v).width))));
       }
-      const tableW = labW.reduce((a, w) => a + w + LGAP + valW, 0) + COLGAP * Math.max(0, labW.length - 1);
+      const tableW = tb ? labW + colW.reduce((a, w) => a + COLGAP + w, 0) : 0;
       const HF = tb ? TF : PB.font, // box font and line height (smaller for the spaghetti)
         HL = tb ? TL : PB.line,
         HP = tb ? 8 : PB.pad;
@@ -5591,15 +5593,16 @@
         for (const r of tb.rows) {
           ty += HL;
           let tx = bx + HP;
-          r.forEach((v, k) => {
-            ctx.font = `400 ${TF}px ${FONT}`;
-            ctx.fillStyle = tb.head[k].col || c.muted;
-            ctx.fillText(tb.head[k].t, tx, ty);
-            tx += labW[k] + LGAP;
-            ctx.font = `650 ${TF}px ${FONT}`;
-            ctx.fillStyle = c.fg;
-            ctx.fillText(v, tx, ty);
-            tx += valW + COLGAP;
+          ctx.font = `400 ${TF}px ${FONT}`;
+          ctx.fillStyle = r.col || c.muted;
+          ctx.fillText(r.t, tx, ty);
+          tx += labW;
+          ctx.font = `650 ${TF}px ${FONT}`;
+          ctx.fillStyle = c.fg;
+          r.vals.forEach((v, k) => {
+            tx += COLGAP;
+            ctx.fillText(v, tx + colW[k] - ctx.measureText(v).width, ty); // right-aligned, like the tooltip
+            tx += colW[k];
           });
         }
       }
@@ -5701,7 +5704,8 @@
   };
 
   /** Draws the meteogram in the dialog; with `exportW` it returns instead the SVG exportW wide (for the image). */
-  /** Ensemble spaghetti: one line per member (thin, coloured), the control ("ufficiale", GFS) in green and the thick mean;
+  /** Ensemble spaghetti: one line per member (thin, coloured), the operational run of the same cycle ("ufficiale") in green,
+   *  the control (GFS) dashed and the thick mean;
    *  temperature at 850 hPa on top, 6-hourly precipitation below. Tooltip with mean and spread of the members. */
   function drawEnsemble(exportW, exportH) {
     const { ensemble: E, run } = chartData;
@@ -5724,13 +5728,23 @@
         return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
       });
     const ctl = E.control ? E.members.indexOf(E.control) : -1; // the ECMWF open-data ensemble has no control
+    const op = chartData.op; // operational run of the same cycle, if downloaded
     const panels = [
-      { title: "Temperatura 850 hPa", unit: "°C", rows: E.t850, dec: 1, zero: true, ph: 170, clim: chartData.clim },
-      { title: "Pioggia", unit: "mm in 6 ore", rows: E.tp, dec: 1, min: 2, floor0: true, ph: 110 },
+      { title: "Temperatura 850 hPa", short: "T 850 hPa", unit: "°C", rows: E.t850, op: op?.t850, dec: 1, zero: true, ph: 170, clim: chartData.clim },
+      { title: "Pioggia", short: "Pioggia 6h", rain: true, unit: "mm in 6 ore", rows: E.tp, op: op?.tp, dec: 1, min: 2, floor0: true, ph: 110 },
     ];
+    // legend below the axis: what the lines are, in several columns
+    const legend = [
+      ...(op ? [{ label: "Ufficiale", attrs: `stroke="${OFFICIAL}" stroke-width="3"` }] : []),
+      ...(ctl >= 0 ? [{ label: "Controllo", attrs: 'class="ch-ens-ctl" stroke-width="1.6" stroke-dasharray="4 3"' }] : []),
+      { label: "Media", attrs: 'class="ch-ens-mean" stroke-width="3"' },
+      ...(chartData.clim ? [{ label: "1991–2020", attrs: `stroke="${CLIM_RED}" stroke-width="2.5"` }] : []),
+    ];
+    const legPer = Math.max(2, Math.floor(W / 170)),
+      LEG = 8 + Math.ceil(legend.length / legPer) * 18;
     // height: the image's or, in the dialog, all the available one (the panels stretch)
     const fitH = exportH || (chartUi.body.clientHeight > 320 ? chartUi.body.clientHeight - 12 : null);
-    const avail = fitH ? fitH - AXIS - panels.length * (HEAD + GAP) + GAP : null;
+    const avail = fitH ? fitH - AXIS - LEG - panels.length * (HEAD + GAP) + GAP : null;
     if (avail) {
       const tot = panels.reduce((a, p) => a + p.ph, 0);
       for (const p of panels) p.ph = Math.max(60, (p.ph / tot) * avail);
@@ -5740,7 +5754,7 @@
     const tickText = (t) => fmt(t, Math.abs(t) < 10 && t % 1 ? 1 : 0);
     for (const p of panels) {
       p.mean = mean(p.rows);
-      const vals = [...p.rows.flat(), ...(p.clim || [])].filter((x) => x != null);
+      const vals = [...p.rows.flat(), ...(p.clim || []), ...(p.op || [])].filter((x) => x != null);
       let lo = p.floor0 ? 0 : Math.min(...vals),
         hi = Math.max(p.min ?? -Infinity, ...vals);
       if (p.zero) {
@@ -5802,18 +5816,32 @@
       svg.push(
         `<path class="ch-ens-mean" d="${path(p.mean)}" fill="none" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>`,
       );
-      // control above everything, thicker and with an edge in the background colour that separates it from the spaghetti
-      if (ctl >= 0) {
-        const d = path(p.rows[ctl]);
+      // control (the unperturbed member, lower resolution than the operational run): dashed, in the text colour
+      if (ctl >= 0)
         svg.push(
-          `<path class="ch-ens-halo" d="${d}" fill="none" stroke-width="${exportW ? 2 : 2.6}" stroke-linejoin="round" stroke-linecap="round"/>`,
-          `<path class="ch-ens-ctl" d="${d}" fill="none" stroke-width="${exportW ? 1.1 : 1.4}" stroke-linejoin="round" stroke-linecap="round"/>`,
+          `<path class="ch-ens-ctl" d="${path(p.rows[ctl])}" fill="none" stroke-width="${exportW ? 1 : 1.2}" stroke-dasharray="4 3" stroke-linejoin="round"/>`,
+        );
+      // operational run above everything, in green, with an edge in the background colour that separates it from the
+      // spaghetti
+      if (p.op) {
+        const d = path(p.op);
+        svg.push(
+          `<path class="ch-ens-halo" d="${d}" fill="none" stroke-width="${exportW ? 2.4 : 3}" stroke-linejoin="round" stroke-linecap="round"/>`,
+          `<path class="ch-ens-op" d="${d}" fill="none" stroke-width="${exportW ? 1.4 : 1.8}" stroke-linejoin="round" stroke-linecap="round"/>`,
         );
       }
       top = bot + GAP + HEAD;
     }
-    const H = panels[panels.length - 1].bot + AXIS;
-    const yBot = H - AXIS;
+    const yBot = panels[panels.length - 1].bot;
+    const H = yBot + AXIS + LEG;
+    legend.forEach((e, i) => {
+      const x = (i % legPer) * (W / legPer),
+        y = yBot + AXIS + 4 + Math.floor(i / legPer) * 18;
+      svg.push(
+        `<line ${e.attrs} x1="${x}" x2="${x + 18}" y1="${y}" y2="${y}" stroke-linecap="round"/>`,
+        `<text class="ch-leg" x="${x + 23}" y="${y + 4}"><tspan>${e.label}</tspan></text>`,
+      );
+    });
     // days at midnight (Rome time), labels only if there is room
     const hourOf = (h) =>
       +new Date(t0 + h * 3600e3).toLocaleString("it-IT", {
@@ -5836,17 +5864,24 @@
         `<text class="ch-tick" x="${X(h)}" y="${yBot + 16}" text-anchor="middle" font-weight="600">${d}</text>`,
       );
     }
-    // values at a step in a table: Ufficiale (the control, if any) and Media columns, one row per chart; for
-    // tooltip, pinned time card and image
+    // values at a step in a table: Ufficiale (the operational run, if any) and Media, one row per chart; for tooltip,
+    // pinned time card and image
+    // a column per chart (the same field under each other, easy to compare), a row per line
     const valueTable = (i) => {
-      const cols = [...(ctl >= 0 ? [{ t: "Ufficiale", col: OFFICIAL, row: (p) => p.rows[ctl][i] }] : []),
-        { t: "Media", row: (p) => p.mean[i] }];
-      const rows = panels
-        .map((p) => cols.map((c) => c.row(p)).map((v) => (v == null ? "—" : `${fmt(v, p.dec)} ${unitOf(p)}`)))
-        .filter((r) => r.some((x) => x !== "—"));
-      return rows.length ? { head: cols.map(({ t, col }) => ({ t, col })), rows } : null;
+      const series = [
+        ...(op ? [{ t: "Ufficiale", col: OFFICIAL, at: (p) => p.op?.[i] }] : []),
+        { t: "Media", at: (p) => p.mean[i] },
+        // 1991-2020 climatology: temperature only, a dash under precipitation
+        ...(chartData.clim ? [{ t: "Cli.No.", col: CLIM_RED, at: (p) => p.clim?.[i] }] : [])]; // climate normal 1991-2020
+      const rows = series.map(({ t, col, at }) => ({
+        t,
+        col,
+        vals: panels.map((p) => (at(p) == null ? "—" : `${fmt(at(p), p.dec)} ${unitOf(p)}`)),
+      }));
+      if (rows.every((r) => r.vals.every((x) => x === "—"))) return null;
+      return { cols: panels.map((p) => p.short), rows };
     };
-    const unitOf = (p) => (p.title === "Pioggia" ? "mm" : "°C");
+    const unitOf = (p) => (p.rain ? "mm" : "°C");
     const pin = chartPin != null && steps.includes(chartPin) ? chartPin : null;
     if (exportW) {
       // pinned time: line on the chart and box with time and values next to it, at the top (like the other charts)
@@ -5868,11 +5903,12 @@
     const rowsHtml = (st) => {
       const tb = valueTable(steps.indexOf(st));
       if (!tb) return "";
-      // one row per chart, "Ufficiale 3.7 °C  Media 2.3 °C": the value cells all have the same width
-      const label = ({ t, col }) => `<span class="h"${col ? ` style="color:${col}"` : ""}>${t}</span>`;
+      // a row per line, the fields in columns (the units tell them apart): "Ufficiale  3.7 °C  0.4 mm"
       return (
-        `<div class="ens-vals" style="grid-template-columns:${tb.head.map(() => "auto 1fr").join(" ")}">` +
-        tb.rows.map((r) => r.map((v, k) => label(tb.head[k]) + `<b>${v}</b>`).join("")).join("") +
+        `<div class="ens-vals" style="grid-template-columns:auto${" auto".repeat(tb.cols.length)}">` +
+        tb.rows
+          .map((r) => `<span class="h"${r.col ? ` style="color:${r.col}"` : ""}>${r.t}</span>` + r.vals.map((v) => `<b>${v}</b>`).join(""))
+          .join("") +
         "</div>"
       );
     };

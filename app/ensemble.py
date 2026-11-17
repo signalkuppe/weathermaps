@@ -1,7 +1,7 @@
 """GFS and ECMWF ensembles: the "spaghetti" plots of a place on the synoptic chart.
 
-Temperature at 850 hPa and 6-hourly precipitation, one value per member, only over our area (BBOX) and only for the
-00 and 12 UTC runs. They are stored in the Store as extra models (not in the model menu), with fields
+Temperature at 850 hPa and 6-hourly precipitation, one value per member, only over our area (BBOX): GFS for all four
+runs (00, 06, 12, 18 UTC), ECMWF for the 00 and 12 UTC runs (its 06/18 runs stop at +144h). They are stored in the Store as extra models (not in the model menu), with fields
 "t850.<member>" and "tp.<member>"; the latest complete run is kept (plus the incoming one).
 
 - GFS (GEFS 0.5°, NOAA open data on AWS, noaa-gefs-pds): control c00 and 30 members p01...p30, up to +384h. One file
@@ -11,6 +11,11 @@ Temperature at 850 hPa and 6-hourly precipitation, one value per member, only ov
   file per step with all members: the index is read and then, for each field, the block of the 50 members (they are
   one after the other). Precipitation is accumulated since the start of the run, in metres: in the points for the
   page it becomes 6-hourly (difference between steps).
+
+With each ensemble run the operational run of the same cycle (the deterministic GFS 0.25° or ECMWF IFS 0.25°) is
+downloaded too, only the same two fields and over the whole range (the maps stop at +192h): stored as the extra member
+"op" (fields "t850.op", "tp.op"), on its own grid, and read at the nearest cell of each point. It is not needed for a
+run to be complete: if it is missing the spaghetti are drawn without it.
 """
 from __future__ import annotations
 
@@ -48,6 +53,10 @@ class Source:
     control: str | None  # control member, drawn separately
     tp_cumulative: bool  # precipitation accumulated since the start: differences are taken in the points
     download: Callable  # (client, run, rid, store, source) -> (downloaded, errors)
+    op_download: Callable | None = None  # operational run of the same cycle, as the member OP
+
+
+OP = "op"  # member name of the operational run
 
 
 def _get(client: httpx.Client, url: str, **kw) -> httpx.Response:
@@ -139,6 +148,52 @@ def _gefs_download(client: httpx.Client, run: datetime, rid: str, store: Store, 
     return got, errors
 
 
+# ---------- GFS operational run: 0.25°, one file per step (NOAA open data on AWS, noaa-gfs-bdp-pds)
+
+GFS_OP_ROOT = "https://noaa-gfs-bdp-pds.s3.amazonaws.com"
+OP_WORKERS = 8  # steps downloaded together
+
+
+def gfs_op_url(run: datetime, step: int) -> str:
+    hh = f"{run.hour:02d}"
+    return f"{GFS_OP_ROOT}/gfs.{run:%Y%m%d}/{hh}/atmos/gfs.t{hh}z.pgrb2.0p25.f{step:03d}"
+
+
+def _gfs_op_download(client: httpx.Client, run: datetime, rid: str, store: Store, src: Source) -> tuple[int, int]:
+    """Same index format as GEFS: TMP 850 mb and the APCP bucket of the last 6 hours (at steps multiple of 6 the
+    bucket is always 6 hours long, also beyond +240h)."""
+    def step_job(step: int) -> tuple[int, int]:
+        if all(store.has(src.store_id, rid, _var(v, OP), step) for v in VARS):
+            return 0, 0
+        try:
+            base = gfs_op_url(run, step)
+            idx = _get(client, base + ".idx")
+            if idx.status_code in (403, 404):
+                return 0, 0  # not published yet
+            idx.raise_for_status()
+            fields = {}
+            for var, (a, b) in gefs_ranges(idx.text, step).items():
+                resp = _get(client, base, headers={"Range": f"bytes={a}-{'' if b is None else b}"})
+                resp.raise_for_status()
+                fields[var] = _field(resp.content, var, store)
+        except Exception as exc:  # noqa: BLE001
+            log.error("GFS op %s +%dh: %s", rid, step, exc)
+            return 0, 1
+        for v, f in fields.items():
+            store.save(src.store_id, rid, _var(v, OP), step, f)
+        return 1, 0
+
+    return _pool(step_job, src.steps)
+
+
+def _pool(job: Callable, steps) -> tuple[int, int]:
+    got = errors = 0
+    with ThreadPoolExecutor(max_workers=OP_WORKERS) as pool:
+        for g, e in pool.map(job, steps):
+            got, errors = got + g, errors + e
+    return got, errors
+
+
 # ---------- ECMWF: ENS 0.25°, one file per step with all members
 
 ECENS_ROOT = "https://data.ecmwf.int/forecasts"
@@ -218,18 +273,68 @@ def _ecens_download(client: httpx.Client, run: datetime, rid: str, store: Store,
     return got, errors
 
 
+# ---------- ECMWF operational run (IFS 0.25°, "oper" stream of the open data): up to +360h for the 00/12 runs
+
+def ecmwf_op_url(run: datetime, step: int) -> str:
+    return f"{ECENS_ROOT}/{run:%Y%m%d}/{run.hour:02d}z/ifs/0p25/oper/{run:%Y%m%d%H}0000-{step}h-oper-fc"
+
+
+def ecmwf_op_records(index_text: str) -> dict[str, tuple[int, int]]:
+    """{field: (offset, length)} of t at 850 hPa and tp from the JSON index of the operational run."""
+    out = {}
+    for line in index_text.splitlines():
+        if not line.strip():
+            continue
+        r = json.loads(line)
+        if r.get("param") == "t" and str(r.get("levelist")) == "850":
+            out["t850"] = (int(r["_offset"]), int(r["_length"]))
+        elif r.get("param") == "tp" and r.get("levtype") == "sfc":
+            out["tp"] = (int(r["_offset"]), int(r["_length"]))
+    missing = set(VARS) - set(out)
+    if missing:
+        raise LookupError(f"ECMWF op: {sorted(missing)} missing from the index")
+    return out
+
+
+def _ecmwf_op_download(client: httpx.Client, run: datetime, rid: str, store: Store, src: Source) -> tuple[int, int]:
+    def step_job(step: int) -> tuple[int, int]:
+        if all(store.has(src.store_id, rid, _var(v, OP), step) for v in VARS):
+            return 0, 0
+        try:
+            base = ecmwf_op_url(run, step)
+            idx = _get(client, base + ".index")
+            if idx.status_code == 404:
+                return 0, 0  # not published yet
+            idx.raise_for_status()
+            fields = {}
+            for var, (off, length) in ecmwf_op_records(idx.text).items():
+                resp = _get(client, base + ".grib2", headers={"Range": f"bytes={off}-{off + length - 1}"})
+                resp.raise_for_status()
+                fields[var] = _field(resp.content, var, store)
+        except Exception as exc:  # noqa: BLE001
+            log.error("ECMWF op %s +%dh: %s", rid, step, exc)
+            return 0, 1
+        for var, f in fields.items():
+            if var == "tp":
+                f.values = f.values * 1000.0  # metres -> mm (accumulated since the start, like the members)
+            store.save(src.store_id, rid, _var(var, OP), step, f)
+        return 1, 0
+
+    return _pool(step_job, src.steps)
+
+
 SOURCES: dict[str, Source] = {
     "gfs": Source(
         model="gfs", store_id="gefs", label="Ensemble GFS 0,5°",
         members=("c00",) + tuple(f"p{i:02d}" for i in range(1, 31)), steps=tuple(range(6, 385, 6)),
-        info=ModelInfo(id="gefs", label="GEFS", resolution=0.5, cycles=(0, 12), delay_hours=6, max_step=384),
-        control="c00", tp_cumulative=False, download=_gefs_download,
+        info=ModelInfo(id="gefs", label="GEFS", resolution=0.5, cycles=(0, 6, 12, 18), delay_hours=6, max_step=384),
+        control="c00", tp_cumulative=False, download=_gefs_download, op_download=_gfs_op_download,
     ),
     "ecmwf": Source(
         model="ecmwf", store_id="ecens", label="Ensemble ECMWF 0,25°",
         members=tuple(f"{i:02d}" for i in range(1, 51)), steps=tuple(range(6, 361, 6)),
-        info=ModelInfo(id="ecens", label="ENS", resolution=0.25, cycles=(0, 12), delay_hours=8, max_step=360),
-        control=None, tp_cumulative=True, download=_ecens_download,
+        info=ModelInfo(id="ecens", label="ENS", resolution=0.25, cycles=(0, 12), delay_hours=8, max_step=360),  # 06/18: +144h only
+        control=None, tp_cumulative=True, download=_ecens_download, op_download=_ecmwf_op_download,
     ),
 }
 STORE_IDS = {s.store_id: s for s in SOURCES.values()}
@@ -260,6 +365,9 @@ def update(model: str, store: Store | None = None, now: datetime | None = None) 
                 if any(r > rid and is_complete(store, src, r) for r in store.runs(src.store_id)):
                     continue
                 got, errors = src.download(client, run, rid, store, src)
+                if src.op_download:  # operational run of the same cycle (optional for completeness)
+                    g, e = src.op_download(client, run, rid, store, src)
+                    got, errors = got + g, errors + e
                 summary["downloaded"] += got
                 summary["errors"] += errors
                 summary["runs"][rid] = "completa" if is_complete(store, src, rid) else "in arrivo"
@@ -315,13 +423,52 @@ def _cube(store: Store, src: Source, rid: str, rows=slice(None), cols=slice(None
     return out
 
 
-def _point(src: Source, cube: dict[str, np.ndarray], rid: str, lat: float, lon: float, iy: int, ix: int) -> dict:
+def _op_cube(store: Store, src: Source, rid: str) -> dict[str, tuple[np.ndarray, dict]] | None:
+    """Operational run: {field: (array[steps, rows, columns] on its own grid, grid)}, precipitation 6-hourly and NaN
+    for the missing steps; None if it was not downloaded."""
+    out = {}
+    for v in VARS:
+        have = set(store.steps(src.store_id, rid, _var(v, OP)))
+        if not have:
+            return None
+        grid, arrs = None, []
+        for s in src.steps:
+            if s in have:
+                a, grid = store.load(src.store_id, rid, _var(v, OP), s)
+                arrs.append(a)
+            else:
+                arrs.append(None)
+        shape = next(a.shape for a in arrs if a is not None)
+        a = np.stack([np.full(shape, np.nan, np.float32) if x is None else x for x in arrs])
+        if v == "tp" and src.tp_cumulative:
+            # 6-hourly from the totals: a step without the previous one stays missing (no difference with a gap)
+            prev = np.concatenate([np.zeros((1,) + shape, np.float32), a[:-1]])
+            a = np.maximum(a - prev, 0)
+        out[v] = (a, grid)
+    return out
+
+
+def _op_at(op: dict | None, lat: float, lon: float) -> dict | None:
+    """Operational run at the cell nearest to (lat, lon): {field: [values per step]}."""
+    if not op:
+        return None
+    out = {}
+    for v, (a, g) in op.items():
+        iy, ix = point_index(g, lat, lon)
+        vals = np.round(a[:, iy, ix].astype(np.float64), DECIMALS).tolist()
+        out[v] = [None if x != x else x for x in vals]
+    return out
+
+
+def _point(src: Source, cube: dict[str, np.ndarray], rid: str, lat: float, lon: float, iy: int, ix: int,
+           op: dict | None = None) -> dict:
     def series(v: str) -> list[list]:
         a = np.round(cube[v][:, :, iy, ix].astype(np.float64), DECIMALS)
         return [[None if x != x else x for x in row] for row in a.tolist()]
 
     return {"model": src.model, "run": rid, "lat": round(lat, 3), "lon": round(lon, 3), "members": list(src.members),
-            "control": src.control, "steps": list(src.steps), "t850": series("t850"), "tp": series("tp")}
+            "control": src.control, "steps": list(src.steps), "t850": series("t850"), "tp": series("tp"),
+            "op": _op_at(op, lat, lon)}
 
 
 def point_series(store: Store, model: str, lat: float, lon: float) -> dict | None:
@@ -332,7 +479,8 @@ def point_series(store: Store, model: str, lat: float, lon: float) -> dict | Non
     g = _grid(store, src, rid)
     iy, ix = point_index(g, lat, lon)
     cube = _cube(store, src, rid, slice(iy, iy + 1), slice(ix, ix + 1))
-    return _point(src, cube, rid, g["lat0"] + iy * g["dlat"], g["lon0"] + ix * g["dlon"], 0, 0)
+    return _point(src, cube, rid, g["lat0"] + iy * g["dlat"], g["lon0"] + ix * g["dlon"], 0, 0,
+                  _op_cube(store, src, rid))
 
 
 def all_points(store: Store):
@@ -343,10 +491,11 @@ def all_points(store: Store):
             continue
         g = _grid(store, src, rid)
         cube = _cube(store, src, rid)
+        op = _op_cube(store, src, rid)
         for iy in range(g["ny"]):
             for ix in range(g["nx"]):
                 yield model, iy, ix, _point(src, cube, rid, g["lat0"] + iy * g["dlat"], g["lon0"] + ix * g["dlon"],
-                                            iy, ix)
+                                            iy, ix, op)
 
 
 if __name__ == "__main__":  # python -m app.ensemble [gfs|ecmwf]: downloads the latest runs
