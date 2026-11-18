@@ -2129,21 +2129,201 @@ body.radar-mode .badge-radar .badge-btn {
   background: var(--bg);
   color: var(--fg);
 }
-.folder-up {
+/* copy places for another device: at the bottom of the list, at the top level; icon and text in the same columns
+   as the folders and places (icon/number 22px, name) */
+.places-export {
+  position: relative;
+  margin-top: 6px;
+}
+.places-export-btn {
+  display: grid;
+  grid-template-columns: 22px auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.places-export-btn svg {
+  justify-self: center;
+}
+@media (hover: hover) {
+  .places-export-btn:hover {
+    background: var(--accent-tint);
+  }
+}
+/* bubble above the button: over the list, without making the section taller */
+.places-export-tip {
+  position: absolute;
+  z-index: 3;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  padding: 9px 8px 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 8px;
+  background: var(--panel-solid);
+  box-shadow: var(--shadow);
+}
+.places-export-tip[hidden] {
+  display: none;
+}
+.places-export-help {
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.places-export-help b {
+  color: var(--fg);
+  font-weight: 600;
+}
+.places-export-help input {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+}
+.places-export-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin: -4px -2px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--muted);
   cursor: pointer;
 }
 @media (hover: hover) {
-  .folder-up:hover {
-    background: rgba(127, 127, 127, 0.12);
+  .places-export-close:hover {
+    color: var(--fg);
+    background: rgba(127, 127, 127, 0.15);
   }
 }
-.folder-dots {
-  justify-self: center;
+/* confirmation of an import */
+.import-dialog {
+  width: min(360px, calc(100vw - 32px));
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-solid);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+}
+/* outcome: the circle is drawn, then the sign appears (tick for success, i, !) */
+.import-icon {
+  width: 44px;
+  height: 44px;
+  margin: 2px auto 10px;
   color: var(--accent);
-  font-size: 16px;
-  font-weight: 700;
-  line-height: 1;
-  letter-spacing: 1px;
+}
+.import-icon.ok {
+  color: #22c55e;
+}
+.import-icon.warn {
+  color: #f97316;
+}
+.import-icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.import-icon .ii-ring {
+  stroke-dasharray: 107;
+  stroke-dashoffset: 107;
+  animation: ii-draw 0.45s ease-out forwards;
+}
+.import-icon .ii-mark {
+  stroke-dasharray: 30;
+  stroke-dashoffset: 30;
+  animation: ii-draw 0.3s 0.35s ease-out forwards;
+}
+.import-icon.ok svg {
+  animation: ii-pop 0.35s 0.55s ease-out;
+}
+@keyframes ii-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes ii-pop {
+  50% {
+    transform: scale(1.12);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .import-icon .ii-ring,
+  .import-icon .ii-mark,
+  .import-icon.ok svg {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}
+/* the outcome is centred under its icon */
+.import-dialog:has(.import-icon:not([hidden])) :is(h2, p) {
+  text-align: center;
+}
+.import-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.45);
+}
+.import-dialog h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.import-dialog p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+/* inside a folder, on the right of its name: back to the places outside folders */
+.folder-back {
+  grid-column: -2;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 24px;
+  margin: -2px 0; /* taller than the row content: the row stays 24px, as at the top level (no jump on opening) */
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+}
+.folder-back svg {
+  display: block;
+}
+@media (hover: hover) {
+  .folder-back:hover {
+    background: var(--accent-tint);
+  }
 }
 .folder-del {
   grid-column: 3 / -1;
@@ -2175,6 +2355,27 @@ body.radar-mode .badge-radar .badge-btn {
 }
 .folders-hint span:last-child {
   grid-column: 2 / -1;
+}
+/* empty list (no places here): no margin of its own under the folders or the "empty" line */
+.points:empty {
+  display: none;
+}
+/* no places and no folders: the line starts at the search field's edge */
+/* the "no places" line right under the search: 6px (on phones the sticky search row already has 8px below) */
+#points-box .folders:has(> .folders-empty) {
+  margin-top: 6px;
+}
+@media (max-width: 600px), (orientation: portrait) and (pointer: coarse) and (max-width: 1100px) {
+  #points-box .folders:has(> .folders-empty) {
+    margin-top: -2px;
+  }
+}
+.folders-empty {
+  display: block;
+  min-height: 0;
+  padding: 0; /* only the text line, close to the search (see below) */
+  font-size: 11.5px;
+  color: color-mix(in srgb, var(--muted) 75%, transparent); /* discreet */
 }
 .points li.editing {
   cursor: default;
@@ -2277,6 +2478,7 @@ body.radar-mode .badge-radar .badge-btn {
   .places-search input,
   .points .pt-rename,
   .folder-row .pt-rename,
+  .places-export-help input,
   select {
     font-size: 16px;
   }
@@ -3540,15 +3742,27 @@ body.synoptic-mode .map-menu-pin {
 body.synoptic-mode #settings .settings-body > .row {
   display: none;
 }
+/* info box (blue, like the accent): the note that replaces the settings on the 500 hPa chart */
 .settings-syn {
   display: none;
+  gap: 8px;
+  align-items: flex-start;
   margin: 0;
-  color: var(--muted);
-  font-size: 12px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 8px;
+  background: var(--accent-tint);
+  color: var(--fg);
+  font-size: 12.5px;
   line-height: 1.4;
 }
+.settings-syn svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--accent);
+}
 body.synoptic-mode .settings-syn {
-  display: block;
+  display: flex;
 }
 /* synoptic chart isobars: white labels with a black shadow, like on Meteociel (the lines are white, see
    drawContours) */

@@ -627,7 +627,6 @@ SYNOPTIC_AREA = SYNOPTIC_BBOX
 
 # geopotential decametres, 4 dam bands: the scale of Meteociel's "Géop. Z500" charts, from the violet of cold
 # troughs to the black of the warmest anticyclones
-# saturated colours (no pastel bands in the middle): the chart stays readable and contrasted like the classic ones
 Z500_SCALE = ColorScale(
     thresholds=list(range(492, 613, 4)),
     colors=[
@@ -640,24 +639,24 @@ Z500_SCALE = ColorScale(
         "#003399",  # 516-520
         "#0000cc",  # 520-524
         "#0000ff",  # 524-528
-        "#0044ee",  # 528-532
-        "#0088f0",  # 532-536
-        "#00b8f5",  # 536-540
-        "#00dde6",  # 540-544
-        "#10d58c",  # 544-548
-        "#2ecc40",  # 548-552
-        "#66d800",  # 552-556
-        "#b4e600",  # 556-560
-        "#ffee00",  # 560-564
-        "#ffdc00",  # 564-568
-        "#ffc400",  # 568-572
-        "#ffa800",  # 572-576
-        "#ff8800",  # 576-580
-        "#ff6600",  # 580-584
-        "#ff4422",  # 584-588
-        "#f02800",  # 588-592
-        "#dd0000",  # 592-596
-        "#b80000",  # 596-600
+        "#0055ff",  # 528-532
+        "#0099ff",  # 532-536
+        "#33ccff",  # 536-540
+        "#66ffff",  # 540-544
+        "#66ff99",  # 544-548
+        "#66ff66",  # 548-552
+        "#66ff00",  # 552-556
+        "#bffa0e",  # 556-560
+        "#ffff09",  # 560-564
+        "#ffff86",  # 564-568
+        "#fde851",  # 568-572
+        "#ffcc00",  # 572-576
+        "#ff9900",  # 576-580
+        "#ff6900",  # 580-584
+        "#ff4d33",  # 584-588
+        "#ff3000",  # 588-592
+        "#ff0000",  # 592-596
+        "#cc0000",  # 596-600
         "#990000",  # 600-604
         "#6c0000",  # 604-608
         "#4f0000",  # 608-612

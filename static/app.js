@@ -3316,6 +3316,180 @@
   let naming = null; // id of the folder just created: its row shows the name field
   let confirmDelete = null; // id of the folder whose ✕ was pressed once: the second press deletes it
 
+  // ---------- places to another device: copy and paste of a link with places and folders (no server). The data are
+  // after "#import=" (never sent to a server), compressed and in base64url. On the other device the link is opened in
+  // the browser or pasted in the search field (the Home Screen app has no address bar and its own storage); before
+  // adding, a confirmation. Places already there (same folder, within ~500 m) are not duplicated, folders with the
+  // same name are joined.
+  const IMPORT_RE = /[#&]import=([A-Za-z0-9_-]+)/;
+  const pendingImport = location.hash.match(IMPORT_RE)?.[1] || null; // link opened in the browser
+  let exportLink = null; // prepared at each change: the copy must happen inside the tap (Safari)
+  const b64u = (bytes) => {
+    let s = "";
+    for (const b of bytes) s += String.fromCharCode(b);
+    return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  };
+  const unb64u = (text) =>
+    Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+  const throughStream = async (bytes, stream) =>
+    new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer());
+  async function exportCode() {
+    const index = new Map(folders.map((f, i) => [f.id, i]));
+    const data = {
+      v: 1,
+      f: folders.map((f) => f.name),
+      p: allPlaces.map((p) => [p.name, p.lat, p.lon, index.has(p.folder) ? index.get(p.folder) : -1]),
+    };
+    const bytes = new TextEncoder().encode(JSON.stringify(data));
+    // "z": deflate (all recent browsers), "j": plain JSON
+    if (typeof CompressionStream === "function")
+      return "z" + b64u(await throughStream(bytes, new CompressionStream("deflate-raw")));
+    return "j" + b64u(bytes);
+  }
+  function refreshExportLink() {
+    exportLink = null;
+    if (!allPlaces.length) return;
+    exportCode()
+      .then((code) => {
+        exportLink = `${location.origin}${location.pathname}#import=${code}`;
+      })
+      .catch(() => {});
+  }
+  /** Places of a link: [{name, lat, lon, folder (name or null)}]. Throws if the link is damaged. */
+  async function decodeImport(code) {
+    let bytes = unb64u(code.slice(1));
+    if (code[0] === "z") bytes = await throughStream(bytes, new DecompressionStream("deflate-raw"));
+    else if (code[0] !== "j") throw new Error("formato");
+    const d = JSON.parse(new TextDecoder().decode(bytes));
+    if (d?.v !== 1 || !Array.isArray(d.p)) throw new Error("formato");
+    const names = Array.isArray(d.f) ? d.f.map((n) => (typeof n === "string" && n.trim() ? n.slice(0, 60) : null)) : [];
+    return d.p
+      .filter((a) => Array.isArray(a) && typeof a[0] === "string" && Number.isFinite(a[1]) && Number.isFinite(a[2]))
+      .map(([name, lat, lon, i]) => ({
+        name: name.slice(0, 80),
+        lat: +lat.toFixed(4),
+        lon: +lon.toFixed(4),
+        folder: Number.isInteger(i) && names[i] ? names[i] : null,
+      }));
+  }
+  async function importPlaces(code) {
+    let incoming;
+    try {
+      incoming = await decodeImport(code);
+    } catch {
+      importDialog({ kind: "warn", title: "Link non valido", text: "Il link delle località non è valido o è incompleto: copialo di nuovo dall'altro dispositivo." });
+      return;
+    }
+    const key = (name) => name.trim().toLocaleLowerCase("it");
+    const byName = new Map(folders.map((f) => [key(f.name), f]));
+    const folderKey = (p) => {
+      const f = p.folder && folders.find((x) => x.id === p.folder);
+      return f ? key(f.name) : null;
+    };
+    const existing = allPlaces.map((p) => ({ ...p, fk: folderKey(p) }));
+    const add = [];
+    for (const p of incoming) {
+      const fk = p.folder ? key(p.folder) : null;
+      const dup = [...existing, ...add].some(
+        (q) => q.fk === fk && Math.abs(q.lat - p.lat) < 0.005 && Math.abs(q.lon - p.lon) < 0.005,
+      );
+      if (!dup) add.push({ ...p, fk });
+    }
+    if (!add.length) {
+      importDialog({ kind: "info", title: "Niente da aggiungere", text: "Le località del link ci sono già tutte su questo dispositivo." });
+      return;
+    }
+    const newFolders = [...new Map(add.filter((p) => p.fk && !byName.has(p.fk)).map((p) => [p.fk, p.folder])).values()];
+    const skipped = incoming.length - add.length;
+    const nf = newFolders.length;
+    const folderText = nf ? ` e ${nf} ${nf === 1 ? "cartella" : "cartelle"}` : "";
+    const ok = await importDialog({
+      title: "Importa località",
+      text:
+        `Aggiungo ${add.length} località${folderText}` +
+        (skipped === 1 ? " (1 c'è già e non viene duplicata)" : skipped ? ` (${skipped} ci sono già e non vengono duplicate)` : "") +
+        ". Le località che hai restano come sono.",
+      confirm: "Aggiungi",
+    });
+    if (!ok) return;
+    const stamp = Date.now();
+    newFolders.forEach((name, i) => {
+      const f = { id: (stamp + i).toString(36) + "f", name };
+      folders.push(f);
+      byName.set(key(name), f);
+    });
+    add.forEach((p, i) => {
+      const f = p.fk ? byName.get(p.fk) : null;
+      allPlaces.push({
+        id: (stamp + i).toString(36),
+        name: p.name,
+        lat: p.lat,
+        lon: p.lon,
+        ...(f ? { folder: f.id } : {}),
+      });
+    });
+    openFolder = null; // at the top level: the new folders and places are seen
+    editing = false;
+    savePlaces();
+    setupPoints();
+    importDialog({ kind: "ok", title: "Fatto", text: `${add.length === 1 ? "Aggiunta" : "Aggiunte"} ${add.length} località${folderText}.` });
+  }
+  /** The import window: confirmation (two buttons, resolves true/false) or outcome with an animated icon
+   *  ("ok" tick, "info", "warn"; one button). The outcome replaces the confirmation in the same window. */
+  function importDialog({ kind = null, title, text, confirm = null }) {
+    const dialog = $("import-dialog");
+    $("import-title").textContent = title;
+    $("import-text").textContent = text;
+    const icon = $("import-icon");
+    icon.className = `import-icon ${kind || ""}`;
+    icon.hidden = !kind;
+    icon.innerHTML = kind ? IMPORT_ICONS[kind] : "";
+    $("import-cancel").hidden = !confirm;
+    $("import-ok").textContent = confirm || "Ok";
+    return new Promise((resolve) => {
+      const done = (v) => () => {
+        clearTimeout(dialog._t);
+        dialog.close();
+        resolve(v);
+      };
+      // confirmation: the window stays open, the outcome takes its place (same window, no flash)
+      $("import-ok").onclick = confirm ? () => resolve(true) : done(true);
+      $("import-cancel").onclick = done(false);
+      dialog.oncancel = () => {
+        clearTimeout(dialog._t);
+        resolve(false); // Esc
+      };
+      if (!dialog.open) dialog.showModal();
+      $("import-ok").focus();
+      clearTimeout(dialog._t);
+      if (kind === "ok") dialog._t = setTimeout(done(true), 2500); // success: it closes by itself
+    });
+  }
+  // circle drawn, then the sign inside (style.css, .import-icon)
+  const IMPORT_ICONS = {
+    ok: '<svg viewBox="0 0 40 40" aria-hidden="true"><circle class="ii-ring" cx="20" cy="20" r="17"/><path class="ii-mark" d="M12.5 20.5l5 5 10-10.5"/></svg>',
+    info: '<svg viewBox="0 0 40 40" aria-hidden="true"><circle class="ii-ring" cx="20" cy="20" r="17"/><path class="ii-mark" d="M20 18.5v9M20 12.5v.01"/></svg>',
+    warn: '<svg viewBox="0 0 40 40" aria-hidden="true"><circle class="ii-ring" cx="20" cy="20" r="17"/><path class="ii-mark" d="M20 11.5v10M20 27.5v.01"/></svg>',
+  };
+  /** Copy to the clipboard; without the API (old browsers, http) with a hidden selected field. */
+  function copyText(text) {
+    if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text).then(() => true, () => false);
+    const t = document.createElement("textarea");
+    t.value = text;
+    t.setAttribute("readonly", "");
+    t.style.cssText = "position:fixed;opacity:0;top:0;left:0";
+    document.body.append(t);
+    t.select();
+    let ok = false;
+    try {
+      ok = document.execCommand("copy");
+    } catch {
+      /* not allowed */
+    }
+    t.remove();
+    return Promise.resolve(ok);
+  }
+
   /** Value of the nearest grid point (like the tooltip), null if outside the grid or missing. */
   function valueAt(f, lat, lon) {
     const { lat0, lon0, dlat, dlon, nx, ny } = f.grid;
@@ -3366,6 +3540,7 @@
     } catch {
       /* private browsing or full storage: changes last while you stay on the page */
     }
+    refreshExportLink();
   }
 
   function inBox(lat, lon) {
@@ -3454,8 +3629,36 @@
     ui.placesEdit.title = editing ? "Fine" : "Modifica";
     ui.placesEdit.setAttribute("aria-label", editing ? "Fine modifica" : "Modifica località e cartelle");
     ui.placesEdit.setAttribute("aria-pressed", String(editing));
+    // copy for another device: at the bottom of the list, at the top level, if there is at least one place
+    $("places-export").hidden = !allPlaces.length || !!openFolder || editing;
+    $("places-export-tip").hidden = true;
     if (meta && variable()) renderPoints();
   }
+
+  $("places-export-btn").addEventListener("click", async () => {
+    const help = $("places-export-help");
+    const link = exportLink;
+    const copied = link ? await copyText(link) : false;
+    $("places-export-tip").hidden = false;
+    if (copied) {
+      help.innerHTML =
+        "<b>Link copiato.</b> Sull'altro dispositivo apri Weathermaps e incolla il link nel campo " +
+        "<b>Cerca una località</b>, oppure aprilo nel browser. Prima di aggiungere le località ti chiedo conferma.";
+      return;
+    }
+    // copy not allowed: the link in a field to copy by hand
+    help.innerHTML = "Copia questo link e incollalo sull'altro dispositivo nel campo <b>Cerca una località</b>:";
+    const input = document.createElement("input");
+    input.readOnly = true;
+    input.value = link || "";
+    help.append(input);
+    input.focus();
+    input.select();
+  });
+
+  $("places-export-close").addEventListener("click", () => {
+    $("places-export-tip").hidden = true;
+  });
 
   ui.placesEdit.addEventListener("click", () => {
     editing = !editing;
@@ -3467,6 +3670,9 @@
     '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>';
   const CHECK_ICON =
     '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+  // folder with an arrow up (the new-folder icon's outline, index.html): back to the places outside folders
+  const FOLDER_UP_ICON =
+    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/><path d="M12 17v-6M9 14l3-3 3 3"/></svg>';
   const FOLDER_ICON =
     // viewBox cropped around the drawing (x 2-22): the folder is about as wide as the 18px circle of the places
     '<svg width="18" height="18" viewBox="2 2.5 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/></svg>';
@@ -3484,27 +3690,8 @@
     };
     if (openFolder) {
       const f = folders.find((x) => x.id === openFolder);
-      // "..": back to the places outside folders, as in a file system
-      const up = row("folder-row folder-up");
-      up.innerHTML = '<span class="folder-dots">..</span>';
-      up.title = "Torna alle località";
-      up.setAttribute("role", "button");
-      up.setAttribute("aria-label", "Torna alle località");
-      up.tabIndex = 0;
-      const back = () => {
-        openFolder = null;
-        editing = false;
-        savePlaces();
-        setupPoints();
-      };
-      up.addEventListener("click", back);
-      up.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          back();
-        }
-      });
-      // the open folder, then its places: same columns (icon/number, name)
+      // the open folder, then its places: same columns (icon/number, name); on the right of the folder the button
+      // that goes back to the places outside folders (folder with an arrow up)
       const r = row("folder-row folder-head");
       r.innerHTML = FOLDER_ICON;
       if (editing) r.append(nameInput(f), folderDelButton(f));
@@ -3512,7 +3699,19 @@
         const n = document.createElement("span");
         n.className = "folder-name";
         n.textContent = f.name;
-        r.append(n);
+        const up = document.createElement("button");
+        up.type = "button";
+        up.className = "folder-back";
+        up.title = "Torna alle località";
+        up.setAttribute("aria-label", "Torna alle località");
+        up.innerHTML = FOLDER_UP_ICON;
+        up.addEventListener("click", () => {
+          openFolder = null;
+          editing = false;
+          savePlaces();
+          setupPoints();
+        });
+        r.append(n, up);
       }
       if (!places.length) {
         // inside the folder like its places: text in the names' column
@@ -3521,6 +3720,11 @@
         h.lastChild.textContent = "La cartella è vuota";
       }
       return;
+    }
+    // nothing saved yet: a line instead of the empty space under the search
+    if (!folders.length && !places.length) {
+      const h = row("folder-row folders-hint folders-empty");
+      h.textContent = "Nessuna località preferita";
     }
     for (const f of folders) {
       const n = allPlaces.filter((p) => p.folder === f.id).length;
@@ -3802,6 +4006,16 @@
   ui.placeQ.addEventListener("input", () => {
     clearTimeout(searchTimer);
     searchCtl?.abort();
+    // a link of places pasted here (copied on another device): import instead of searching
+    const link = ui.placeQ.value.match(IMPORT_RE);
+    if (link) {
+      ui.placeQ.value = "";
+      setSearching(false);
+      hideResults();
+      ui.placeQ.blur();
+      importPlaces(link[1]);
+      return;
+    }
     const q = ui.placeQ.value.trim();
     if (q.length < 2) {
       searchCtl?.abort();
@@ -8616,6 +8830,16 @@
     setupVars();
     // initial state (index.html): "Modelli e parametri" open, the other sections closed, on every screen
     setupPoints();
+    refreshExportLink();
+    if (pendingImport) importPlaces(pendingImport); // link opened in the browser (the address loses it at the next write)
+    // link pasted in the address bar with the app already open: only the part after "#" changes, the browser does not
+    // reload; the import starts here and the address goes back to the map's
+    window.addEventListener("hashchange", () => {
+      const code = location.hash.match(IMPORT_RE)?.[1];
+      if (!code) return;
+      writeHashNow();
+      importPlaces(code);
+    });
     setupModels();
     setupModes();
     setupRuns();
