@@ -3765,6 +3765,9 @@ body.synoptic-mode #settings .settings-body > .row {
 body.synoptic-mode .settings-syn {
   display: flex;
 }
+.places-syn {
+  margin-top: 10px; /* at the bottom of the section, under the list */
+}
 /* synoptic chart isobars: white labels with a black shadow, like on Meteociel (the lines are white, see
    drawContours) */
 body.synoptic-mode .iso-lbl span {
