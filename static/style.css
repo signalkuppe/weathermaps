@@ -538,10 +538,11 @@ body.share-wide .wm-native-map {
   } /* first section: no line above */
   /* 6px above the title inside the section (the + / − box is taller than the line and would be cut by the scrolling
      section), the section 6px higher: the title stays where it was */
-  .panel-body > details.models[open] > summary {
-    padding-top: 6px;
+  .panel-body > details.models.points-box > summary {
+    padding-top: 6px; /* more specific than the base rule (padding-top: 0) further down */
   }
-  .panel-body > details.models[open] {
+  /* open or closed alike: changing it only with [open] made the menu jump 6px at the end of the closing animation */
+  .panel-body > details.models {
     margin-top: -6px;
   }
   /* shadow under the title when the section has scrolled, fade at the bottom when there is more below (app.js) */
@@ -1937,24 +1938,39 @@ body.radar-mode .badge-radar .badge-btn {
 .points-box summary {
   justify-content: space-between;
 }
+/* the + / − sign drawn with two bars (a text character sat a little off centre, depending on the font): same
+   drawing in the section titles and in the panel head button (#collapse) */
+:root {
+  --sign-len: 10px;
+  --sign-w: 2px;
+}
+.points-box summary::after,
+#collapse {
+  --bar-h: linear-gradient(currentColor, currentColor) center / var(--sign-len) var(--sign-w) no-repeat;
+  --bar-v: linear-gradient(currentColor, currentColor) center / var(--sign-w) var(--sign-len) no-repeat;
+}
 .points-box summary::after {
-  content: "+";
+  content: "";
   flex: none;
-  display: grid;
-  place-items: center;
   box-sizing: border-box;
   width: 30px;
   height: 28px;
   margin: -6px 0; /* the box is taller than the text line: the row keeps its height */
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: var(--bg);
+  background: var(--bar-h), var(--bar-v), var(--bg);
   color: var(--fg);
-  font-size: 14px; /* as the head button */
-  line-height: 1;
 }
 .points-box.is-open > summary::after {
-  content: "−";
+  background: var(--bar-h), var(--bg);
+}
+/* head button: the "−" / "+" text stays for screen readers, the sign is drawn */
+#collapse {
+  font-size: 0;
+  background: var(--bar-h), var(--bg);
+}
+.panel.collapsed #collapse {
+  background: var(--bar-h), var(--bar-v), var(--bg);
 }
 @media (hover: hover) {
   .points-box summary:hover::after {
@@ -2524,6 +2540,46 @@ body.radar-mode .badge-radar .badge-btn {
       top: max(8px, calc(env(safe-area-inset-top) + 16px));
     }
   }
+  /* + / − boxes (panel head and section titles): a bit smaller, the sign bigger (it looked lost in the box) */
+  #collapse,
+  .points-box summary::after {
+    width: 26px;
+    min-width: 26px;
+    height: 24px;
+  }
+  :root {
+    --sign-len: 11px; /* the sign a bit bigger in the smaller box */
+  }
+  .points-box summary::after {
+    margin: -4px 0; /* the box is taller than the text line by 8px: the row keeps its height */
+  }
+  /* extra layers: the four tiles in one row, small square pictures (2×2 needed scrolling); ".panel" to win over the
+     base rules further down */
+  .panel .extra-tiles {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+  }
+  .panel .extra-tile {
+    gap: 4px;
+    padding: 3px 3px 5px;
+    font-size: 11px;
+    min-width: 0;
+  }
+  .panel .extra-tile span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .panel .extra-tile span[data-short] {
+    font-size: 0; /* the full name stays for screen readers */
+  }
+  .panel .extra-tile span[data-short]::after {
+    content: attr(data-short);
+    font-size: 11px;
+  }
+  .panel .extra-tile img {
+    aspect-ratio: 1;
+  }
   /* iOS Safari zooms the page if a field's text is under 16px: search, rename and menus at 16px */
   .places-search input,
   .points .pt-rename,
@@ -2901,8 +2957,7 @@ body.radar-mode .badge-radar .badge-btn {
   gap: 4px;
 }
 #base button,
-#borders button,
-#extra-seg button {
+#borders button {
   flex: 1 1 0;
   padding-left: 2px;
   padding-right: 2px;
@@ -3779,17 +3834,18 @@ body.map-menu-open .wm-native-map canvas {
   cursor: default !important;
 }
 
-/* Synoptic chart (500 hPa geopotential and pressure, Atlantic and Europe): no radar, satellite or point menu;
+/* Synoptic chart (500 hPa geopotential and pressure, Atlantic and Europe): no point menu (choosing radar, satellite or
+   soundings goes back to the local map, see leaveSynoptic in app.js);
    places open only the GFS ensemble spaghetti. Of the basemap only colours, coastlines and countries remain (see
    applyArea in app.js) */
-body.synoptic-mode #extra,
 body.synoptic-mode .map-menu,
 body.synoptic-mode .map-menu-pin {
   display: none !important;
 }
 /* the settings apply only to the other maps: the 500 hPa chart always has full colours, soft bands, coastlines and
    isobars (app.js, colorsOpacity, crispNow, isoNow...); in their place a note */
-body.synoptic-mode #settings .settings-body > .row {
+body.synoptic-mode #settings .settings-body > .row,
+body.sat-mode #settings .settings-body > .row {
   display: none;
 }
 /* info box (blue, like the accent): the note that replaces the settings on the 500 hPa chart */
@@ -3811,7 +3867,8 @@ body.synoptic-mode #settings .settings-body > .row {
   margin-top: 1px;
   color: var(--accent);
 }
-body.synoptic-mode .settings-syn {
+body.synoptic-mode .settings-syn,
+body.sat-mode #settings .settings-syn {
   display: flex;
 }
 .places-syn {
@@ -4027,12 +4084,50 @@ body.snd-mode .badge {
 .snd-missing .snd-name {
   opacity: 0.8;
 }
-/* extra layers: smaller text and widths following the label, so "Radiosondaggi" does not touch the edges */
-#extra-seg button {
-  flex: 1 1 auto;
-  font-size: 12px;
-  padding-left: 7px;
-  padding-right: 7px;
+/* extra layers: tiles with a small picture of the layer and its name, two per row */
+.extra-tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.extra-tile {
+  display: grid;
+  gap: 5px;
+  padding: 4px 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: center;
+  cursor: pointer;
+}
+.extra-tile img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 5px;
+  background: var(--line);
+}
+/* "Nessuno": the model map, a bit faded (no layer on top) */
+.extra-tile:first-child img {
+  opacity: 0.75;
+}
+@media (hover: hover) {
+  .extra-tile:hover {
+    border-color: var(--accent);
+  }
+}
+/* selection: like the other choices, blue border and text with a light veil */
+.extra-tile[aria-pressed="true"] {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  background: var(--accent-tint);
+  color: var(--accent);
+  font-weight: 600;
 }
 /* notice (e.g. sounding not available): same amber colours as the notice in the charts, but solid on the map */
 .share-toast.warn {

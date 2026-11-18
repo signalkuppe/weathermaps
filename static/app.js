@@ -666,6 +666,40 @@
     }
     glBorders();
   }
+  /** Satellite: under the clouds a plain map, green land and blue sea, with borders and the main names only (like the
+   *  classic satellite pictures): the white and grey clouds stand out much better than on the light relief map.
+   *  Back to the normal map when the satellite is turned off. */
+  const SAT_LAND = "#4b5f2f";
+  const SAT_SEA = "#2b5797";
+  const SAT_KEEP = /admin|country-label|settlement-major-label|state-label/;
+  function glSatBase() {
+    const m = glMap();
+    if (!m || !glStyleReady) return;
+    const on = state.extra === "sat";
+    if (on && !m.__satHidden) {
+      m.__satHidden = new Set();
+      m.__satPaint = [];
+      const paint = (id, prop, value) => {
+        m.__satPaint.push([id, prop, m.getPaintProperty(id, prop)]);
+        m.setPaintProperty(id, prop, value);
+      };
+      for (const l of m.getStyle().layers) {
+        // our layers (data, extra images, borders) stay; not our relief: the background is flat, as in the classic pictures
+        if (glImgs.has(l.id) || (l.id.startsWith("wm-") && l.id !== "wm-relief")) continue;
+        if (l.type === "background") paint(l.id, "background-color", SAT_LAND);
+        else if (l.id === "water" && l.type === "fill") paint(l.id, "fill-color", SAT_SEA);
+        else if (!SAT_KEEP.test(l.id) && m.getLayoutProperty(l.id, "visibility") !== "none") {
+          m.__satHidden.add(l.id);
+          m.setLayoutProperty(l.id, "visibility", "none");
+        }
+      }
+    } else if (!on && m.__satHidden) {
+      for (const id of m.__satHidden)
+        if (m.getLayer(id)) m.setLayoutProperty(id, "visibility", "visible");
+      for (const [id, prop, value] of m.__satPaint) if (m.getLayer(id)) m.setPaintProperty(id, prop, value);
+      m.__satHidden = m.__satPaint = null;
+    }
+  }
   const glBounds = (a) => [
     [a.lon_min, a.lat_min],
     [a.lon_max, a.lat_max],
@@ -721,7 +755,9 @@
       meteoPalette(m);
       strongRelief(m);
       m.__synHidden = null; // new style: no layer hidden by the synoptic chart
+      m.__satHidden = m.__satPaint = null; // nor by the satellite
       glSynopticBase();
+      glSatBase();
       for (const [id, c] of glImgs) if (c.url) glApply(m, id, c); // the new style does not have our layers
     });
     for (const layer of Object.values(bases)) map.removeLayer(layer);
@@ -1538,11 +1574,23 @@
 
   function renderLegend() {
     if (state.extra === "sat") {
-      // satellite: greyscale of the clouds (infrared), from the thinnest to the highest
+      // satellite: colours of the clouds by height (infrared), from the lowest to the thunderstorm tops
       ui.legend.innerHTML =
         `<h2><span class="lg-label">Nubi da satellite </span>(infrarosso)</h2><ol class="lg-continuous">` +
-        `<li><i style="background:linear-gradient(to right, ${SAT_SHADES[0]}, ${SAT_SHADES[1]})"></i><span class="lg-tick">basse</span></li>` +
-        `<li><i style="background:linear-gradient(to right, ${SAT_SHADES[1]}, ${SAT_SHADES[2]})"></i><span class="lg-tick"></span><span class="lg-tick lg-tick-end">alte</span></li></ol>`;
+        [
+          ["basse", ""],
+          ["medie", ""],
+          ["alte", ""],
+          ["temporali", ""], // no label at the right end: it went out of the box
+        ]
+          .map(
+            ([tick, end], i) =>
+              `<li><i style="background:linear-gradient(to right, ${SAT_SHADES[i]}, ${SAT_SHADES[i + 1]})"></i><span class="lg-tick">${tick}</span>` +
+              (end ? `<span class="lg-tick lg-tick-end">${end}</span>` : "") +
+              "</li>",
+          )
+          .join("") +
+        "</ol>";
       return;
     }
     if (state.extra === "radar") {
@@ -1895,7 +1943,31 @@
         `<ColorMapEntry color="${c}" quantity="${RADAR_CLASSES[i + 1]?.[0] ?? 1e6}"/>`,
     ).join("") +
     `</ColorMap></RasterSymbolizer></Rule></FeatureTypeStyle></UserStyle></NamedLayer></StyledLayerDescriptor>`;
-  const SAT_SHADES = ["#969ea6", "#cbcfd4", "#ffffff"]; // satellite legend: thin/low clouds → thick/high
+  // satellite clouds by height (infrared: colder = higher): low dark grey, middle light grey, high white, the coldest
+  // tops (thunderstorms) cyan and blue, like the enhanced infrared pictures. [pixel value, colour]; same stops in the
+  // legend and in the shared image
+  // (most clouds are between 110 and 170: the grey steps are spread over that range)
+  const SAT_STOPS = [
+    [108, "#5f6770"],
+    [138, "#a3aab2"],
+    [165, "#ffffff"],
+    [182, "#8fe0ff"],
+    [205, "#3d7bff"],
+  ];
+  const SAT_SHADES = SAT_STOPS.map(([, c]) => c);
+  const SAT_LUT = (() => {
+    const rgb = SAT_STOPS.map(([v, h]) => [v, [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16))]);
+    const lut = [];
+    for (let v = 0; v < 256; v++) {
+      let k = 0;
+      while (k < rgb.length - 2 && v > rgb[k + 1][0]) k++;
+      const [va, a] = rgb[k],
+        [vb, b] = rgb[k + 1];
+      const t = Math.max(0, Math.min(1, (v - va) / (vb - va)));
+      lut.push(a.map((x, i) => Math.round(x + (b[i] - x) * t)));
+    }
+    return lut;
+  })();
   const wmsUrl = (base, params) =>
     `${base}?${new URLSearchParams({ service: "WMS", version: "1.3.0", styles: "", ...params })}`;
   const EXTRAS = {
@@ -1962,10 +2034,11 @@
         // on the light map)
         for (let i = 0; i < d.length; i += 4) {
           const v = d[i],
-            a = Math.max(0, Math.min(1, (v - 100) / 70)),
-            w = Math.max(0, Math.min(1, (v - 110) / 80));
-          d[i] = d[i + 1] = Math.round(150 + 105 * w);
-          d[i + 2] = Math.round(158 + 97 * w); // slightly bluish grey → white
+            a = Math.max(0, Math.min(1, (v - 100) / 30)), // opaque soon: the colour says the height
+            c = SAT_LUT[v];
+          d[i] = c[0];
+          d[i + 1] = c[1];
+          d[i + 2] = c[2];
           d[i + 3] = Math.round(255 * a);
         }
       },
@@ -2216,7 +2289,7 @@
       getElement: () => null,
     };
   }
-  const EXTRA_NAMES = { none: "Off", radar: "Radar", sat: "Sat", snd: "Radiosondaggi" };
+  const EXTRA_NAMES = { none: "Nessuno", radar: "Radar", sat: "Satellite", snd: "Radiosondaggi" };
   function setExtra(name, save = true) {
     clearInterval(radarTimer);
     stopRadarPlay();
@@ -2233,6 +2306,9 @@
     const snd = state.extra === "snd";
     document.body.classList.toggle("snd-mode", snd);
     renderSoundings();
+    glSatBase(); // satellite: green and blue map under the clouds
+    // and in Settings only the note: basemap, borders and model colours are not the chosen ones here
+    document.body.classList.toggle("sat-mode", state.extra === "sat");
     // with an extra layer: the model's colours, contours and arrows disappear (it would be unreadable), legend and top
     // bar switch to the layer; the model stays selected and comes back when it is removed
     document.body.classList.toggle("radar-mode", !!cfg);
@@ -2251,13 +2327,27 @@
       refreshRadar();
       radarTimer = setInterval(refreshRadar, cfg.stepMin * 60e3); // new image every 5 (radar) or 10 minutes (satellite)
     }
+    // tiles with a small picture of the layer (static/icons/extra) and its name
     $("extra-seg").replaceChildren(
       ...Object.entries(EXTRA_NAMES).map(([k, text]) => {
         const b = document.createElement("button");
         b.type = "button";
-        b.textContent = text;
+        b.className = "extra-tile";
+        const img = document.createElement("img");
+        img.src = `icons/extra/${k}.jpg`;
+        img.alt = "";
+        img.width = 160;
+        img.height = 120;
+        img.loading = "lazy";
+        const name = document.createElement("span");
+        name.textContent = text;
+        // on phones the four tiles are in one row: a shorter name where the full one does not fit
+        if (k === "snd") name.dataset.short = "Sondaggi";
+        b.append(img, name);
         b.setAttribute("aria-pressed", String(k === state.extra));
         b.addEventListener("click", () => {
+          // from the 500 hPa chart: radar, satellite and soundings are local, so back to the local map first
+          if (k !== "none" && synoptic()) leaveSynoptic();
           setExtra(k);
           // on mobile the panel covers the map: turning on radar or satellite closes it, so the loading is visible
           if (
@@ -4665,7 +4755,7 @@
               units: "Nubi",
               scale: {
                 continuous: true,
-                thresholds: ["basse", "", "alte"],
+                thresholds: ["basse", "medie", "alte", "temporali", ""],
                 colors: SAT_SHADES,
               },
             };
@@ -8452,7 +8542,17 @@
     saveSettings();
     update();
   });
+  // last local field shown: choosing an extra layer from the 500 hPa chart goes back to it
+  let lastLocalVar = null;
+  function leaveSynoptic() {
+    const local = (id) => meta.variables.find((v) => v.id === id && !v.area);
+    const v = local(lastLocalVar) || local("tp") || meta.variables.find((x) => !x.area);
+    if (!v) return;
+    ui.varSel.value = v.id;
+    ui.varSel.dispatchEvent(new Event("change"));
+  }
   ui.varSel.addEventListener("change", () => {
+    if (!synoptic()) lastLocalVar = state.var;
     togglePlay(false);
     if (state.extra !== "none") setExtra("none");
     state.var = ui.varSel.value;
