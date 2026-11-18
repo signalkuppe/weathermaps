@@ -112,6 +112,50 @@ body.is-starting > :not(.startup-loader):not(script) {
   position: absolute;
   inset: 0;
 }
+/* Home Screen app reopened: everything blurred under a small card with the turning logo */
+.resume-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: grid;
+  place-items: center;
+  background: rgba(18, 21, 27, 0.35);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  animation: resume-in 0.2s ease-out;
+}
+.resume-overlay[hidden] {
+  display: none;
+}
+.resume-overlay.leaving {
+  opacity: 0;
+  transition: opacity 0.25s ease-out;
+}
+.resume-card {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 18px 22px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel-solid);
+  box-shadow: var(--shadow);
+  color: var(--fg);
+  font-size: 13px;
+}
+.resume-logo {
+  margin: 0;
+}
+@keyframes resume-in {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .resume-overlay {
+    animation: none;
+  }
+}
 /* background in the basemaps' terrain colour: when zooming out, the part not yet redrawn is not a grey void */
 /* sharing the synoptic chart on a narrow screen: the map under the dialog becomes 4:3, 1600×1200 (see
    shareWideStart in app.js) */

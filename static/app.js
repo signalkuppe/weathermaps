@@ -24,6 +24,8 @@
   }
   fixAppHeight();
   window.addEventListener("resize", fixAppHeight);
+  // the start screen (index.html), kept to show it again before reloading for a new version of the app
+  const STARTUP_HTML = document.getElementById("startup-loader")?.outerHTML || "";
 
   const ui = {
     model: $("model"),
@@ -3195,6 +3197,9 @@
 
   let seq = 0;
   async function update() {
+    // every update invalidates the pending ones, also those that stop below (field not available, no run, no step):
+    // otherwise a slower earlier request would draw its colours under the "not available" notice
+    const my = ++seq;
     writeHash();
     saveSettings();
     renderLegend();
@@ -3236,7 +3241,6 @@
       return;
     }
     showNoData(null);
-    const my = ++seq;
     setLoading(true); // spinner in the time row: no text appearing and disappearing that shifts the panel
     dropStaleFetches();
     try {
@@ -5860,9 +5864,23 @@
     chartContext.multi = b.dataset.v;
     loadMulti();
   });
-  chartUi.model.addEventListener("change", () =>
-    loadChart(chartUi.model.value),
-  );
+  // another model in the chart: the same dates, not the same forecast hours (runs can start at different times)
+  chartUi.model.addEventListener("change", () => {
+    const model = chartUi.model.value;
+    const ctx = chartContext;
+    const newRun = (runs[model] || []).find((entry) => !entry.incoming)?.run;
+    if (ctx && !ctx.ensemble && !ctx.multi && !ctx.sounding && ctx.run && newRun) {
+      // e.g. GFS 00Z +30h = ICON-D2 06Z +24h; "from 0" (start of the run) stays the start of the new run
+      const shift = Math.round((runDate(ctx.run) - runDate(newRun)) / 3600e3);
+      const until = ctx.until + shift;
+      chartContext = {
+        ...ctx,
+        from: ctx.from > 0 ? Math.max(0, ctx.from + shift) : 0,
+        until: until > 0 ? until : ctx.until, // end before the new run: as it was
+      };
+    }
+    loadChart(model);
+  });
   chartUi.dialog.addEventListener("close", () => {
     chartContext = null;
     chartData = null;
@@ -7139,7 +7157,8 @@
         const prev = a ? at.get(a) : 0;
         return {
           ...d,
-          win: prev == null ? null : Math.max(0, d.cum - prev),
+          // d.cum is from the start of the period shown, prev from the start of the run: same baseline
+          win: prev == null || rainBase == null ? null : Math.max(0, d.cum + rainBase - prev),
           winH: d.b - a,
         };
       });
@@ -8525,6 +8544,8 @@
   document.addEventListener("keydown", (e) => {
     if (e.target.closest("button, select, input, textarea, [role=slider]"))
       return;
+    // a window is open (chart, sharing, privacy, import): the keys are its own, not the map's behind it
+    if (document.querySelector("dialog[open]")) return;
     if (e.key === "ArrowLeft") {
       e.preventDefault();
       goStep(-1);
@@ -8716,18 +8737,58 @@
   if (standalone) {
     ui.appReload.hidden = false;
     ui.appReload.addEventListener("click", () => location.reload());
-    // when reopening the app iOS shows the page kept in memory, with the runs of that time: every time it comes back to the
-    // foreground it reloads (the view stays: model, field and time are in the address). Not if a dialog is open
-    // (sharing, chart): coming back from the app the image was shared to, what you were doing would be lost.
-    let wasHidden = false;
+    // when reopening the app iOS shows the page kept in memory, with the runs of that time. Instead of reloading it
+    // all (splash screen again), the map stays blurred under "Controllo gli aggiornamenti": new runs and steps are
+    // loaded in place; only a new version of the app reloads the page. Not if a dialog is open (sharing, chart):
+    // coming back from the app the image was shared to, what you were doing would be lost.
+    let hiddenAt = 0;
+    let resuming = false;
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) {
-        wasHidden = true;
+        hiddenAt = Date.now();
         return;
       }
-      if (wasHidden && !document.querySelector("dialog[open]")) location.reload();
-      wasHidden = false;
+      const away = hiddenAt ? Date.now() - hiddenAt : 0;
+      hiddenAt = 0;
+      if (away > 0 && !document.querySelector("dialog[open]")) resumeApp(away);
     });
+    async function resumeApp(away) {
+      if (resuming || !meta) return;
+      resuming = true;
+      const overlay = $("resume-overlay");
+      // a few seconds away (a notification, the app switcher): silent check, no overlay
+      const show = away > 15e3;
+      if (show) overlay.hidden = false;
+      const t0 = Date.now();
+      try {
+        const fresh = await fetch(STATIC ? "data/meta.json" : "api/meta", { cache: "no-store" }).then((r) => r.json());
+        if (fresh.version && meta.version && fresh.version !== meta.version) {
+          // new app: its code is needed (the address keeps the view). First the same start screen the reload
+          // shows, so you go straight from the map to it, without the map showing up again in between
+          document.body.insertAdjacentHTML("beforeend", STARTUP_HTML);
+          document.querySelector(".startup-loader .startup-payoff").textContent = "Aggiorno l'app";
+          overlay.hidden = true;
+          await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+          location.reload();
+          return;
+        }
+        await refreshRuns();
+        const changed = setupRuns(); // switches by itself to the new run when it is complete
+        if (changed) setupSteps();
+        if (changed || !current) await update();
+      } catch {
+        /* offline: the map stays as it was, the 2-minute check retries */
+      }
+      // at least a moment on screen, then it fades: no flash
+      if (show) {
+        await new Promise((r) => setTimeout(r, Math.max(0, 600 - (Date.now() - t0))));
+        overlay.classList.add("leaving");
+        await new Promise((r) => setTimeout(r, 250));
+        overlay.hidden = true;
+        overlay.classList.remove("leaving");
+      }
+      resuming = false;
+    }
   }
 
   // ---------- error reporting (Sentry): only if there is a DSN (meta.sentry_dsn, SENTRY_DSN variable). No
