@@ -2145,18 +2145,19 @@ body.radar-mode .badge-radar .badge-btn {
   border: 0;
   border-radius: 6px;
   background: none;
-  color: var(--accent);
+  color: var(--muted); /* discreet: a secondary action at the end of the list */
   font: inherit;
-  font-size: 13px;
+  font-size: 11.5px;
   text-align: left;
   cursor: pointer;
 }
 .places-export-btn svg {
   justify-self: center;
+  opacity: 0.8;
 }
 @media (hover: hover) {
   .places-export-btn:hover {
-    background: var(--accent-tint);
+    color: var(--fg);
   }
 }
 /* bubble above the button: over the list, without making the section taller */
