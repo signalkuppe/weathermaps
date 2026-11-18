@@ -8809,18 +8809,31 @@
       if (resuming || !meta) return;
       resuming = true;
       const overlay = $("resume-overlay");
-      // a few seconds away (a notification, the app switcher): silent check, no overlay
-      const show = away > 15e3;
-      if (show) overlay.hidden = false;
-      const t0 = Date.now();
+      // a few seconds away (a notification, the app switcher): silent check, no overlay. Otherwise the overlay only if
+      // the check takes more than a moment: with a new version found right away you go straight to its screen
+      let shownAt = 0;
+      const timer =
+        away > 15e3
+          ? setTimeout(() => {
+              overlay.hidden = false;
+              shownAt = Date.now();
+            }, 250)
+          : null;
       try {
         const fresh = await fetch(STATIC ? "data/meta.json" : "api/meta", { cache: "no-store" }).then((r) => r.json());
         if (fresh.version && meta.version && fresh.version !== meta.version) {
           // new app: its code is needed (the address keeps the view). First the same start screen the reload
           // shows, so you go straight from the map to it, without the map showing up again in between
+          clearTimeout(timer);
           document.body.insertAdjacentHTML("beforeend", STARTUP_HTML);
           document.querySelector(".startup-loader .startup-payoff").textContent = "Aggiorno l'app";
           overlay.hidden = true;
+          // the reloaded page says the same on its start screen (index.html): one screen across the reload
+          try {
+            sessionStorage.setItem("weathermaps.updating", "1");
+          } catch {
+            /* not available: the reloaded page says "Carico i modelli" */
+          }
           await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
           location.reload();
           return;
@@ -8832,9 +8845,10 @@
       } catch {
         /* offline: the map stays as it was, the 2-minute check retries */
       }
+      clearTimeout(timer);
       // at least a moment on screen, then it fades: no flash
-      if (show) {
-        await new Promise((r) => setTimeout(r, Math.max(0, 600 - (Date.now() - t0))));
+      if (shownAt) {
+        await new Promise((r) => setTimeout(r, Math.max(0, 600 - (Date.now() - shownAt))));
         overlay.classList.add("leaving");
         await new Promise((r) => setTimeout(r, 250));
         overlay.hidden = true;
