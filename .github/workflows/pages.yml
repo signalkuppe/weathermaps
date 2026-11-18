@@ -33,6 +33,31 @@ jobs:
         with:
           fetch-depth: 0 # the history with the tags is needed for the version shown next to the name (git describe)
 
+      # interface-only push (every changed file in static/): the site of the last full build is reused and only the
+      # page is replaced, without downloading and regenerating the map data (about 1-2 minutes instead of ~8).
+      # Hourly runs, manual runs and pushes that touch anything else make the full build.
+      - name: Tipo di aggiornamento
+        id: kind
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          kind=full
+          if [ "${{ github.event_name }}" = "push" ] && [ -n "$BEFORE" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            changed=$(git diff --name-only "$BEFORE" "$GITHUB_SHA")
+            if [ -n "$changed" ] && ! echo "$changed" | grep -qv '^static/'; then kind=page; fi
+          fi
+          echo "kind=$kind" >> "$GITHUB_OUTPUT"
+          echo "Aggiornamento: $kind"
+
+      - name: Recupera sito precedente
+        id: site
+        if: steps.kind.outputs.kind == 'page'
+        uses: actions/cache/restore@v6
+        with:
+          path: public
+          key: site-${{ github.run_id }}
+          restore-keys: site-
+
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
@@ -45,8 +70,16 @@ jobs:
       - name: Installa dipendenze
         run: pip install -r requirements.txt
 
+      # no site in the cache (evicted, first time) or an error here: the steps below make the full build instead
+      - name: Aggiorna solo la pagina
+        id: page
+        if: steps.kind.outputs.kind == 'page' && steps.site.outputs.cache-matched-key != ''
+        continue-on-error: true
+        run: python scripts/build_static.py --page-only public
+
       # already downloaded data carry over from one run to the next: only the new steps are downloaded
       - name: Recupera dati precedenti
+        if: steps.page.outcome != 'success'
         uses: actions/cache/restore@v6
         with:
           path: data
@@ -54,18 +87,28 @@ jobs:
           restore-keys: data-
 
       - name: Scarica nuove corse e passi
+        if: steps.page.outcome != 'success'
         # a temporary error of one source must not block publishing the others
         run: python scripts/fetch_once.py || echo "::warning::alcuni download non sono riusciti, riprovo al prossimo giro"
 
       - name: Genera sito statico
+        if: steps.page.outcome != 'success'
         run: python scripts/build_static.py public
 
       - name: Salva dati per il prossimo giro
-        if: always()
+        if: always() && steps.page.outcome != 'success'
         uses: actions/cache/save@v6
         with:
           path: data
           key: data-${{ github.run_id }}
+
+      # the generated site, for the next interface-only push
+      - name: Salva sito per gli aggiornamenti della sola pagina
+        if: success() && steps.page.outcome != 'success'
+        uses: actions/cache/save@v6
+        with:
+          path: public
+          key: site-${{ github.run_id }}
 
       - uses: actions/upload-pages-artifact@v5
         with:

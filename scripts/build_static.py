@@ -23,6 +23,7 @@ To limit the number of files (GitHub Pages syncs them one by one, within 10 minu
 
 The Interval mode is computed in the browser as the difference between two totals.
 Usage:  python scripts/build_static.py [OUT_DIR]   (default: ./public)
+        python scripts/build_static.py --page-only [OUT_DIR]   only the page, on a site already generated
 """
 from __future__ import annotations
 
@@ -41,6 +42,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from app import ensemble, packed, series, soundings, variables  # noqa: E402
 from app.main import create_app  # noqa: E402
+from app.config import get_version  # noqa: E402
 from app.store import Store  # noqa: E402
 
 
@@ -82,16 +84,16 @@ def write_json(path: Path, obj) -> int:
     return len(text)
 
 
-def main(out_dir: Path) -> int:
-    if out_dir.exists():
-        shutil.rmtree(out_dir)
-    out_dir.mkdir(parents=True)
-
+def build_page(out_dir: Path) -> None:
+    """The page (HTML, script, style, icons and the small files it reads), without the data."""
+    out_dir.mkdir(parents=True, exist_ok=True)
     # page: same files as the server, marked as static
     for name in ("render.js", "style.css", "borders.json", "borders-synoptic.json", "clim-t850.json",
                  "manifest.webmanifest"):
         shutil.copy(ROOT / "static" / name, out_dir / name)
     build_javascript(out_dir / "app.js")
+    if (out_dir / "icons").exists():
+        shutil.rmtree(out_dir / "icons")
     shutil.copytree(ROOT / "static" / "icons", out_dir / "icons")  # logo: favicon and phone home-screen icons
     html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
     html = html.replace('<html lang="it">', '<html lang="it" data-mode="static">', 1)
@@ -107,6 +109,27 @@ def main(out_dir: Path) -> int:
         html = html.replace(old, f'{attr}="{name}?v={digest}"', 1)
     (out_dir / "index.html").write_text(html, encoding="utf-8")
     (out_dir / ".nojekyll").write_text("")
+
+
+def page_only(out_dir: Path) -> int:
+    """Interface-only update of a site already generated (restored from the cache in the workflow): new page and the
+    version in meta.json (the page compares it to reload after an update); the map data stay as they are."""
+    meta_path = out_dir / "data" / "meta.json"
+    if not meta_path.exists():
+        print(f"{meta_path} missing: a full build is needed", file=sys.stderr)
+        return 1
+    build_page(out_dir)
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta["version"] = get_version()
+    write_json(meta_path, meta)
+    print(f"Page updated in {out_dir} (version {meta['version'] or '-'}), data unchanged")
+    return 0
+
+
+def main(out_dir: Path) -> int:
+    if out_dir.exists():
+        shutil.rmtree(out_dir)
+    build_page(out_dir)
 
     store = Store()
     app = create_app(store=store, start_scheduler=False)
@@ -188,4 +211,7 @@ def main(out_dir: Path) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(Path(sys.argv[1] if len(sys.argv) > 1 else ROOT / "public").resolve()))
+    # --page-only: only the interface, on a site already generated (see page_only)
+    args = [a for a in sys.argv[1:] if a != "--page-only"]
+    out = Path(args[0] if args else ROOT / "public").resolve()
+    raise SystemExit(page_only(out) if "--page-only" in sys.argv[1:] else main(out))

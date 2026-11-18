@@ -941,6 +941,13 @@
   // actual duration of the accumulation at the step shown: always written, never just "interval"
   const intervalHours = (s = state.step) => s - intervalPrev(s);
 
+  // the range slider measured while hidden (panel closed, play started from the bottom bar) has width 0: the progress
+  // mark was placed as for a too narrow range (above the thumbs) and stayed there on opening. When the slider gets its
+  // width back, positions are computed again
+  const sliderWidths = new ResizeObserver(() => {
+    if (playbackSelection && !intervalSliders.some((s) => s.progressAnimation)) syncIntervalSliders();
+  });
+  queueMicrotask(() => intervalSliders.forEach((s) => sliderWidths.observe(s.element)));
   function stopProgressAnimation() {
     for (const slider of intervalSliders) {
       const animation = slider.progressAnimation;
@@ -3367,7 +3374,7 @@
     const d = JSON.parse(new TextDecoder().decode(bytes));
     if (d?.v !== 1 || !Array.isArray(d.p)) throw new Error("formato");
     const names = Array.isArray(d.f) ? d.f.map((n) => (typeof n === "string" && n.trim() ? n.slice(0, 60) : null)) : [];
-    return d.p
+    const places = d.p
       .filter((a) => Array.isArray(a) && typeof a[0] === "string" && Number.isFinite(a[1]) && Number.isFinite(a[2]))
       .map(([name, lat, lon, i]) => ({
         name: name.slice(0, 80),
@@ -3375,11 +3382,12 @@
         lon: +lon.toFixed(4),
         folder: Number.isInteger(i) && names[i] ? names[i] : null,
       }));
+    return { places, folders: names.filter(Boolean) }; // folders also when empty
   }
   async function importPlaces(code) {
-    let incoming;
+    let incoming, linkFolders;
     try {
-      incoming = await decodeImport(code);
+      ({ places: incoming, folders: linkFolders } = await decodeImport(code));
     } catch {
       importDialog({ kind: "warn", title: "Link non valido", text: "Il link delle località non è valido o è incompleto: copialo di nuovo dall'altro dispositivo." });
       return;
@@ -3399,18 +3407,19 @@
       );
       if (!dup) add.push({ ...p, fk });
     }
-    if (!add.length) {
+    // folders of the link not there yet, also the empty ones (in the order of the link)
+    const newFolders = [...new Map(linkFolders.filter((n) => !byName.has(key(n))).map((n) => [key(n), n])).values()];
+    if (!add.length && !newFolders.length) {
       importDialog({ kind: "info", title: "Niente da aggiungere", text: "Le località del link ci sono già tutte su questo dispositivo." });
       return;
     }
-    const newFolders = [...new Map(add.filter((p) => p.fk && !byName.has(p.fk)).map((p) => [p.fk, p.folder])).values()];
     const skipped = incoming.length - add.length;
     const nf = newFolders.length;
     const folderText = nf ? ` e ${nf} ${nf === 1 ? "cartella" : "cartelle"}` : "";
     const ok = await importDialog({
       title: "Importa località",
       text:
-        `Aggiungo ${add.length} località${folderText}` +
+        (add.length ? `Aggiungo ${add.length} località${folderText}` : `Aggiungo ${nf} ${nf === 1 ? "cartella" : "cartelle"}`) +
         (skipped === 1 ? " (1 c'è già e non viene duplicata)" : skipped ? ` (${skipped} ci sono già e non vengono duplicate)` : "") +
         ". Le località che hai restano come sono.",
       confirm: "Aggiungi",
@@ -3436,7 +3445,9 @@
     editing = false;
     savePlaces();
     setupPoints();
-    importDialog({ kind: "ok", title: "Fatto", text: `${add.length === 1 ? "Aggiunta" : "Aggiunte"} ${add.length} località${folderText}.` });
+    importDialog({ kind: "ok", title: "Fatto", text: add.length
+        ? `${add.length === 1 ? "Aggiunta" : "Aggiunte"} ${add.length} località${folderText}.`
+        : `${nf === 1 ? "Aggiunta 1 cartella" : `Aggiunte ${nf} cartelle`}.` });
   }
   /** The import window: confirmation (two buttons, resolves true/false) or outcome with an animated icon
    *  ("ok" tick, "info", "warn"; one button). The outcome replaces the confirmation in the same window. */
@@ -4117,9 +4128,12 @@
     const sign = variable().rank === "asc" ? -1 : 1;
     const key = (i) => (shown[i] == null ? -Infinity : sign * shown[i]);
     const order = pts.map((_, i) => i).sort((a, b) => key(b) - key(a) || a - b);
+    // all with the same value (e.g. 0.0 mm everywhere): no ranking, every place would be "1"
+    const known = shown.filter((v) => v != null);
+    const flat = known.length > 1 && known.every((v) => v === known[0]);
     let rank = 0;
     order.forEach((i, pos) => {
-      if (shown[i] == null) rank = null;
+      if (shown[i] == null || flat) rank = null;
       else if (pos === 0 || shown[i] !== shown[order[pos - 1]]) rank = pos + 1;
       const label = rank == null ? "" : String(rank);
       pointRows[i].querySelector(".pt-num").textContent = label;
@@ -5009,7 +5023,8 @@
   }
   const viewScale = () => view.fw / crop.w; // view px per map px
   function renderView() {
-    if (shareUi.dialog.classList.contains("share-preparing")) return; // capture not ready yet
+    // capture not ready yet (a render asked while the dialog opens, before the first capture)
+    if (shareUi.dialog.classList.contains("share-preparing") || !crop.snap) return;
     renderOut();
     const ctx = shareUi.canvas.getContext("2d");
     const { snap } = crop;
@@ -5059,6 +5074,7 @@
   function makeShareFile() {
     return new Promise((res) => {
       requestAnimationFrame(() => {
+        if (!crop.snap) return res(null); // nothing captured yet
         renderOut();
         outCanvas.toBlob(
           (blob) => {
@@ -5289,6 +5305,9 @@
     root.setProperty("--share-w", "1600px");
     root.setProperty("--share-h", "1200px");
     document.body.classList.add("share-wide");
+    // a movement of the Mapbox map still going (inertia after a drag or a pinch) would end after the fit and bring
+    // its old view back over it (Italy shifted and closer in the image): stopped before anything else
+    glBase?.stop();
     map.invalidateSize({ pan: false });
     glBase?.resize();
     updateMinZoom();
@@ -5296,12 +5315,30 @@
     // there came out shifted (Italy at the bottom right of the image)
     map.setView(SYN_FRAME.getCenter(), map.getMinZoom(), { animate: false });
     await mapReady();
-    // two passes: the first fit can be shifted by the sync with Mapbox after the size change
-    // (it happened starting from a narrow screen: Italy ended up out at the bottom)
-    for (let k = 0; k < 2; k++) {
+    // fit, then check it really holds (the sync with Mapbox after the size change can still move it): the area
+    // inside the map, touching it on one side, and Mapbox on the same view; otherwise again (a few passes at most)
+    for (let k = 0; k < 6; k++) {
+      glBase?.stop();
       map.fitBounds(SYN_FRAME, { animate: false });
       await mapReady();
+      if (synFramed()) break;
     }
+  }
+  function synFramed() {
+    const size = map.getSize();
+    const nw = map.latLngToContainerPoint(SYN_FRAME.getNorthWest());
+    const se = map.latLngToContainerPoint(SYN_FRAME.getSouthEast());
+    const inside = nw.x > -2 && nw.y > -2 && se.x < size.x + 2 && se.y < size.y + 2;
+    const tight = Math.abs(se.x - nw.x - size.x) < 4 || Math.abs(se.y - nw.y - size.y) < 4;
+    if (!inside || !tight) return false;
+    if (!glBase) return true;
+    const c = map.getCenter(),
+      g = glBase.getCenter();
+    return (
+      Math.abs(glBase.getZoom() + 1 - map.getZoom()) < 0.02 &&
+      Math.abs(g.lat - c.lat) < 0.05 &&
+      Math.abs(g.lng - c.lng) < 0.05
+    );
   }
   function shareWideEnd() {
     if (!shareWide) return;
@@ -7399,7 +7436,8 @@
           accLine = `<path class="ch-acc" d="${path}" fill="none" stroke-width="1.25" stroke-linejoin="round" stroke-linecap="round"/>`;
           for (const t of cticks)
             svg.push(
-              `<text class="ch-tick ch-acc-tick" x="${L + pw + 5}" y="${Yc(t) + 3.5}">${fmt(t, 0)}</text>`,
+              // decimals of the step: with 0.5 or 2.5 the labels were rounded and repeated ("0 1 1 2")
+              `<text class="ch-tick ch-acc-tick" x="${L + pw + 5}" y="${Yc(t) + 3.5}">${fmt(t, Number.isInteger(cstep) ? 0 : 1)}</text>`,
             );
         }
         const flakes = []; // columns with snow: snowflake on top

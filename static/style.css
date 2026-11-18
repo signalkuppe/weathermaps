@@ -536,8 +536,13 @@ body.share-wide .wm-native-map {
   .panel-body > details.models[open] > summary {
     background: var(--panel-solid);
   } /* first section: no line above */
+  /* 6px above the title inside the section (the + / − box is taller than the line and would be cut by the scrolling
+     section), the section 6px higher: the title stays where it was */
   .panel-body > details.models[open] > summary {
-    padding-top: 0;
+    padding-top: 6px;
+  }
+  .panel-body > details.models[open] {
+    margin-top: -6px;
   }
   /* shadow under the title when the section has scrolled, fade at the bottom when there is more below (app.js) */
   .panel-body > details[open].more-above > summary {
