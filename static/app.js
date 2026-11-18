@@ -5288,6 +5288,10 @@
     map.invalidateSize({ pan: false });
     glBase?.resize();
     updateMinZoom();
+    // from a neutral view first: on phones the chart is half a level closer (synopticView) and the fit started from
+    // there came out shifted (Italy at the bottom right of the image)
+    map.setView(SYN_FRAME.getCenter(), map.getMinZoom(), { animate: false });
+    await mapReady();
     // two passes: the first fit can be shifted by the sync with Mapbox after the size change
     // (it happened starting from a narrow screen: Italy ended up out at the bottom)
     for (let k = 0; k < 2; k++) {
