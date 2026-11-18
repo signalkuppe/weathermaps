@@ -5293,8 +5293,10 @@
   // framing of the 500 hPa chart image, like Meteociel: from Newfoundland to the Black Sea, from North Africa
   // to Iceland (Italy on the right), 4:3: with 16:9 the Mercator strip looked squashed
   // further south than the "geographic" centre: at the bottom the image has the colour bar and credits over the map
-  // (~10% of the height), which would cover the Mediterranean; 24–70 N by 100° of longitude is 4:3 in Mercator
-  const SYN_FRAME = L.latLngBounds([24, -60], [70, 40]);
+  // (~10% of the height), which would cover the Mediterranean; 26–70 N by ~97° of longitude is 4:3 in Mercator.
+  // Always inside the chart's data area (SYNOPTIC_BBOX, 25–72 N, 70 W–64 E): a frame sticking out of it is refused by
+  // the map's bounds, which move the view (Italy ended up at the bottom right of the image)
+  const SYN_FRAME = L.latLngBounds([26, -57], [70, 39.6]);
   const SYN_RATIO = "4:3";
   async function shareWideStart() {
     if (!synoptic()) return;
@@ -5308,9 +5310,17 @@
     // a movement of the Mapbox map still going (inertia after a drag or a pinch) would end after the fit and bring
     // its old view back over it (Italy shifted and closer in the image): stopped before anything else
     glBase?.stop();
+    // no area bounds while the image is prepared: with the 1600×1200 map Mapbox applied them to its view and moved it
+    // north-west, Leaflet followed, and the fit was overwritten (Italy at the bottom right of the image, on phones).
+    // The fixed framing is inside the data area anyway; the bounds come back on closing (shareWideEnd)
+    map.setMaxBounds(null);
+    glBase?.setMaxBounds(null);
     map.invalidateSize({ pan: false });
     glBase?.resize();
     updateMinZoom();
+    // Mapbox follows the new size of its box in a later frame: wait for it before fitting
+    await new Promise((r) => setTimeout(r, 120));
+    glBase?.resize();
     // from a neutral view first: on phones the chart is half a level closer (synopticView) and the fit started from
     // there came out shifted (Italy at the bottom right of the image)
     map.setView(SYN_FRAME.getCenter(), map.getMinZoom(), { animate: false });
@@ -5323,6 +5333,10 @@
       await mapReady();
       if (synFramed()) break;
     }
+  }
+  function shareBounds() {
+    map.setMaxBounds(areaBox);
+    glBase?.setMaxBounds(glBounds(areaNow()));
   }
   function synFramed() {
     const size = map.getSize();
@@ -5348,6 +5362,7 @@
     map.invalidateSize({ pan: false });
     glBase?.resize();
     updateMinZoom();
+    shareBounds(); // area bounds back (removed in shareWideStart)
     map.setView(center, Math.max(zoom, map.getMinZoom()), { animate: false });
   }
 
