@@ -35,6 +35,7 @@ function renderer() {
     variable: () => ({ scale: {} }),
     synoptic: () => false,
     state: { var: "tp", crisp: false },
+    crispNow: () => false,
     renderWorker: null,
     renderSeq: 0,
     renderJobs: new Map(),

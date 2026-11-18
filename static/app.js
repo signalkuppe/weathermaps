@@ -400,6 +400,20 @@
     m.setPaintProperty(id, "raster-opacity", c.visible ? c.opacity : 0);
     m.setPaintProperty(id, "raster-resampling", c.crisp ? "nearest" : "linear");
   }
+  // opacity sliders (Settings) only for the local maps: the 500 hPa chart always has full colours and lines
+  // the other Settings do not apply to the 500 hPa chart either: soft bands, coastlines and isobars always on
+  function crispNow() {
+    return state.crisp && !synoptic();
+  }
+  function isoNow() {
+    return state.iso || synoptic();
+  }
+  function colorsOpacity() {
+    return synoptic() ? 1 : state.opacity;
+  }
+  function bordersOpacity() {
+    return synoptic() ? 1 : state.bordersOpacity;
+  }
   function glPut(id, o) {
     const c = Object.assign(
       glImgs.get(id) || { opacity: 1, crisp: false, visible: true },
@@ -441,7 +455,7 @@
     const m = glMap();
     if (!m) return;
     const n = Object.keys(BORDER_NAMES).indexOf(state.borders),
-      op = state.bordersOpacity;
+      op = bordersOpacity();
     if (!m.getLayer("wm-admin-2") && m.getLayer("admin-1-boundary-bg")) {
       m.addLayer(
         {
@@ -1017,7 +1031,7 @@
     if (variable().arrows)
       return ` · frecce ${lcFirst(variable().arrows.label)}`;
     const c = variable().contour_field && variable().contours;
-    if (!c || !state.iso) return "";
+    if (!c || !isoNow()) return "";
     return weightedContour()
       ? ` · linee ${contourName().toLowerCase()}`
       : ` · linee ${c.label.toLowerCase()} ogni ${c.step} ${c.units}`;
@@ -2553,7 +2567,7 @@
     const v = variable(),
       { nx, ny, lat0, lon0, dlat, dlon } = f.grid;
     if (!fieldImageIds.has(f)) fieldImageIds.set(f, ++fieldIds);
-    const key = `${fieldImageIds.get(f)}|${state.var}|${state.crisp ? 1 : 0}`;
+    const key = `${fieldImageIds.get(f)}|${state.var}|${crispNow() ? 1 : 0}`;
     const hit = imgCache.get(key);
     if (hit) {
       imgCache.delete(key);
@@ -2568,7 +2582,7 @@
     }
     // fields with their lines (T850, freezing level): colours from the same smoothed field as the lines, so each
     // line falls exactly on a colour change; "sharp cells" shows the raw data instead
-    const own = v.contours && !v.contour_field && !state.crisp;
+    const own = v.contours && !v.contour_field && !crispNow();
     const job = {
       id: ++renderSeq,
       values: f32Of(f.values),
@@ -2579,14 +2593,14 @@
       dlat,
       dlon,
       scale: v.scale,
-      crisp: state.crisp,
+      crisp: crispNow(),
       // 2 pixels per cell (at least 1100 wide); the finest grids (ICON-CH1, 1 km) already have enough.
       // Synoptic chart: the 0.25° cells are large on screen, with the narrow 4 dam bands more pixels are needed
       // (otherwise the band edges come out stepped); 7 keeps the width below the 4096-pixel texture limit
       // of phones
       upscale: synoptic()
         ? Math.max(2, Math.min(7, Math.floor(4096 / nx)))
-        : Math.max(nx >= 800 && !state.crisp ? 1 : 2, Math.ceil(1100 / nx)),
+        : Math.max(nx >= 800 && !crispNow() ? 1 : 2, Math.ceil(1100 / nx)),
       // synoptic chart: GFS at 0.25° has small irregularities between neighbouring cells that, with 4 dam bands, make
       // chequered edges; two averaging passes give the soft bands of the classic charts (the tooltip stays raw)
       smooth: synoptic() ? 2 : own ? Math.min(4, Math.round(0.1 / dlon)) : 0,
@@ -2628,20 +2642,20 @@
       east = lon0 + (nx - 1) * dlon + dlon / 2;
     const bounds = L.latLngBounds([south, west], [north, east]);
     const my = ++drawSeq,
-      crisp = state.crisp;
+      crisp = crispNow();
     const painted = fieldImage(f).then((url) => {
       if (my !== drawSeq || !url) return; // meanwhile we moved to another field
       if (glBase) {
         glPut("wm-model", {
           url,
           bounds,
-          opacity: state.opacity,
+          opacity: colorsOpacity(),
           crisp,
           visible: state.extra === "none",
         });
       } else if (!overlay) {
         overlay = L.imageOverlay(url, bounds, {
-          opacity: state.opacity,
+          opacity: colorsOpacity(),
           className: "wm-overlay",
           interactive: false,
         }).addTo(map);
@@ -2761,7 +2775,7 @@
   const synLayer = L.layerGroup();
   let synLoad = null;
   function styleSynBorders() {
-    if (!synoptic() || state.borders === "none") {
+    if (!synoptic()) {
       synLayer.remove();
       return;
     }
@@ -2992,17 +3006,17 @@
     if (
       f &&
       cfg &&
-      state.iso &&
+      isoNow() &&
       f === drawnContourField &&
       cfg === drawnContourConfig
     )
       return;
-    drawnContourField = state.iso ? f : null;
+    drawnContourField = isoNow() ? f : null;
     drawnContourConfig = cfg;
     isoLines.clearLayers();
     isoLabels.clearLayers();
     isoData = [];
-    if (!f || !cfg || !state.iso) return;
+    if (!f || !cfg || !isoNow()) return;
     let cached = contourCache.get(f);
     if (!cached) {
       cached = new Map();
@@ -4271,8 +4285,8 @@
       );
     }
     if (overlay?.getElement() && state.extra === "none") {
-      ctx.imageSmoothingEnabled = !state.crisp;
-      drawImg(overlay.getElement(), state.opacity);
+      ctx.imageSmoothingEnabled = !crispNow();
+      drawImg(overlay.getElement(), colorsOpacity());
       ctx.imageSmoothingEnabled = true;
     }
     if (extraCfg()) {
@@ -4287,7 +4301,7 @@
     if (bordersCanvas && bordersOn() && !glBase) {
       // with Mapbox the borders are already in its canvas
       const r = bordersCanvas.getBoundingClientRect();
-      ctx.globalAlpha = state.bordersOpacity; // as in the page
+      ctx.globalAlpha = bordersOpacity(); // as in the page
       ctx.drawImage(
         bordersCanvas,
         r.left - cr.left,
@@ -4299,9 +4313,9 @@
     }
     // synoptic chart: coastlines and countries are our own lines with Mapbox too (see styleSynBorders)
     const synCanvas = map.getPane("synBorders").querySelector("canvas");
-    if (synCanvas && synoptic() && state.borders !== "none") {
+    if (synCanvas && synoptic()) {
       const r = synCanvas.getBoundingClientRect();
-      ctx.globalAlpha = state.bordersOpacity;
+      ctx.globalAlpha = bordersOpacity();
       ctx.drawImage(synCanvas, r.left - cr.left, r.top - cr.top, r.width, r.height);
       ctx.globalAlpha = 1;
     }
@@ -8106,17 +8120,20 @@
   ui.play.addEventListener("click", () => togglePlay());
   ui.opacity.addEventListener("input", () => {
     state.opacity = +ui.opacity.value;
-    overlay?.setOpacity(state.opacity);
-    if (glImgs.has("wm-model")) glPut("wm-model", { opacity: state.opacity });
+    applyColorsOpacity();
     writeHash();
     saveSettings();
   });
+  function applyColorsOpacity() {
+    overlay?.setOpacity(colorsOpacity());
+    if (glImgs.has("wm-model")) glPut("wm-model", { opacity: colorsOpacity() });
+  }
   // border opacity (Settings), separate from the colours': applies to the whole lines layer
-  const applyBordersOpacity = () => {
-    map.getPane("borders").style.opacity = state.bordersOpacity;
-    map.getPane("synBorders").style.opacity = state.bordersOpacity;
+  function applyBordersOpacity() {
+    map.getPane("borders").style.opacity = bordersOpacity();
+    map.getPane("synBorders").style.opacity = bordersOpacity();
     glBorders();
-  };
+  }
   ui.bordersOpacity.addEventListener("input", () => {
     state.bordersOpacity = +ui.bordersOpacity.value;
     applyBordersOpacity();
@@ -8391,6 +8408,9 @@
     glBase?.setMaxBounds(glBounds(a));
     glSynopticBase();
     styleBorders();
+    // full colours and lines on the 500 hPa chart, the chosen opacities back on the other maps
+    applyColorsOpacity();
+    applyBordersOpacity();
   }
 
   // the page must not scroll (see html, body in style.css): if the browser moves it anyway (keyboard, map wider
