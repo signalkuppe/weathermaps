@@ -5890,7 +5890,9 @@
     chartUi.sounding.hidden = true;
     chartUi.dialog.classList.remove("side-panel"); // the model charts full screen
     if (multi) {
-      chartContext = { place: p, model: "mean", run: null, from: 0, until: 384, multi };
+      // the map's period (model, run and slider hours), turned into dates in loadMulti: the models start at different times
+      const ref = run || (model === state.model ? state.run : (runs[model] || []).find((x) => !x.incoming)?.run);
+      chartContext = { place: p, model, run: ref, from, until, multi };
       writeChartHash(pushHistory && !chartUi.dialog.open);
       if (!chartUi.dialog.open) chartUi.dialog.showModal();
       chartUi.dialog.focus();
@@ -6508,7 +6510,7 @@
     const perDay = pw / ((x1 - x0) / 24);
     const labelEvery = perDay >= 34 ? 1 : perDay >= 17 ? 2 : 4;
     let nDay = 0;
-    for (let h = 1; h <= x1; h++) {
+    for (let h = Math.floor(x0) + 1; h <= x1; h++) {
       if (hourOf(h) % 24 !== 0) continue;
       svg.push(`<line class="ch-day" x1="${X(h)}" x2="${X(h)}" y1="${HEAD + 2}" y2="${yBot}"/>`);
       if (nDay++ % labelEvery) continue;
@@ -6747,7 +6749,8 @@
     const request = chartContext;
     const v = request.multi;
     for (const b of chartUi.multi.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.v === v));
-    chartUi.details.textContent = `Modelli a confronto · ${v === "t850" ? "temperatura a 850 hPa" : "precipitazione cumulata"}`;
+    const what = v === "t850" ? "temperatura a 850 hPa" : "precipitazione cumulata";
+    chartUi.details.textContent = `Modelli a confronto · ${what}`;
     chartUi.warn.hidden = true;
     chartUi.body.innerHTML = '<div class="chart-empty">Carico il grafico…</div>';
     chartData = null;
@@ -6775,7 +6778,17 @@
       return;
     }
     const T0 = Math.max(...ok.map((m) => runDate(m.run).getTime()));
-    // each model: accumulated since its start (0 at the start of the run), brought back to 0 at the common time T0
+    // the map's period in hours from T0; it cannot start before T0 (some model would have no data there)
+    const refT = request.run ? runDate(request.run).getTime() : T0;
+    let s0 = Math.max(0, (refT + (request.from || 0) * 3600e3 - T0) / 3600e3);
+    let s1 = (refT + (request.until ?? 384) * 3600e3 - T0) / 3600e3;
+    if (!(s1 > s0)) (s0 = 0), (s1 = Infinity); // period entirely before the common time: the whole range
+    if (request.run && s1 < Infinity) {
+      const at = (h) => new Date(T0 + h * 3600e3);
+      const period = s0 > 0 ? fmtSpan(at(s0), at(s1), { month: false }) : `fino a ${fmtLocal(at(s1))}`;
+      chartUi.details.textContent = `Modelli a confronto · ${what} · ${period}`;
+    }
+    // each model: accumulated since its start (0 at the start of the run), brought back to 0 at the start of the period
     const lines = ok
       .map((m) => {
         const start = runDate(m.run).getTime();
@@ -6792,18 +6805,33 @@
             }
           return null;
         };
+        // the outputs inside the period, plus the values interpolated at its two ends (the models' steps differ)
+        const clip = (src) => {
+          const first = src[0][0],
+            last = src[src.length - 1][0];
+          const atSrc = (h) => {
+            if (h < first || h > last) return null;
+            for (let i = 1; i < src.length; i++)
+              if (src[i][0] >= h)
+                return src[i - 1][1] + ((src[i][1] - src[i - 1][1]) * (h - src[i - 1][0])) / (src[i][0] - src[i - 1][0] || 1);
+            return src[0][1];
+          };
+          const a = atSrc(s0),
+            b = s1 < Infinity ? atSrc(s1) : null;
+          return [
+            ...(a != null ? [[s0, a]] : []),
+            ...src.filter(([h]) => h > s0 && h < s1),
+            ...(b != null && s1 > s0 ? [[s1, b]] : []),
+          ];
+        };
         let out;
         if (v === "tp") {
-          const base = at(0) ?? 0; // precipitation: sum from the common time
-          out = [[0, 0], ...pts.filter(([h]) => h > 0).map(([h, x]) => [h, Math.max(0, x - base)])];
+          // precipitation: sum from the start of the period
+          const base = at(s0) ?? 0;
+          out = clip(pts).map(([h, x]) => [h, Math.max(0, x - base)]);
         } else {
-          // temperature: the real values from the common time on (the 0 point at the start of the run only applies to
-          // precipitation); at the common time the value interpolated between the two nearby outputs, if any
-          const real = pts.slice(1);
-          const k = real.findIndex(([h]) => h >= 0);
-          const first =
-            k > 0 ? real[k - 1][1] + ((real[k][1] - real[k - 1][1]) * (0 - real[k - 1][0])) / (real[k][0] - real[k - 1][0] || 1) : null;
-          out = [...(first != null && real[k][0] > 0 ? [[0, first]] : []), ...real.filter(([h]) => h >= 0)];
+          // temperature: the real values (the 0 point at the start of the run only applies to precipitation)
+          out = clip(pts.slice(1));
         }
         const mean = m.id === "mean";
         return { id: m.id, label: mean ? "Mediana" : shortLabel(m.id), mean, color: mean ? null : MULTI_COLORS[m.id] || "#adb5bd", pts: out, run: m.run };
@@ -6822,7 +6850,7 @@
       HEAD = 36,
       AXIS = 34;
     const steps = [...new Set(lines.flatMap((l) => l.pts.map(([h]) => h)))].sort((a, b) => a - b);
-    const x0 = 0,
+    const x0 = steps[0],
       x1 = steps[steps.length - 1];
     const valueAt = (l, h) => {
       const p = l.pts;
@@ -6865,7 +6893,7 @@
     const perDay = pw / ((x1 - x0) / 24);
     const labelEvery = perDay >= 34 ? 1 : perDay >= 17 ? 2 : 4;
     let nDay = 0;
-    for (let h = 1; h <= x1; h++) {
+    for (let h = Math.floor(x0) + 1; h <= x1; h++) {
       if (hourOf(h) % 24 !== 0) continue;
       svg.push(`<line class="ch-day" x1="${X(h)}" x2="${X(h)}" y1="${HEAD + 2}" y2="${yBot}"/>`);
       if (nDay++ % labelEvery) continue;

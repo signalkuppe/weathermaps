@@ -1035,7 +1035,15 @@
     <script src="vendor/range-slider-input-2.4.7.min.js"></script>
     <script src="app.js"></script>
     <script type="module">
-      if (location.hostname === "signalkuppe.github.io") {
+      // the owner's devices stay out of the statistics: ?nostats once per browser (remembered), ?stats to undo
+      let optOut = false;
+      try {
+        const q = new URLSearchParams(location.search);
+        if (q.has("nostats")) localStorage.setItem("noStats", "1");
+        if (q.has("stats")) localStorage.removeItem("noStats");
+        optOut = localStorage.getItem("noStats") === "1";
+      } catch {}
+      if (location.hostname === "signalkuppe.github.io" && !optOut) {
         const analytics = document.createElement("script");
         analytics.type = "module";
         analytics.src = "https://static.cloudflareinsights.com/beacon.min.js";
