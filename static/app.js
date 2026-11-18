@@ -2021,7 +2021,7 @@
     radarTimer = null,
     radarPlay = null;
   let radarAutoplay = false; // turned on with the layer: the animation starts by itself as soon as all images are loaded
-  /** Loading state: while some image is missing, a box in the centre of the page ("Caricamento radar 5/13") and
+  /** Loading state: while some image is missing, a box in the centre of the page ("Carico il radar 5 di 13 immagini") and
    *  hidden controls; when all are ready it goes away and, the first time, the animation starts right away. After
    *  a map move the new tiles arrive while the animation continues: no box. */
   let radarReadyOnce = false;
@@ -2049,7 +2049,7 @@
       enter(ui.badge, "badge-enter");
       if (!ui.badge.contains(ui.legend)) enter(ui.legend, "legend-enter"); // on mobile the legend is inside the bar
     }
-    $("radar-loader-name").textContent = extraCfg()?.name.toLowerCase() || "";
+    $("radar-loader-name").textContent = extraCfg() ? `il ${extraCfg().name.toLowerCase()}` : ""; // "Carico il radar"
     $("radar-loader-count").textContent = radarFrames.length
       ? `${ready} di ${radarFrames.length} immagini`
       : "in attesa…";
@@ -2778,6 +2778,16 @@
       });
   }
   const isoLines = L.layerGroup().addTo(map);
+  // line thickness: a little thinner on phones (small screen, the lines covered the colours), a little thicker in
+  // the shared image (seen enlarged, they looked thin)
+  let isoSharing = false;
+  function isoWeights() {
+    const k = isoSharing ? 1.3 : mobileMq.matches ? 0.75 : 1;
+    isoLines.eachLayer((l) => {
+      if (l._wmWeight) l.setStyle({ weight: l._wmWeight * k });
+    });
+  }
+  mobileMq.addEventListener("change", isoWeights);
   const isoLabels = L.layerGroup().addTo(map);
   let isoData = []; // [{ level, bold, pts: [[lat, lon], ...] }]
 
@@ -3033,16 +3043,19 @@
             smoothFactor: 0.5,
             // synoptic chart: white, thicker isobars above the solid colours, like on Meteociel
             ...(synoptic()
-              ? { color: "#ffffff", weight: isBold ? 4 : 3, opacity: 0.95 }
-              : { color: "#1f2328", weight: isBold ? 2 : 0.9, opacity: isBold ? 0.85 : 0.55 }),
+              ? { color: "#ffffff", opacity: 0.95 }
+              : { color: "#1f2328", opacity: isBold ? 0.85 : 0.55 }),
           }),
         );
+        // base thickness; the one drawn depends on screen and sharing (isoWeights)
+        layers.at(-1)._wmWeight = synoptic() ? (isBold ? 4 : 3) : isBold ? 2 : 0.9;
       }
       drawing = { data, layers };
       cached.set(cfg, drawing);
     }
     isoData = drawing.data;
     for (const layer of drawing.layers) layer.addTo(isoLines);
+    isoWeights();
     placeContourLabels();
   }
 
@@ -3147,9 +3160,8 @@
       : rangeStart === 0
         ? rangeLabel
         : `+${rangeStart}&ndash;${rangeEnd}h · ${rangeEnd - rangeStart}h`;
-    const mobileRange = rangeMode()
-      ? `<span class="badge-m-range">${mobileRangeLabel}</span>`
-      : "";
+    // instantaneous fields (temperature, freezing level, wind...): the forecast hour, as in the panel ("+51h")
+    const mobileRange = `<span class="badge-m-range">${rangeMode() ? mobileRangeLabel : `+${s}h`}</span>`;
     // desktop: model, run and time; mobile (badge-m): first the time, then short model and run
     ui.badgeText.innerHTML =
       `<b class="badge-d">${modelLabel()}</b><span class="badge-run badge-d">${runText}</span>` +
@@ -3783,10 +3795,10 @@
       hideResults();
       return;
     }
-    // a waiting state right away: spinner in the field and "Ricerca…" in the list (Open-Meteo answers in a few tenths)
+    // a waiting state right away: spinner in the field and "Cerco…" in the list (Open-Meteo answers in a few tenths)
     setSearching(true);
     ui.placeResults.innerHTML =
-      '<li class="place-none place-wait">Ricerca…</li>';
+      '<li class="place-none place-wait">Cerco…</li>';
     ui.placeResults.hidden = false;
     placeResults();
     searchTimer = setTimeout(() => searchPlaces(q), 300);
@@ -4902,9 +4914,15 @@
     });
   }
   async function takeSnap() {
+    // thicker lines only in the capture: the canvas is redrawn in the next frame
+    isoSharing = true;
+    isoWeights();
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     glShot = glBase ? await glCapture() : null;
     crop.snap = snapshotMap();
     glShot = null;
+    isoSharing = false;
+    isoWeights();
     // point chosen from the map menu: position in the capture (changes if the capture widens, see widenShare)
     crop.snap.pin = crop.pinLL ? map.latLngToContainerPoint(crop.pinLL) : null;
   }
@@ -4965,7 +4983,7 @@
     shareUi.dialog.classList.toggle("share-fixed", crop.fixed);
     if (crop.fixed) {
       // 500 hPa chart: the map below is resized and moved for the fixed framing; the dialog opens
-      // right away (with "Preparazione…") so the map is not seen moving
+      // right away (the image is still being prepared) so the map is not seen moving
       shareUi.dialog.classList.add("share-preparing");
       if (!shareUi.dialog.open) shareUi.dialog.showModal();
     }
@@ -4979,9 +4997,9 @@
     await takeSnap();
     crop.texts = shareTexts();
     // on opening the largest frame that fits in the map, centred (the proportion stays the last one chosen)
-    if (crop.fixed && crop.ratio !== "16:9") {
+    if (crop.fixed && crop.ratio !== SYN_RATIO) {
       crop.savedRatio = crop.ratio; // found again at the next sharing of the other maps
-      crop.ratio = "16:9";
+      crop.ratio = SYN_RATIO;
     }
     [outCanvas.width, outCanvas.height] = RATIOS[crop.ratio];
     crop.w = maxCropW();
@@ -4989,7 +5007,7 @@
     crop.x = c.x - crop.w / 2;
     crop.y = c.y - cropH() / 2;
     if (crop.fixed) {
-      // 16:9 frame as wide as the fixed framing, vertically centred on it
+      // 4:3 frame as wide as the fixed framing, vertically centred on it
       const nw = map.latLngToContainerPoint(SYN_FRAME.getNorthWest()),
         se = map.latLngToContainerPoint(SYN_FRAME.getSouthEast());
       crop.w = se.x - nw.x;
@@ -5021,22 +5039,23 @@
     }
   });
 
-  // Synoptic chart: with the share dialog open the map, hidden below, becomes 1600×900 and is framed
+  // Synoptic chart: with the share dialog open the map, hidden below, becomes 1600×1200 and is framed
   // on SYN_FRAME, on any screen; on closing it goes back as it was.
   let shareWide = null;
   // framing of the 500 hPa chart image, like Meteociel: from Newfoundland to the Black Sea, from North Africa
-  // to Iceland (Italy on the right), 16:9
+  // to Iceland (Italy on the right), 4:3: with 16:9 the Mercator strip looked squashed
   // further south than the "geographic" centre: at the bottom the image has the colour bar and credits over the map
-  // (~12% of the height), which would cover the Mediterranean; the 16:9 takes ~25–66 N
-  const SYN_FRAME = L.latLngBounds([26, -60], [66, 40]);
+  // (~10% of the height), which would cover the Mediterranean; 24–70 N by 100° of longitude is 4:3 in Mercator
+  const SYN_FRAME = L.latLngBounds([24, -60], [70, 40]);
+  const SYN_RATIO = "4:3";
   async function shareWideStart() {
     if (!synoptic()) return;
-    // always the same 1600×900 map under the dialog (any screen): the fixed framing fits entirely and
+    // always the same 1600×1200 map under the dialog (any screen): the fixed framing fits entirely and
     // the image comes out the same on phone and desktop
     shareWide = { center: map.getCenter(), zoom: map.getZoom() };
     const root = document.documentElement.style;
     root.setProperty("--share-w", "1600px");
-    root.setProperty("--share-h", "900px");
+    root.setProperty("--share-h", "1200px");
     document.body.classList.add("share-wide");
     map.invalidateSize({ pan: false });
     glBase?.resize();
@@ -5535,7 +5554,7 @@
         ? `${info.label} · ${cycle(run)} ${fmtRunDay(run)}`
         : "Ensemble non disponibile";
       chartUi.warn.hidden = true;
-      chartUi.body.innerHTML = '<div class="chart-empty">Caricamento…</div>';
+      chartUi.body.innerHTML = '<div class="chart-empty">Carico il grafico…</div>';
       chartData = null;
       chartPin = null;
       $("chart-readout").hidden = true;
@@ -5568,7 +5587,7 @@
       ? `${cycle(run)} · ${period}`
       : "Nessuna corsa disponibile";
     chartUi.warn.hidden = true;
-    chartUi.body.innerHTML = '<div class="chart-empty">Caricamento…</div>';
+    chartUi.body.innerHTML = '<div class="chart-empty">Carico il grafico…</div>';
     chartData = null;
     chartPin = null;
     $("chart-readout").hidden = true;
@@ -6295,7 +6314,7 @@
     for (const b of chartUi.multi.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.v === v));
     chartUi.details.textContent = `Modelli a confronto · ${v === "t850" ? "temperatura a 850 hPa" : "precipitazione cumulata"}`;
     chartUi.warn.hidden = true;
-    chartUi.body.innerHTML = '<div class="chart-empty">Caricamento…</div>';
+    chartUi.body.innerHTML = '<div class="chart-empty">Carico il grafico…</div>';
     chartData = null;
     chartPin = null;
     $("chart-readout").hidden = true;
@@ -6569,7 +6588,7 @@
     const { station, time } = request.sounding;
     chartUi.details.textContent = "Radiosondaggio"; // then launch time, freezing level and cloud base (drawSkewT)
     chartUi.warn.hidden = true;
-    chartUi.body.innerHTML = '<div class="chart-empty">Caricamento…</div>';
+    chartUi.body.innerHTML = '<div class="chart-empty">Carico il grafico…</div>';
     chartData = null;
     chartPin = null;
     $("chart-readout").hidden = true;
@@ -8157,7 +8176,11 @@
       return { d, open, was: d.open, from: d.getBoundingClientRect().height };
     });
     for (const it of items) it.d.open = it.open;
-    for (const it of items) it.to = it.d.getBoundingClientRect().height;
+    for (const it of items) {
+      it.to = it.d.getBoundingClientRect().height;
+      // fade at the bottom already during the opening, if the section will have more below: it does not pop in at the end
+      it.d._fadeBelow = it.open && it.d.scrollHeight - it.d.clientHeight > 2;
+    }
     for (const it of items) it.d.open = it.open || it.was; // while closing it stays open until the end
     for (const { d, open, from, to } of items) {
       if (reduceMotion.matches || Math.abs(to - from) < 1) {
@@ -8184,14 +8207,18 @@
   }
   // on phones the open section scrolls: fade at the bottom if there is more below, shadow under the title if it has scrolled
   function updateSectionFade(d) {
-    // during the open/close animation the section is cut on purpose: no fade (it would vanish at the end, a jump)
+    // during the open/close animation the section is cut on purpose: the fade is the one of the final state
+    // (measured in animateSections), so it neither pops in nor vanishes when the animation ends
     if (d._anim) {
-      d.classList.remove("more-below", "more-above");
+      d.classList.toggle("more-below", !!d._fadeBelow);
+      d.classList.remove("more-above");
       return;
     }
     const below = d.open && d.scrollHeight - d.scrollTop - d.clientHeight > 2;
-    d.classList.toggle("more-below", below);
-    d.classList.toggle("more-above", d.open && d.scrollTop > 2);
+    const above = d.open && d.scrollTop > 2;
+    // classes only when they change: each change restyles the section (shadow, fade)
+    if (d.classList.contains("more-below") !== below) d.classList.toggle("more-below", below);
+    if (d.classList.contains("more-above") !== above) d.classList.toggle("more-above", above);
   }
   const fadeRo = new ResizeObserver((entries) => {
     for (const e of entries) {
@@ -8201,7 +8228,19 @@
   });
   for (const d of SECTIONS) {
     d.classList.toggle("is-open", d.open); // initial state (index.html)
-    d.addEventListener("scroll", () => updateSectionFade(d), { passive: true });
+    // at most once per frame: reading the sizes on every scroll event (several per frame on iOS) makes scrolling jerky
+    let fadeFrame = 0;
+    d.addEventListener(
+      "scroll",
+      () => {
+        if (!fadeFrame)
+          fadeFrame = requestAnimationFrame(() => {
+            fadeFrame = 0;
+            updateSectionFade(d);
+          });
+      },
+      { passive: true },
+    );
     d.addEventListener("toggle", () => updateSectionFade(d));
     fadeRo.observe(d);
     for (const child of d.children) fadeRo.observe(child); // growing content (new places) without changing the section
@@ -8228,6 +8267,11 @@
   ui.collapse.addEventListener("click", () =>
     setPanelCollapsed(!ui.panel.classList.contains("collapsed")),
   );
+  // the whole head (logo and name too) opens and closes the panel, like the − / + button; the other buttons
+  // (reload) keep their own action
+  ui.panel.querySelector(".panel-head").addEventListener("click", (e) => {
+    if (!e.target.closest("button")) ui.collapse.click();
+  });
   // on mobile, with the panel open, a tap on the map only closes the panel: no point value,
   // no place popup. In capture on the document, before the click reaches Leaflet (markers) or
   // the Mapbox map: with the vector basemap taps go to .wm-native-map, not to the Leaflet container
@@ -8312,8 +8356,11 @@
   /** Synoptic chart: always at minimum zoom (the whole area that fits on screen), centred a bit south of Northern
    *  Italy; applies to the view, the phone in landscape and the shared image. */
   function synopticView() {
-    const c = L.latLng(startView.getCenter().lat - 3, startView.getCenter().lng);
-    map.setView(c, map.getMinZoom(), { animate: false });
+    // phone in portrait: at minimum zoom the screen holds the whole height of the area and Italy ended up low, near the
+    // bottom bar; half a level closer, the view can go further south and Italy rises
+    const phone = mobileMq.matches;
+    const c = L.latLng(startView.getCenter().lat - (phone ? 7 : 3), startView.getCenter().lng);
+    map.setView(c, map.getMinZoom() + (phone ? 0.5 : 0), { animate: false });
     map.panInsideBounds(areaBox, { animate: false });
   }
   function applyArea() {
@@ -8392,8 +8439,13 @@
     else goStep(+go);
   });
   function renderLandscapeNav() {
-    lvNav.querySelector(".lv-time").textContent =
-      meta && state.run && variable() ? fmtShown(state.step, { month: false }) : "";
+    // the forecast hour too, as in the bar and the panel ("+51h"); with an interval the dates are enough
+    const on = meta && state.run && variable();
+    lvNav.querySelector(".lv-time").textContent = !on
+      ? ""
+      : intervalStartDate(state.step)
+        ? fmtShown(state.step, { month: false })
+        : `${fmtShown(state.step, { month: false })} · +${state.step}h`;
   }
   function applyLandscape() {
     const on = landscapeMq.matches;

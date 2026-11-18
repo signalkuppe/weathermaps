@@ -42,6 +42,8 @@ label {
 }
 html {
   background: var(--bg);
+  /* no grey/blue flash on tapped elements (iOS, Android): the buttons have their own pressed states */
+  -webkit-tap-highlight-color: transparent;
 }
 /* the page never scrolls (only panels and dialogs do): on iPhone even a small scroll of the document
    hides Safari's bars, moves everything under the clock and leaves an empty strip at the bottom */
@@ -111,7 +113,7 @@ body.is-starting > :not(.startup-loader):not(script) {
   inset: 0;
 }
 /* background in the basemaps' terrain colour: when zooming out, the part not yet redrawn is not a grey void */
-/* sharing the synoptic chart on a narrow screen: the map under the dialog becomes 16:9 wide (see
+/* sharing the synoptic chart on a narrow screen: the map under the dialog becomes 4:3, 1600×1200 (see
    shareWideStart in app.js) */
 body.share-wide #map,
 body.share-wide .wm-native-map {
@@ -148,6 +150,9 @@ body.share-wide .wm-native-map {
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
+  cursor: pointer; /* the whole head opens and closes the panel (app.js) */
+  user-select: none;
+  -webkit-user-select: none;
   border-bottom: 1px solid var(--line);
 }
 .panel-head h1 {
@@ -213,8 +218,10 @@ body.share-wide .wm-native-map {
   pointer-events: auto;
   align-self: center;
 }
-.share-btn:hover {
-  background: rgba(127, 127, 127, 0.15);
+@media (hover: hover) {
+  .share-btn:hover {
+    background: rgba(127, 127, 127, 0.15);
+  }
 }
 .share-btn:disabled {
   opacity: 0.5;
@@ -295,8 +302,10 @@ body.share-wide .wm-native-map {
   color: var(--fg);
   cursor: pointer;
 }
-.share-x:hover {
-  background: rgba(127, 127, 127, 0.15);
+@media (hover: hover) {
+  .share-x:hover {
+    background: rgba(127, 127, 127, 0.15);
+  }
 }
 /* the view takes all the free space; the canvas has the same size (see layoutView in app.js) */
 .share-stage {
@@ -496,7 +505,8 @@ body.share-wide .wm-native-map {
   .panel-body > details[open].more-below::after {
     content: "";
     position: sticky;
-    bottom: 0;
+    transform: translateZ(0); /* own layer: the gradient is not repainted at each scroll frame */
+    bottom: -16px; /* down to the edge: sticky stops at the section's padding-bottom (16px) */
     display: block;
     height: 56px;
     margin: -56px -12px 0;
@@ -512,6 +522,35 @@ body.share-wide .wm-native-map {
     max-height: none;
     overflow: visible;
   } /* the whole section scrolls, not the list */
+  /* places: the search row stays fixed under the title while the list scrolls (title: 11 + 16 + 10 = 37px);
+     its space above and below is inside it, so no row shows through between title and search */
+  .panel-body > details[open] > .places-tools {
+    position: sticky;
+    top: 37px;
+    z-index: 2; /* above the rows, the results list included */
+    margin-top: 0;
+    padding: 6px 0 8px;
+    background: var(--panel-solid);
+    box-shadow:
+      -12px 0 var(--panel-solid),
+      12px 0 var(--panel-solid);
+  }
+  .panel-body > details[open] > .places-tools + .folders,
+  .panel-body > details[open] > .places-tools + .folders:empty + .points {
+    margin-top: 4px; /* 12px under the search field, as before */
+  }
+  /* the shadow when scrolled goes under the search row, not under the title */
+  .panel-body > details#points-box[open].more-above > summary {
+    box-shadow:
+      -12px 0 var(--panel-solid),
+      12px 0 var(--panel-solid);
+  }
+  .panel-body > details#points-box[open].more-above > .places-tools {
+    box-shadow:
+      -12px 0 var(--panel-solid),
+      12px 0 var(--panel-solid),
+      0 6px 8px -6px rgba(0, 0, 0, 0.25);
+  }
 }
 
 .row {
@@ -615,9 +654,13 @@ input[type="range"] {
 .info-btn svg {
   display: block;
 }
-.info-btn:hover,
 .info-btn[aria-expanded="true"] {
   color: var(--accent);
+}
+@media (hover: hover) {
+  .info-btn:hover {
+    color: var(--accent);
+  }
 }
 .info-btn:focus-visible {
   outline: 2px solid var(--accent);
@@ -738,10 +781,15 @@ input[type="range"] {
     font-size: 14px;
     cursor: pointer;
   }
-  .rich-select option:hover,
   .rich-select option:focus-visible {
     background: rgba(127, 127, 127, 0.14);
     outline: none;
+  }
+  @media (hover: hover) {
+    .rich-select option:hover {
+      background: rgba(127, 127, 127, 0.14);
+      outline: none;
+    }
   }
   .rich-select option:checked {
     font-weight: 650;
@@ -847,9 +895,11 @@ input[type="range"] {
   cursor: pointer;
   white-space: nowrap;
 }
-.refresh-btn:hover:not(:disabled) {
-  background: #c2410c;
-  color: #fff;
+@media (hover: hover) {
+  .refresh-btn:hover:not(:disabled) {
+    background: #c2410c;
+    color: #fff;
+  }
 }
 .refresh-btn:disabled {
   opacity: 0.7;
@@ -1031,8 +1081,10 @@ body.field-loading .badge::after {
   cursor: pointer;
   flex: none;
 }
-.play-btn:hover {
-  filter: brightness(1.1);
+@media (hover: hover) {
+  .play-btn:hover {
+    filter: brightness(1.1);
+  }
 }
 .play-btn:focus-visible {
   outline: 2px solid var(--accent);
@@ -1214,9 +1266,6 @@ body.range-mode .stepper .interval-step {
   height: 0;
   border: 0;
 }
-.interval-step input[type="range"]:focus {
-  outline: 0;
-}
 @media (pointer: coarse) {
   /* touch: 44 px tall touch area and a larger knob */
   .wm-range,
@@ -1246,8 +1295,40 @@ body.range-mode .stepper .interval-step {
   color: var(--fg);
   cursor: pointer;
 }
-.icon-btn:hover {
-  border-color: var(--accent);
+@media (hover: hover) {
+  .icon-btn:hover {
+    border-color: var(--accent);
+  }
+}
+/* panel head buttons (open/close panel, reload): the box stays small, the touch area around it is 44×44
+   (Apple 44 pt; ~ Material 48 dp). On touch screens the buttons are further apart so the areas do not overlap */
+.head-actions .icon-btn {
+  position: relative;
+}
+.head-actions .icon-btn::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 44px;
+  height: 44px;
+  transform: translate(-50%, -50%);
+}
+@media (pointer: coarse) {
+  .head-actions {
+    gap: 14px;
+  }
+  /* open/close panel: the touch area also covers the map strip above the panel and the one on its right, up to
+     the screen edge; a tap there opens the menu instead of showing the point's tooltip */
+  #collapse::after {
+    left: -7px;
+    right: -20px; /* not beyond the screen edge (21px away): it would widen the page */
+    top: -17px; /* up to the top edge (8px of map + 1 + 8 of padding), not beyond */
+    bottom: -8px;
+    width: auto;
+    height: auto;
+    transform: none;
+  }
 }
 /* icon button (app reload): icon centred, not on the text line */
 .icon-btn:has(svg) {
@@ -1309,6 +1390,9 @@ body.range-mode .stepper .interval-step {
   display: grid;
   gap: 8px;
   margin-top: 8px;
+}
+.settings-body {
+  margin-top: 6px; /* same space under the title as the places and the credits */
 }
 /* Extra layers: radar with the time of the latest image and its own legend (the service's colours) */
 /* radar mode: the model layers go away (colours, contours, arrows, values on the places); the top bar shows
@@ -1457,8 +1541,10 @@ body.radar-mode .badge-radar .badge-btn {
   color: var(--accent);
   cursor: pointer;
 }
-body.radar-mode .badge-radar .badge-btn:hover {
-  background: var(--accent-tint);
+@media (hover: hover) {
+  body.radar-mode .badge-radar .badge-btn:hover {
+    background: var(--accent-tint);
+  }
 }
 .badge-radar input[type="range"] {
   width: 180px;
@@ -1525,7 +1611,7 @@ body.radar-mode .badge-radar .badge-btn:hover {
   text-decoration: underline;
 }
 .privacy-open {
-  margin: 10px 0 2px;
+  margin: 10px 0 0;
   padding: 0;
   border: 0;
   background: none;
@@ -1781,11 +1867,11 @@ body.radar-mode .badge-radar .badge-btn:hover {
   margin-top: -8px;
 }
 .panel-body > details.points-box[open] {
-  padding-bottom: 8px;
+  padding-bottom: 16px; /* as between the title and the content (summary padding + the content gap) */
 }
 /* section titles: taller tap area (the space above the text is in the title, not in the section) */
 .points-box summary {
-  /* text and arrow centred in the height: the line box (and the baseline) left more room below */
+  /* text and + / − centred in the height: the line box (and the baseline) left more room below */
   display: flex;
   align-items: center;
   line-height: 16px;
@@ -1795,30 +1881,35 @@ body.radar-mode .badge-radar .badge-btn:hover {
   font-size: 13px;
   list-style: none;
 }
-/* own fixed-width arrow that rotates (the browser's changes character, ▶/▼, and shifts the text) */
 .points-box summary::-webkit-details-marker {
   display: none;
 }
-.points-box summary::before {
-  content: "";
-  display: inline-block;
-  width: 9px;
-  height: 9px;
-  margin-right: 7px;
+/* open/close: the same + / − box as the panel head button (.icon-btn), on the right; the whole row is the target */
+.points-box summary {
+  justify-content: space-between;
+}
+.points-box summary::after {
+  content: "+";
   flex: none;
-  background: currentColor;
-  transition: transform 0.2s ease;
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 0.5 9 5 2 9.5Z'/%3E%3C/svg%3E")
-    center / contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 0.5 9 5 2 9.5Z'/%3E%3C/svg%3E")
-    center / contain no-repeat;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 30px;
+  height: 28px;
+  margin: -6px 0; /* the box is taller than the text line: the row keeps its height */
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 14px; /* as the head button */
+  line-height: 1;
 }
-.points-box.is-open > summary::before {
-  transform: rotate(90deg);
+.points-box.is-open > summary::after {
+  content: "−";
 }
-@media (prefers-reduced-motion: reduce) {
-  .points-box summary::before {
-    transition: none;
+@media (hover: hover) {
+  .points-box summary:hover::after {
+    border-color: var(--accent);
   }
 }
 .points-box summary span {
@@ -1849,14 +1940,16 @@ body.radar-mode .badge-radar .badge-btn:hover {
   background: color-mix(in srgb, var(--muted) 45%, transparent);
   border-radius: 3px;
 }
-.points::-webkit-scrollbar-thumb:hover,
-.panel-body::-webkit-scrollbar-thumb:hover,
-.chart-body::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--muted) 70%, transparent);
+@media (hover: hover) {
+  .points::-webkit-scrollbar-thumb:hover,
+  .panel-body::-webkit-scrollbar-thumb:hover,
+  .chart-body::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--muted) 70%, transparent);
+  }
 }
 .points {
   list-style: none;
-  margin: 4px 0 8px; /* a little air below the last place */
+  margin: 4px 0 0; /* below the last place the section's own space, as in the others */
   padding: 0;
   display: grid;
   gap: 4px;
@@ -1888,7 +1981,7 @@ body.radar-mode .badge-radar .badge-btn:hover {
   background: var(--bg);
   color: var(--fg);
 }
-.places-search input:focus {
+.places-search input:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
 }
@@ -1928,10 +2021,15 @@ body.radar-mode .badge-radar .badge-btn:hover {
   border-radius: 6px;
   cursor: pointer;
 }
-.place-results li:hover,
-.place-results li:focus {
+.place-results li:focus-visible {
   background: rgba(127, 127, 127, 0.14);
   outline: none;
+}
+@media (hover: hover) {
+  .place-results li:hover {
+    background: rgba(127, 127, 127, 0.14);
+    outline: none;
+  }
 }
 .place-results .place-name {
   font-size: 13px;
@@ -2001,8 +2099,10 @@ body.radar-mode .badge-radar .badge-btn:hover {
 .folder-row[role="button"] {
   cursor: pointer;
 }
-.folder-row[role="button"]:hover {
-  background: rgba(127, 127, 127, 0.12);
+@media (hover: hover) {
+  .folder-row[role="button"]:hover {
+    background: rgba(127, 127, 127, 0.12);
+  }
 }
 .folder-row .folder-name {
   overflow: hidden;
@@ -2032,8 +2132,10 @@ body.radar-mode .badge-radar .badge-btn:hover {
 .folder-up {
   cursor: pointer;
 }
-.folder-up:hover {
-  background: rgba(127, 127, 127, 0.12);
+@media (hover: hover) {
+  .folder-up:hover {
+    background: rgba(127, 127, 127, 0.12);
+  }
 }
 .folder-dots {
   justify-self: center;
@@ -2056,9 +2158,13 @@ body.radar-mode .badge-radar .badge-btn:hover {
   font-size: 12px;
   cursor: pointer;
 }
-.folder-del:hover,
 .folder-del.confirm {
   background: rgba(194, 65, 12, 0.12);
+}
+@media (hover: hover) {
+  .folder-del:hover {
+    background: rgba(194, 65, 12, 0.12);
+  }
 }
 .folder-del.confirm {
   font-weight: 600;
@@ -2095,8 +2201,10 @@ body.radar-mode .badge-radar .badge-btn:hover {
   font-size: 13px;
   cursor: pointer;
 }
-.points .pt-del:hover {
-  background: rgba(194, 65, 12, 0.12);
+@media (hover: hover) {
+  .points .pt-del:hover {
+    background: rgba(194, 65, 12, 0.12);
+  }
 }
 .points li {
   display: grid;
@@ -2107,8 +2215,10 @@ body.radar-mode .badge-radar .badge-btn:hover {
   border-radius: 6px;
   cursor: pointer;
 }
-.points li:hover {
-  background: rgba(127, 127, 127, 0.12);
+@media (hover: hover) {
+  .points li:hover {
+    background: rgba(127, 127, 127, 0.12);
+  }
 }
 .points .pt-num {
   /* about as big as the folder icon above, centred in the same column */
@@ -2148,8 +2258,8 @@ body.radar-mode .badge-radar .badge-btn:hover {
   }
   /* above the bottom bar (time, legend), about 90px tall */
   .panel {
-    /* below the clock in the Home Screen app, clear of the fade iOS puts under the bar too */
-    top: max(8px, calc(env(safe-area-inset-top) + 16px));
+    /* in the browser as far from the top edge as the bottom bar is from the bottom one (8px) */
+    top: 8px;
     left: 8px;
     right: 8px;
     width: auto;
@@ -2157,6 +2267,12 @@ body.radar-mode .badge-radar .badge-btn:hover {
     max-height: calc(var(--app-h, 100dvh) - 108px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); /* as wide as the bottom bar */
     background: var(--panel-solid);
   } /* solid: sticky titles and fades in the same colour as the panel */
+  /* Home Screen app: below the clock, clear of the fade iOS puts under the bar too */
+  @media (display-mode: standalone) {
+    .panel {
+      top: max(8px, calc(env(safe-area-inset-top) + 16px));
+    }
+  }
   /* iOS Safari zooms the page if a field's text is under 16px: search, rename and menus at 16px */
   .places-search input,
   .points .pt-rename,
@@ -2484,9 +2600,11 @@ body.radar-mode .badge-radar .badge-btn:hover {
   cursor: pointer;
   flex: none;
 }
-.pt-pop-close:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.12);
+@media (hover: hover) {
+  .pt-pop-close:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.12);
+  }
 }
 .pt-pop-row {
   display: flex;
@@ -2827,8 +2945,10 @@ body.radar-mode .badge-radar .badge-btn:hover {
   color: var(--accent);
   cursor: pointer;
 }
-.chart-readout-links button:hover {
-  background: var(--accent-tint);
+@media (hover: hover) {
+  .chart-readout-links button:hover {
+    background: var(--accent-tint);
+  }
 }
 .chart-readout-links button[data-act="remove"] {
   color: var(--muted);
@@ -2862,8 +2982,10 @@ body.radar-mode .badge-radar .badge-btn:hover {
     sans-serif;
   cursor: pointer;
 }
-.pt-pop-chart:hover {
-  background: rgba(255, 255, 255, 0.12);
+@media (hover: hover) {
+  .pt-pop-chart:hover {
+    background: rgba(255, 255, 255, 0.12);
+  }
 }
 /* place popup buttons, side by side and equally wide */
 .pt-pop-btns {
@@ -3107,8 +3229,10 @@ body.no-data .wm-native-map canvas {
   font-size: 14px;
   cursor: pointer;
 }
-.map-menu-close:hover {
-  background: var(--accent-tint);
+@media (hover: hover) {
+  .map-menu-close:hover {
+    background: var(--accent-tint);
+  }
 }
 .map-menu > button {
   display: block;
@@ -3123,10 +3247,15 @@ body.no-data .wm-native-map canvas {
   text-align: left;
   cursor: pointer;
 }
-.map-menu > button:hover,
 .map-menu > button:focus-visible {
   background: var(--accent-tint);
   outline: none;
+}
+@media (hover: hover) {
+  .map-menu > button:hover {
+    background: var(--accent-tint);
+    outline: none;
+  }
 }
 .map-menu > button:disabled {
   color: var(--muted);
@@ -3225,8 +3354,10 @@ body.no-data .wm-native-map canvas {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.fsel-list [role="option"]:hover {
-  background: rgba(127, 127, 127, 0.14);
+@media (hover: hover) {
+  .fsel-list [role="option"]:hover {
+    background: rgba(127, 127, 127, 0.14);
+  }
 }
 .fsel-list [aria-selected="true"] {
   font-weight: 650;

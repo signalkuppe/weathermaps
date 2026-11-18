@@ -193,11 +193,11 @@ test("time bars show the interval as dates, with the start", () => {
   // during play the bar shows the accumulation of the image shown (up to +9h), not the end of the range
   assert.match(time.ui.badgeText.innerHTML, /badge-m-range">9h<\/span>/);
 
-  // instantaneous field: no interval, the UTC time below in the panel
+  // instantaneous field: no interval, the forecast hour in the compact bar, the UTC time below in the panel
   state.mode = "value";
   time.rangeMode = () => false;
   vm.runInContext("renderTime();", time);
-  assert.doesNotMatch(time.ui.badgeText.innerHTML, /badge-m-range/);
+  assert.match(time.ui.badgeText.innerHTML, /badge-m-range">\+9h<\/span>/);
   assert.equal(time.ui.range.textContent, "14:00 UTC");
 
   // field the model does not have: no run, no dates (startup used to stop with an error)
