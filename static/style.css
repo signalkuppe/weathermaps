@@ -3968,6 +3968,137 @@ body.landscape-view .wm-mapbox-logo {
   margin-bottom: calc(52px + env(safe-area-inset-bottom)) !important;
 }
 
+/* sharing over the live map (app.js, liveStart): the dialog is transparent, only its top bar and its controls are
+   solid; the map below is the real one, moved and zoomed with its own gestures. The frame shows the image's area,
+   veiled outside, with header and legend drawn over it */
+.share-frame {
+  display: none;
+}
+.share-dialog.share-live {
+  position: fixed;
+  inset: 0;
+  padding: 0;
+  gap: 0;
+  background: transparent;
+  pointer-events: none;
+  animation: none;
+  z-index: 3000;
+}
+.share-live .share-stage {
+  display: none;
+}
+.share-live .share-head,
+.share-live .share-tools,
+.share-live .share-actions {
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
+  background: var(--bg);
+}
+.share-live .share-head {
+  padding: max(10px, calc(env(safe-area-inset-top) * 1.4)) 20px 10px;
+}
+.share-live .share-tools {
+  margin-top: auto; /* controls at the bottom, the map in between */
+  gap: 16px;
+  padding: 16px 20px 14px;
+}
+.share-live .share-actions {
+  margin-top: 0;
+  gap: 10px;
+  padding: 14px 20px max(16px, env(safe-area-inset-bottom));
+}
+.share-live .share-ratio button {
+  min-width: 44px;
+  height: 34px;
+  font-size: 13px;
+}
+.share-live .share-hint {
+  display: none; /* the map moves as always: no help text needed */
+}
+/* desktop −/+: over the map, in the bottom right corner (like map zoom buttons), not in the controls row */
+.share-live .share-zoom {
+  position: absolute;
+  right: 20px;
+  bottom: calc(100% + 14px);
+  flex-direction: column;
+  gap: 0;
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+.share-live .share-zoom button {
+  width: 34px;
+  height: 34px;
+  border-radius: 0;
+  background: var(--panel-solid);
+}
+.share-live .share-zoom button:first-child {
+  order: 2; /* + above, − below */
+  border-radius: 0 0 8px 8px;
+  border-top: 0;
+}
+.share-live .share-zoom button:last-child {
+  border-radius: 8px 8px 0 0;
+}
+.share-live .share-frame {
+  display: block;
+  position: absolute;
+  border: 2px solid #fff;
+  border-radius: 2px;
+  box-shadow: 0 0 0 200vmax rgba(0, 0, 0, 0.45); /* veil outside the frame */
+  pointer-events: none;
+}
+.share-frame canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+/* everything else of the page hidden (panel, bars, legend, tooltips): only the map under the frame */
+body.share-live > :not(#map):not(.wm-native-map):not(#share-dialog):not(#share-toast):not(script) {
+  visibility: hidden !important;
+}
+body.share-live .share-toast {
+  z-index: 3100;
+  bottom: calc(150px + env(safe-area-inset-bottom)); /* above the share controls */
+}
+/* "Località" switch off: the places disappear from the map as from the image */
+body.share-nopoints .leaflet-marker-icon.pt {
+  opacity: 0;
+}
+/* point chosen from the map menu: the same marker as in the image */
+.share-pin b {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 9px);
+  transform: translateX(-50%);
+  padding: 4px 9px;
+  border-radius: 6px;
+  background: #1d2330;
+  color: #fff;
+  font: 650 13px system-ui, sans-serif;
+  white-space: nowrap;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+.share-pin b::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  margin-left: -5px;
+  border: 5px solid transparent;
+  border-top-color: #1d2330;
+}
+.share-pin span {
+  display: block;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #1d2330;
+  border: 2px solid #fff;
+  box-shadow: inset 0 0 0 5px #1d2330, inset 0 0 0 11px #fff, 0 1px 3px rgba(0, 0, 0, 0.4);
+  box-sizing: border-box;
+}
+
 /* 500 hPa chart: fixed framing, no proportions, zoom or drag hint */
 .share-fixed #share-ratio,
 .share-fixed .share-hint,

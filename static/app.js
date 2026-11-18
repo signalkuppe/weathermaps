@@ -122,6 +122,8 @@
   let currentContour = null; // field of the lines in combined entries (e.g. freezing level over precipitation)
   let currentArrows = null; // wind components in combined entries with arrows (e.g. 700 hPa wind over precipitation)
   let overlay = null;
+  // sharing over the live map (see liveStart): declared here, it is read by the map's tooltip, menu and popup
+  const live = { on: false, x: 0, y: 0, w: 0, h: 0, pin: null, seq: 0, timer: null };
   let menuLL = null; // point of the open map menu (right click or long press), see openMapMenu
   let probeLL = null; // point tapped on mobile: the value tooltip stays there (see "point tooltip")
   let playTimer = null;
@@ -4256,6 +4258,7 @@
   // look bad you rotate the phone); no value tooltip on tap
   const landscapeView = () => document.body.classList.contains("landscape-view");
   function openPlacePop(idx) {
+    if (live.on) return;
     if (synoptic()) return; // on the 500 hPa chart places are not shown
     if (state.extra !== "none") return; // with radar or satellite the model values popup is not needed
     popIdx = idx;
@@ -4554,8 +4557,10 @@
     "1:1": [1200, 1200],
     "16:9": [1600, 900],
   };
-  const MIN_FRACTION = 0.25; // smallest frame: a quarter of the maximum width (beyond that it gets grainy)
   const PT_SCALE = 1.5; // size of markers and values in the image relative to the screen
+  // over the live map the image is the frame enlarged (on a phone ~3×, 360 → 1200 px): places and the shared point
+  // follow it, but at most twice their screen size (bigger they covered the map)
+  const LIVE_PT_MAX = 2;
   const FRAME_PAD = 16; // margin around the fixed frame in the modal
   const outCanvas = document.createElement("canvas"); // final image
 
@@ -4793,8 +4798,7 @@
   const ratioOf = () => RATIOS[crop.ratio][0] / RATIOS[crop.ratio][1];
   const cropH = () => crop.w / ratioOf();
   const maxCropW = () => Math.min(crop.snap.W, crop.snap.H * ratioOf());
-  const clampW = (w) =>
-    Math.min(maxCropW(), Math.max(maxCropW() * MIN_FRACTION, w));
+  const clampW = (w) => Math.min(maxCropW(), w);
 
   function clampCrop() {
     crop.w = clampW(crop.w);
@@ -4802,50 +4806,29 @@
     crop.y = Math.min(Math.max(crop.y, 0), crop.snap.H - cropH());
   }
 
-  /** Resizes the frame by `factor` keeping the map point (mx, my) still. */
-  function scaleCropAt(
-    factor,
-    mx = crop.x + crop.w / 2,
-    my = crop.y + cropH() / 2,
-  ) {
-    // already at maximum and still zooming out: the map under the frame is widened (zoom out and new capture)
-    if (factor > 1 && crop.w >= maxCropW() - 0.5) {
-      widenShare(factor);
-      return;
-    }
-    // zooming out beyond the maximum: the frame reaches the maximum and the rest becomes a zoom-out of the map
-    if (factor > 1 && crop.w * factor > maxCropW() * 1.05) {
-      const rest = (crop.w * factor) / maxCropW();
-      scaleCropAt(maxCropW() / crop.w, mx, my);
-      widenShare(rest);
-      return;
-    }
-    const rx = (mx - crop.x) / crop.w;
-    const ry = (my - crop.y) / cropH();
-    crop.w = clampW(crop.w * factor);
-    crop.x = mx - rx * crop.w;
-    crop.y = my - ry * cropH();
-    clampCrop();
-    scheduleRender();
-  }
-
   function setRatio(r) {
     const cx = crop.x + crop.w / 2;
     const cy = crop.y + cropH() / 2;
     crop.ratio = r;
     [outCanvas.width, outCanvas.height] = RATIOS[r];
-    if (shareUi.dialog.open) layoutView();
-    crop.w = clampW(crop.w);
-    crop.x = cx - crop.w / 2;
-    crop.y = cy - cropH() / 2;
-    clampCrop();
+    if (live.on) liveLayout(); // the frame follows the proportions; the crop is taken from it at capture time
+    else {
+      if (shareUi.dialog.open) layoutView();
+      crop.w = clampW(crop.w);
+      crop.x = cx - crop.w / 2;
+      crop.y = cy - cropH() / 2;
+      clampCrop();
+    }
     shareUi.ratio.replaceChildren(
       ...Object.keys(RATIOS).map((k) => {
         const b = document.createElement("button");
         b.type = "button";
         b.textContent = k;
         b.setAttribute("aria-pressed", String(k === crop.ratio));
-        b.addEventListener("click", () => setRatio(k));
+        b.addEventListener("click", () => {
+          crop.chosenRatio = k; // kept for the next openings
+          setRatio(k);
+        });
         return b;
       }),
     );
@@ -4872,8 +4855,9 @@
       OH,
     );
 
-    // points at a fixed size
-    const k = PT_SCALE;
+    // points: over the live map as large as on screen, in proportion (what the frame shows is what the image has);
+    // in the fixed 500 hPa framing at a fixed size
+    const k = live.on ? Math.min(s, LIVE_PT_MAX) : PT_SCALE;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     // with radar and satellite places have the name instead of the value (as on the map)
@@ -4941,7 +4925,7 @@
 
     // point chosen from the map menu: marker and, above it, the value (outside the frame it is not drawn)
     if (snap.pin) {
-      const k = PT_SCALE,
+      const k = live.on ? Math.min(s, LIVE_PT_MAX) : PT_SCALE,
         px = (snap.pin.x - crop.x) * s,
         py = (snap.pin.y - crop.y) * s;
       if (px >= 0 && px <= OW && py >= 0 && py <= OH) {
@@ -4988,6 +4972,12 @@
       }
     }
 
+    drawDecor(ctx, OW, OH, texts);
+  }
+
+  /** Header (model, run, field, time), legend and credits over the image: in the final image and, over the live map,
+   *  in the share frame's preview. */
+  function drawDecor(ctx, OW, OH, texts) {
     // header top left: flag, model and run, field and time
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
@@ -5149,6 +5139,11 @@
   let renderPending = false;
   let fileTimer = null;
   function scheduleRender() {
+    if (live.on) {
+      liveDecor();
+      liveInvalidate();
+      return;
+    }
     if (!renderPending) {
       renderPending = true;
       requestAnimationFrame(() => {
@@ -5182,6 +5177,7 @@
   async function readyShareFile() {
     if (shareFile) return shareFile;
     clearTimeout(fileTimer);
+    if (live.on) return livePrepare();
     return makeShareFile();
   }
 
@@ -5228,9 +5224,7 @@
 
   // map view when sharing opens: if from the dialog you zoom out beyond the map you were
   // viewing, the map widens underneath (zoom out) and on closing it goes back to where it was
-  let shareRestore = null,
-    widening = false,
-    widenMore = 1; // widenMore: zoom-outs requested during a capture
+  let shareRestore = null;
   /** Waits until Mapbox (or the tiles) has drawn the new view, at most 2 s, plus a couple of frames for
    *  Leaflet's lines and places. */
   function mapReady() {
@@ -5252,55 +5246,164 @@
     });
   }
   async function takeSnap() {
-    // thicker lines only in the capture: the canvas is redrawn in the next frame
-    isoSharing = true;
-    isoWeights();
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    // thicker lines only in the capture: the canvas is redrawn in the next frame (while sharing over the live map they
+    // are already thicker on screen, see liveStart)
+    const own = !live.on;
+    if (own) {
+      isoSharing = true;
+      isoWeights();
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    }
     glShot = glBase ? await glCapture() : null;
     crop.snap = snapshotMap();
     glShot = null;
-    isoSharing = false;
-    isoWeights();
-    // point chosen from the map menu: position in the capture (changes if the capture widens, see widenShare)
+    if (own) {
+      isoSharing = false;
+      isoWeights();
+    }
+    // point chosen from the map menu: position in the capture
     crop.snap.pin = crop.pinLL ? map.latLngToContainerPoint(crop.pinLL) : null;
   }
-  /** Zoom out under the frame: the map moves out one level around the frame centre, the capture is redone
-   *  and the frame covers the same area as before (then `factor` wider). */
-  async function widenShare(factor) {
-    if (widening) {
-      widenMore *= factor;
-      return;
-    } // applied as soon as the current capture is done
-    if (map.getZoom() <= map.getMinZoom() + 0.01) return;
-    widening = true;
-    try {
-      const center = map.containerPointToLatLng([
-        crop.x + crop.w / 2,
-        crop.y + cropH() / 2,
-      ]);
-      const zoom = Math.max(map.getMinZoom(), map.getZoom() - 1);
-      const shrink = map.getZoomScale(zoom, map.getZoom()); // < 1: how much the same area shrinks
-      shareRestore ??= { center: map.getCenter(), zoom: map.getZoom() };
-      map.setView(center, zoom, { animate: false });
-      await mapReady();
-      await takeSnap();
-      const p = map.latLngToContainerPoint(center);
-      crop.w = clampW(crop.w * shrink * factor);
-      crop.x = p.x - crop.w / 2;
-      crop.y = p.y - cropH() / 2;
-      clampCrop();
-      shareUi.pointsRow.hidden = !crop.snap.points.length || !!crop.pinLL;
-      layoutView();
-      scheduleRender();
-    } finally {
-      widening = false;
-    }
-    if (widenMore > 1) {
-      const f = widenMore;
-      widenMore = 1;
-      scaleCropAt(f);
-    }
+  // ---------- sharing over the live map: the dialog leaves the map visible and usable (drag, pinch, wheel, as always),
+  // a frame with the image proportions shows what goes into the image, with header and legend drawn over it. The map
+  // is captured when it stops (the "Condividi" tap needs the file ready: iOS allows the share sheet only right after a
+  // tap) and the image is always as sharp as the map on screen. The 500 hPa chart keeps its fixed framing (crop.fixed).
+  const shareFrame = $("share-frame"),
+    shareDecor = $("share-decor");
+  /** Frame: the largest of the chosen proportions between the dialog's top bar and its controls. */
+  function liveLayout() {
+    const d = shareUi.dialog.getBoundingClientRect();
+    const head = shareUi.dialog.querySelector(".share-head").getBoundingClientRect();
+    const tools = shareUi.dialog.querySelector(".share-tools").getBoundingClientRect();
+    const pad = 14;
+    const top = head.bottom + pad,
+      availW = d.width - 2 * pad,
+      availH = Math.max(40, tools.top - pad - top);
+    const ratio = ratioOf();
+    live.w = Math.min(availW, availH * ratio);
+    live.h = live.w / ratio;
+    live.x = d.left + (d.width - live.w) / 2;
+    live.y = top + (availH - live.h) / 2;
+    Object.assign(shareFrame.style, {
+      left: `${live.x - d.left}px`,
+      top: `${live.y - d.top}px`,
+      width: `${live.w}px`,
+      height: `${live.h}px`,
+    });
+    const dpr = window.devicePixelRatio || 1;
+    shareDecor.width = Math.round(live.w * dpr);
+    shareDecor.height = Math.round(live.h * dpr);
+    liveDecor();
   }
+  /** Header and legend of the image over the frame (same drawing as the final image, scaled to the frame). */
+  function liveDecor() {
+    if (!live.on || !crop.texts) return;
+    const [OW, OH] = RATIOS[crop.ratio];
+    const ctx = shareDecor.getContext("2d");
+    const k = shareDecor.width / OW;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, shareDecor.width, shareDecor.height);
+    ctx.setTransform(k, 0, 0, k, 0, 0);
+    drawDecor(ctx, OW, OH, crop.texts);
+    // places hidden on the map too when they are not in the image (switch off, or a single point shared)
+    document.body.classList.toggle("share-nopoints", !shareUi.points.checked || !!crop.pinLL);
+  }
+  /** The map moved: the prepared image is no longer valid; a new one is prepared when it stops. */
+  function liveInvalidate() {
+    shareFile = null;
+    live.seq++;
+    clearTimeout(live.timer);
+    live.timer = setTimeout(() => livePrepare().catch(() => {}), 450);
+  }
+  /** Image of the frame: the map captured as it is now, cut to the frame. */
+  async function livePrepare() {
+    const my = ++live.seq;
+    clearTimeout(live.timer);
+    await mapReady();
+    if (my !== live.seq || !live.on) return shareFile;
+    await takeSnap();
+    const mr = map.getContainer().getBoundingClientRect();
+    crop.x = live.x - mr.left;
+    crop.y = live.y - mr.top;
+    crop.w = live.w;
+    renderOut();
+    const blob = await new Promise((res) => outCanvas.toBlob(res, "image/jpeg", 0.9));
+    if (my !== live.seq || !live.on) return shareFile;
+    shareFile = new File([blob], crop.texts.name, { type: "image/jpeg" });
+    return shareFile;
+  }
+  const liveMoved = () => {
+    if (live.on) liveInvalidate();
+  };
+  map.on("movestart move zoom", liveMoved);
+  window.addEventListener("resize", () => {
+    if (live.on) {
+      liveLayout();
+      liveInvalidate();
+    }
+  });
+  async function liveStart() {
+    live.on = true;
+    togglePlay(false);
+    if (typeof stopRadarPlay === "function") stopRadarPlay();
+    closeMapMenu();
+    closePlacePop();
+    ui.probe.hidden = true;
+    probeLL = null;
+    shareRestore = { center: map.getCenter(), zoom: map.getZoom() };
+    // minimum zoom and area bounds as on the map: the frame never shows map without data
+    // lines a bit thicker, as in the image (see isoWeights)
+    isoSharing = true;
+    isoWeights();
+    crop.texts = shareTexts();
+    // proportions: the last chosen, otherwise square on phones (the screen is tall: a 4:3 frame would take only a
+    // strip of the map) and 4:3 on desktop
+    crop.ratio = crop.chosenRatio || (mobileMq.matches ? "1:1" : "4:3");
+    [outCanvas.width, outCanvas.height] = RATIOS[crop.ratio];
+    shareUi.pointsRow.hidden = !pointMarkers.length || !!crop.pinLL || synoptic();
+    shareUi.points.checked = state.extra === "none";
+    document.body.classList.add("share-live");
+    shareUi.dialog.classList.add("share-live");
+    shareUi.dialog.classList.remove("share-fixed");
+    if (!shareUi.dialog.open) shareUi.dialog.show(); // not modal: the map below stays usable
+    document.activeElement?.blur?.(); // no focus ring on the close button when it opens
+    setRatio(crop.ratio); // frame, buttons and preview
+    if (crop.pinLL) {
+      // point from the map menu: its marker, in the middle of the frame
+      // with its value above, as in the image (the same label renderOut draws)
+      const label = document.createElement("b");
+      label.textContent = crop.pinText;
+      live.pin = L.marker(crop.pinLL, {
+        icon: L.divIcon({
+          className: "share-pin",
+          html: `<span></span>${crop.pinText ? label.outerHTML : ""}`,
+          iconSize: [22, 22],
+        }),
+        interactive: false,
+        keyboard: false,
+      }).addTo(map);
+      const mr = map.getContainer().getBoundingClientRect();
+      const p = map.latLngToContainerPoint(crop.pinLL);
+      map.panBy([p.x - (live.x - mr.left + live.w / 2), p.y - (live.y - mr.top + live.h / 2)], { animate: false });
+    }
+    liveInvalidate();
+  }
+  function liveEnd() {
+    if (!live.on) return;
+    live.on = false;
+    live.seq++;
+    clearTimeout(live.timer);
+    live.pin?.remove();
+    live.pin = null;
+    document.body.classList.remove("share-live", "share-nopoints");
+    shareUi.dialog.classList.remove("share-live");
+    isoSharing = false;
+    isoWeights();
+  }
+  // the dialog is not modal while sharing over the map: Esc closes it here
+  document.addEventListener("keydown", (e) => {
+    if (live.on && e.key === "Escape") closeShare();
+  });
 
   /** pin: { latlng, text } from the map menu: marker and value label in the image */
   async function openShare(pin = null) {
@@ -5316,8 +5419,8 @@
     });
     // start from the map as you are viewing it (same area and zoom): no device location
     shareRestore = null;
-    widenMore = 1;
     crop.fixed = synoptic();
+    if (!crop.fixed) return liveStart();
     shareUi.dialog.classList.toggle("share-fixed", crop.fixed);
     if (crop.fixed) {
       // 500 hPa chart: the map below is resized and moved for the fixed framing; the dialog opens
@@ -5367,10 +5470,12 @@
   // on closing (X, Esc, after sharing) the map goes back to where it was, if you zoomed out in the dialog
   shareUi.dialog.addEventListener("close", () => {
     shareUi.dialog.classList.remove("share-preparing");
+    if (live.on) liveEnd(); // first: minimum zoom and bounds back, then the view
     if (shareRestore)
-      map.setView(shareRestore.center, shareRestore.zoom, { animate: false });
+      map.setView(shareRestore.center, Math.max(shareRestore.zoom, map.getMinZoom()), { animate: false });
     shareRestore = null;
     shareWideEnd();
+    liveEnd();
     if (crop.savedRatio) {
       crop.ratio = crop.savedRatio;
       crop.savedRatio = null;
@@ -5474,73 +5579,9 @@
     if (shareUi.dialog.open) shareUi.dialog.close(); // immediate close, without animation
   }
 
-  // gestures on the map under the frame: dragging moves it, pinch and wheel zoom it
-  // (= smaller frame on the map, more detail)
-  const pointers = new Map();
-  let pinch = null;
-  const toView = (e) => {
-    const r = shareUi.canvas.getBoundingClientRect();
-    return [e.clientX - r.left, e.clientY - r.top];
-  };
-  /** Point of the captured map under a point of the view. */
-  const viewToMap = ([vx, vy]) => [
-    crop.x + (vx - view.fx) / viewScale(),
-    crop.y + (vy - view.fy) / viewScale(),
-  ];
-  shareUi.canvas.addEventListener("pointerdown", (e) => {
-    if (crop.fixed) return; // fixed framing
-    crop.touched = true;
-    shareUi.canvas.setPointerCapture(e.pointerId);
-    pointers.set(e.pointerId, toView(e));
-    pinch = null;
-  });
-  shareUi.canvas.addEventListener("pointermove", (e) => {
-    if (!pointers.has(e.pointerId)) return;
-    const prev = pointers.get(e.pointerId);
-    const now = toView(e);
-    pointers.set(e.pointerId, now);
-    if (pointers.size === 1) {
-      const fs = viewScale();
-      crop.x -= (now[0] - prev[0]) / fs;
-      crop.y -= (now[1] - prev[1]) / fs;
-      clampCrop();
-      scheduleRender();
-    } else if (pointers.size === 2) {
-      const [a, b] = [...pointers.values()];
-      const dist = Math.hypot(a[0] - b[0], a[1] - b[1]);
-      if (pinch && dist)
-        scaleCropAt(
-          pinch / dist,
-          ...viewToMap([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]),
-        );
-      pinch = dist;
-    }
-  });
-  const endPointer = (e) => {
-    pointers.delete(e.pointerId);
-    pinch = null;
-  };
-  shareUi.canvas.addEventListener("pointerup", endPointer);
-  shareUi.canvas.addEventListener("pointercancel", endPointer);
-  shareUi.canvas.addEventListener(
-    "wheel",
-    (e) => {
-      e.preventDefault();
-      if (crop.fixed) return;
-      crop.touched = true;
-      // wheel forward = bigger map (more detail)
-      scaleCropAt(Math.exp(e.deltaY * 0.0015), ...viewToMap(toView(e)));
-    },
-    { passive: false },
-  );
-  shareUi.zoomIn.addEventListener("click", () => {
-    crop.touched = true;
-    scaleCropAt(1 / 1.25);
-  });
-  shareUi.zoomOut.addEventListener("click", () => {
-    crop.touched = true;
-    scaleCropAt(1.25);
-  });
+  // +/− (desktop): zoom of the map under the frame
+  shareUi.zoomIn.addEventListener("click", () => map.setZoom(map.getZoom() + 0.5));
+  shareUi.zoomOut.addEventListener("click", () => map.setZoom(Math.max(map.getMinZoom(), map.getZoom() - 0.5)));
 
   function toast(text, warn = false) {
     shareUi.toast.textContent = text;
@@ -5604,6 +5645,8 @@
   shareUi.send.addEventListener("click", async () => {
     try {
       if (await sendShare()) closeShare();
+      // the image was prepared after the tap and iOS no longer allows the share sheet: it is ready now
+      else toast("Immagine pronta: tocca di nuovo Condividi.");
     } catch (e) {
       toast(`Condivisione non riuscita: ${e.message}`);
     }
@@ -7920,6 +7963,7 @@
       });
   }
   function showProbe(e) {
+    if (live.on) return; // sharing over the map: no tooltip in the image's way
     // over a place (or with its popup open there) the black popup is enough: one tooltip at a time
     if (
       !current ||
@@ -8098,6 +8142,7 @@
   window.visualViewport?.addEventListener("resize", () => placeMapMenu(true));
   window.visualViewport?.addEventListener("scroll", () => placeMapMenu(true));
   function openMapMenu(ll) {
+    if (live.on) return;
     if (synoptic()) return; // synoptic chart: no point menu
     closePlacePop();
     probeLL = null;

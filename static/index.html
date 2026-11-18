@@ -669,6 +669,10 @@
           </svg>
         </button>
       </header>
+      <!-- sharing over the live map: frame of the image with its header and legend (app.js, liveLayout) -->
+      <div id="share-frame" class="share-frame" aria-hidden="true">
+        <canvas id="share-decor"></canvas>
+      </div>
       <div class="share-stage">
         <canvas
           id="share-canvas"
@@ -687,7 +691,7 @@
           <span>Località</span>
         </label>
         <span class="share-hint"
-          >Trascina la mappa · pizzica o usa la rotella per ingrandire</span
+          >Muovi e ingrandisci la mappa sotto la cornice</span
         >
         <div class="share-zoom">
           <button

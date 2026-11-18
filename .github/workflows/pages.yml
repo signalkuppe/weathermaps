@@ -35,7 +35,7 @@ jobs:
 
       # interface-only push (every changed file in static/): the site of the last full build is reused and only the
       # page is replaced, without downloading and regenerating the map data (about 1-2 minutes instead of ~8).
-      # Hourly runs, manual runs and pushes that touch anything else make the full build.
+      # Hourly runs, manual runs, pushes that touch anything else and commits with "[full]" make the full build.
       - name: Tipo di aggiornamento
         id: kind
         env:
@@ -45,6 +45,8 @@ jobs:
           if [ "${{ github.event_name }}" = "push" ] && [ -n "$BEFORE" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
             changed=$(git diff --name-only "$BEFORE" "$GITHUB_SHA")
             if [ -n "$changed" ] && ! echo "$changed" | grep -qv '^static/'; then kind=page; fi
+            # "[full]" in the last commit message forces the full build
+            if git log -1 --format=%B "$GITHUB_SHA" | grep -qF '[full]'; then kind=full; fi
           fi
           echo "kind=$kind" >> "$GITHUB_OUTPUT"
           echo "Aggiornamento: $kind"
