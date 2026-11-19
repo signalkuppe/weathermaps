@@ -17,6 +17,49 @@ vm.runInContext(
   context,
 );
 
+test("startup fades only the loader without making the ready app transparent", async () => {
+  for (const reducedMotion of [false, true]) {
+    const fades = [];
+    let removed = false;
+    let restored = false;
+    const loader = {
+      animate(frames) {
+        fades.push(Array.from(frames, (frame) => frame.opacity));
+        return { finished: Promise.resolve() };
+      },
+      remove() {
+        removed = true;
+      },
+    };
+    const context = vm.createContext({
+      init: async () => {},
+      glBase: null,
+      requestAnimationFrame: (callback) => callback(),
+      matchMedia: () => ({ matches: reducedMotion }),
+      document: {
+        body: {
+          classList: { remove() {} },
+          removeAttribute() {},
+          animate() {
+            assert.fail("The ready app must never fade through a blank frame");
+          },
+        },
+      },
+      $: () => loader,
+      restoreChartFromHash: () => { restored = true; },
+      setStatus: (message) => assert.fail(message),
+    });
+    vm.runInContext(
+      source.slice(source.indexOf("  async function start()"), source.lastIndexOf("  start();")),
+      context,
+    );
+    await context.start();
+    assert.deepEqual(fades, reducedMotion ? [] : [[1, 0]]);
+    assert.equal(removed, true);
+    assert.equal(restored, true);
+  }
+});
+
 test("visible satellite preserves true colours and uses its own image times", async () => {
   const requests = [];
   const pixels = new Uint8ClampedArray([32, 96, 160, 255]);
