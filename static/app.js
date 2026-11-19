@@ -10028,13 +10028,18 @@
     } finally {
       document.body.classList.remove("is-starting");
       document.body.removeAttribute("aria-busy");
-      $("startup-loader")?.remove();
-      if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
-        document.body.animate([{ opacity: 0 }, { opacity: 1 }], {
-          duration: 350,
-          easing: "ease-out",
-        });
-      }
+      const loader = $("startup-loader");
+      if (loader && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        loader
+          .animate([{ opacity: 1 }, { opacity: 0 }], {
+            duration: 350,
+            easing: "ease-out",
+          })
+          .finished.then(
+            () => loader.remove(),
+            () => loader.remove(),
+          );
+      } else loader?.remove();
     }
     restoreChartFromHash();
   }
