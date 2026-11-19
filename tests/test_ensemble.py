@@ -120,8 +120,11 @@ def test_operational_run_on_its_own_grid(tmp_path: Path):
     for s in GFS.steps[:-1]:  # the last step is missing
         t = np.full((5, 5), 20.0, np.float32)
         t[2, 4] = s / 10  # the cell under (45.5, 10.0) on the 0.25° grid
+        t[3, 3] = 100 + s / 10
         store.save(GFS.store_id, RUN, "t850.op", s, Field(values=t, lat0=45, lon0=9, dlat=0.25, dlon=0.25))
-        store.save(GFS.store_id, RUN, "tp.op", s, Field(values=np.full((5, 5), 2.0, np.float32), lat0=45, lon0=9,
+        rain = np.full((5, 5), 2.0, np.float32)
+        rain[3, 3] = 18.6
+        store.save(GFS.store_id, RUN, "tp.op", s, Field(values=rain, lat0=45, lon0=9,
                                                          dlat=0.25, dlon=0.25))
     assert ensemble.latest_complete(store, GFS) == RUN
     d = ensemble.point_series(store, "gfs", 45.5, 10)
@@ -129,6 +132,33 @@ def test_operational_run_on_its_own_grid(tmp_path: Path):
     assert d["op"]["tp"][:2] == [2.0, 2.0]  # GFS: already 6-hour buckets
     pts = {(iy, ix): p for _, iy, ix, p in ensemble.all_points(store)}
     assert pts[(1, 2)]["op"]["t850"][0] == 0.6 and pts[(0, 0)]["op"]["t850"][0] == 20.0
+    point = ensemble.point_series(store, "gfs", 45.65, 9.85)
+    assert (point["lat"], point["lon"]) == (45.5, 10.0)
+    assert point["t850"] == d["t850"]
+    assert point["op"]["t850"][:2] == [100.6, 101.2]
+    assert point["op"]["tp"][:2] == [18.6, 18.6]
+    assert point["op"]["tp"][-1] is None
+    op_grid = ensemble.info(store)["gfs"]["op_grid"]
+    assert (op_grid["dlat"], op_grid["dlon"], op_grid["ny"], op_grid["nx"]) == (0.25, 0.25, 5, 5)
+    assert ensemble.point_index(op_grid, 45.625, 9.625) == (3, 3)
+    assert ensemble.point_series(store, "gfs", 45.625, 9.625)["op"] == point["op"]
+    official = {(iy, ix): body for _, _, iy, ix, body in ensemble.all_operational_points(store)}
+    assert len(official) == 25
+    assert official[(3, 3)] == point["op"]
+    from scripts import build_static
+
+    output = tmp_path / "public"
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(build_static, "Store", lambda: store)
+        patch.setattr(build_static, "build_page", lambda _: None)
+        assert build_static.main(output) == 0
+    exported = json.loads((output / "data" / "ensemble" / "gfs" / RUN / "op" / "3_3.json").read_text())
+    assert exported == point["op"]
+    assert json.loads((output / "data" / "meta.json").read_text())["ensemble"]["gfs"]["op_grid"] == op_grid
+    with TestClient(create_app(store=store, start_scheduler=False)) as client:
+        response = client.get("/api/ensemble", params={"model": "gfs", "lat": 45.65, "lon": 9.85})
+        assert response.status_code == 200
+        assert response.json()["op"] == exported
 
 
 def test_ecmwf_operational_precipitation_from_accumulated(tmp_path: Path):

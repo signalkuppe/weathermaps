@@ -552,15 +552,6 @@ body.share-wide .wm-native-map {
   .panel-body > details.models[open] > summary {
     background: var(--panel-solid);
   } /* first section: no line above */
-  /* 6px above the title inside the section (the + / − box is taller than the line and would be cut by the scrolling
-     section), the section 6px higher: the title stays where it was */
-  .panel-body > details.models.points-box > summary {
-    padding-top: 6px; /* more specific than the base rule (padding-top: 0) further down */
-  }
-  /* open or closed alike: changing it only with [open] made the menu jump 6px at the end of the closing animation */
-  .panel-body > details.models {
-    margin-top: -6px;
-  }
   /* shadow under the title when the section has scrolled, fade at the bottom when there is more below (app.js) */
   .panel-body > details[open].more-above > summary {
     box-shadow:
@@ -1680,9 +1671,10 @@ body.radar-mode .badge-radar .badge-btn {
 .panel-body > details.models {
   border-top: 0;
   padding-top: 0;
+  margin-top: -6px;
 }
-.panel-body > details.models > summary {
-  padding-top: 0; /* right below the name */
+.panel-body > details.models.points-box > summary {
+  padding-top: 6px;
 }
 .credits-data {
   margin: 6px 0 0;

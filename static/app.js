@@ -3353,7 +3353,26 @@
   }
   map.on("moveend", placeContourLabels);
 
+  function renderTimeControls() {
+    const single = !!state.run && slideSteps().length === 1;
+    $("step").closest(".stepper").hidden = single;
+    for (const id of [
+      "m-first",
+      "m-prev",
+      "m-next",
+      "m-play",
+      "m-step",
+      "m-interval-step",
+    ])
+      $(id).hidden = single;
+    $("single-time-info").hidden = !single;
+    $("single-time-text").textContent = single
+      ? `${rangeMode() ? `Un solo intervallo di ${intervalHours()} ore` : "Un solo istante"} disponibile per questa corsa: ${fmtShown(state.step)}.`
+      : "";
+  }
+
   function renderTime() {
+    renderTimeControls();
     const s = state.step;
     const run = runDate(state.run || "1970010100");
     const valid = new Date(run.getTime() + s * 3600e3);
@@ -6033,15 +6052,29 @@
       if (!r.ok) throw new Error(r.statusText);
       return r.json();
     }
-    const { run, grid: g } = meta.ensemble[model];
-    const iy = Math.min(
+    const { run, grid, op_grid: opGrid } = meta.ensemble[model];
+    const pointFile = (g) => {
+      const iy = Math.min(
         Math.max(Math.round((lat - g.lat0) / g.dlat), 0),
         g.ny - 1,
-      ),
-      ix = Math.min(Math.max(Math.round((lon - g.lon0) / g.dlon), 0), g.nx - 1);
-    const r = await fetch(`data/ensemble/${model}/${run}/${iy}_${ix}.json`);
+      );
+      const ix = Math.min(
+        Math.max(Math.round((lon - g.lon0) / g.dlon), 0),
+        g.nx - 1,
+      );
+      return `${iy}_${ix}.json`;
+    };
+    const base = `data/ensemble/${model}/${run}`;
+    const official = opGrid
+      ? fetch(`${base}/op/${pointFile(opGrid)}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null)
+      : null;
+    const r = await fetch(`${base}/${pointFile(grid)}`);
     if (!r.ok) throw new Error("ensemble non disponibile per questo punto");
-    return r.json();
+    const data = await r.json();
+    if (opGrid) data.op = await official;
+    return data;
   }
 
   function writeChartHash(push = false) {
@@ -9658,6 +9691,8 @@
   function renderLandscapeNav() {
     // the forecast hour too, as in the bar and the panel ("+51h"); with an interval the dates are enough
     const on = meta && state.run && variable();
+    for (const button of lvNav.querySelectorAll("button"))
+      button.hidden = !!on && slideSteps().length === 1;
     lvNav.querySelector(".lv-time").textContent = !on
       ? ""
       : intervalStartDate(state.step)

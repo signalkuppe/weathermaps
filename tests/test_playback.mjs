@@ -351,6 +351,151 @@ test("playback keeps both range thumbs fixed while its progress advances", () =>
   playback.play(false);
 });
 
+test("a single time position replaces panel controls with a notice and hides mobile navigation", () => {
+  const state = { run: "2026111900", step: 24, hours: 24, cum: "hours" };
+  let horizon = 33;
+  const stepper = {};
+  const elements = Object.fromEntries(
+    [
+      "step",
+      "badge",
+      "single-time-info",
+      "single-time-text",
+      "m-first",
+      "m-prev",
+      "m-next",
+      "m-play",
+      "m-step",
+      "m-interval-step",
+    ].map((id) => [id, {}]),
+  );
+  elements.step.closest = () => stepper;
+  const landscapeButtons = [{}, {}, {}, {}];
+  const steps = () =>
+    Array.from({ length: horizon / 3 }, (_, index) => (index + 1) * 3);
+  const context = vm.createContext({
+    state,
+    meta: {},
+    variable: () => ({}),
+    intervalStartDate: () => true,
+    lvNav: {
+      querySelectorAll: () => landscapeButtons,
+      querySelector: () => ({}),
+    },
+    steps,
+    availableSteps: () => new Set(steps()),
+    slideSteps: () => context.rangeFrames(0, horizon),
+    rangeMode: () => state.cum !== "value",
+    intervalHours: () => state.hours,
+    fmtShown: () => "gio 19 nov, 01:00 → ven 20 nov, 01:00",
+    $: (id) => elements[id],
+  });
+  vm.runInContext(
+    source.slice(
+      source.indexOf("  function rangeFrames("),
+      source.indexOf("  // actual duration"),
+    ) +
+      source.slice(
+        source.indexOf("  function renderTimeControls()"),
+        source.indexOf("  function renderTime()"),
+      ) +
+      source.slice(
+        source.indexOf("  function renderLandscapeNav()"),
+        source.indexOf("  function applyLandscape()"),
+      ),
+    context,
+  );
+  const check = (single) => {
+    vm.runInContext("renderTimeControls(); renderLandscapeNav();", context);
+    assert.equal(stepper.hidden, single);
+    for (const id of [
+      "m-first",
+      "m-prev",
+      "m-next",
+      "m-play",
+      "m-step",
+      "m-interval-step",
+    ])
+      assert.equal(elements[id].hidden, single, id);
+    assert.equal(elements["single-time-info"].hidden, !single);
+    for (const button of landscapeButtons) assert.equal(button.hidden, single);
+    if (!single) assert.equal(elements["single-time-text"].textContent, "");
+  };
+  check(true);
+  assert.match(
+    elements["single-time-text"].textContent,
+    /Un solo intervallo di 24 ore/,
+  );
+  assert.match(
+    elements["single-time-text"].textContent,
+    /gio 19 nov.*ven 20 nov/,
+  );
+  state.hours = 12;
+  check(false);
+  state.hours = 24;
+  check(true);
+  for (horizon of [48, 51, 72, 120, 192]) check(false);
+  horizon = 33;
+  state.cum = "total";
+  check(false);
+  state.cum = "hours";
+  state.run = null;
+  check(false);
+});
+
+test("static ensemble samples the official run on its native grid", async () => {
+  const grid = { lat0: 45, lon0: 9, dlat: 0.5, dlon: 0.5, ny: 3, nx: 3 };
+  const opGrid = { ...grid, dlat: 0.25, dlon: 0.25, ny: 5, nx: 5 };
+  const info = { run: "2026111900", grid, op_grid: opGrid };
+  const coarse = { lat: 45.5, lon: 10, tp: [[1]], op: { tp: [13.4] } };
+  const native = { tp: [18.6], t850: [3] };
+  const requests = [];
+  let officialStatus = 200;
+  const context = vm.createContext({
+    STATIC: true,
+    URLSearchParams,
+    meta: { ensemble: { gfs: info } },
+    fetch: async (url) => {
+      requests.push(url);
+      const official = url.includes("/op/");
+      return {
+        ok: !official || officialStatus === 200,
+        json: async () => structuredClone(official ? native : coarse),
+      };
+    },
+  });
+  vm.runInContext(
+    source.slice(
+      source.indexOf("  async function getEnsemble("),
+      source.indexOf("  function writeChartHash("),
+    ),
+    context,
+  );
+  const point = await context.getEnsemble("gfs", 45.65, 9.85);
+  assert.deepEqual(point.tp, coarse.tp);
+  assert.deepEqual(point.op, native);
+  assert.deepEqual(requests.sort(), [
+    "data/ensemble/gfs/2026111900/1_2.json",
+    "data/ensemble/gfs/2026111900/op/3_3.json",
+  ]);
+  requests.length = 0;
+  await context.getEnsemble("gfs", 45.625, 9.625);
+  assert.ok(requests.includes("data/ensemble/gfs/2026111900/op/3_3.json"));
+  officialStatus = 404;
+  assert.equal((await context.getEnsemble("gfs", 45.65, 9.85)).op, null);
+  delete info.op_grid;
+  requests.length = 0;
+  assert.deepEqual(
+    (await context.getEnsemble("gfs", 45.65, 9.85)).op,
+    coarse.op,
+  );
+  assert.equal(requests.length, 1);
+  context.STATIC = false;
+  requests.length = 0;
+  await context.getEnsemble("gfs", 45.65, 9.85);
+  assert.equal(requests[0], "api/ensemble?model=gfs&lat=45.65&lon=9.85");
+});
+
 test("time bars show the interval as dates, with the start", () => {
   const state = {
     run: "2026111306",
@@ -379,6 +524,7 @@ test("time bars show the interval as dates, with the start", () => {
     intervalPrev: () => (state.mode === "interval" ? 3 : 0),
     intervalHours: () => 6,
     syncIntervalSliders() {},
+    renderTimeControls() {},
     steps: () => [3, 6, 9, 12, 24],
     slideSteps: () => [3, 6, 9, 12, 24],
     $: () => ({ style: { setProperty() {} } }),

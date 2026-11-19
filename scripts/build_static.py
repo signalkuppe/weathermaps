@@ -13,6 +13,7 @@ Produces in OUT_DIR:
                                                snow on the model grid ("native"), the rest on a regular grid
                                                ("smooth"); the grids are in runs.json (app/series.py)
   data/ensemble/{model}/{run}/{row}_{column}.json  GFS and ECMWF ensemble spaghetti, one point (app/ensemble.py)
+    data/ensemble/{model}/{run}/op/{row}_{column}.json  operational run on its native grid
   data/soundings/index.json, {station}/{YYYYMMDDHH}.json  observed soundings (app/soundings.py)
 
 To limit the number of files (GitHub Pages syncs them one by one, within 10 minutes):
@@ -184,6 +185,8 @@ def main(out_dir: Path) -> int:
         for model, iy, ix, body in ensemble.all_points(store):
             size += write_json(out_dir / "data" / "ensemble" / model / body["run"] / f"{iy}_{ix}.json", body)
             nens += 1
+        for model, rid, iy, ix, body in ensemble.all_operational_points(store):
+            size += write_json(out_dir / "data" / "ensemble" / model / rid / "op" / f"{iy}_{ix}.json", body)
         # observed soundings: station index and one file per launch (see app/soundings.py)
         size += write_json(out_dir / "data" / "soundings" / "index.json", soundings.index(store))
         for st in soundings.index(store):

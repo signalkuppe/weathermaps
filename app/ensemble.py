@@ -14,7 +14,8 @@ runs (00, 06, 12, 18 UTC), ECMWF for the 00 and 12 UTC runs (its 06/18 runs stop
 
 With each ensemble run the operational run of the same cycle (the deterministic GFS 0.25° or ECMWF IFS 0.25°) is
 downloaded too, only the same two fields and over the whole range (the maps stop at +192h): stored as the extra member
-"op" (fields "t850.op", "tp.op"), on its own grid, and read at the nearest cell of each point. It is not needed for a
+"op" (fields "t850.op", "tp.op"), on its own grid, and read at the cell nearest to the requested location,
+independently of the ensemble grid. Static exports include separate operational point files. It is not needed for a
 run to be complete: if it is missing the spaghetti are drawn without it.
 """
 from __future__ import annotations
@@ -394,6 +395,17 @@ def _grid(store: Store, src: Source, rid: str) -> dict:
     return store.load(src.store_id, rid, _var("t850", src.members[0]), src.steps[0])[1]
 
 
+def _op_grid(store: Store, src: Source, rid: str) -> dict | None:
+    grid = None
+    for var in VARS:
+        steps = store.steps(src.store_id, rid, _var(var, OP))
+        if not steps:
+            return None
+        if var == "t850":
+            grid = store.load(src.store_id, rid, _var(var, OP), steps[0])[1]
+    return grid
+
+
 def info(store: Store) -> dict:
     """For /api/meta: for each model with the ensemble ready, run, members and point grid."""
     out = {}
@@ -401,13 +413,14 @@ def info(store: Store) -> dict:
         rid = latest_complete(store, src)
         if rid:
             out[model] = {"run": rid, "label": src.label, "members": list(src.members), "control": src.control,
-                          "steps": list(src.steps), "grid": _grid(store, src, rid)}
+                          "steps": list(src.steps), "grid": _grid(store, src, rid),
+                          "op_grid": _op_grid(store, src, rid)}
     return out
 
 
 def point_index(grid: dict, lat: float, lon: float) -> tuple[int, int]:
-    iy = int(round((lat - grid["lat0"]) / grid["dlat"]))
-    ix = int(round((lon - grid["lon0"]) / grid["dlon"]))
+    iy = int(np.floor((lat - grid["lat0"]) / grid["dlat"] + 0.5))
+    ix = int(np.floor((lon - grid["lon0"]) / grid["dlon"] + 0.5))
     return min(max(iy, 0), grid["ny"] - 1), min(max(ix, 0), grid["nx"] - 1)
 
 
@@ -479,8 +492,9 @@ def point_series(store: Store, model: str, lat: float, lon: float) -> dict | Non
     g = _grid(store, src, rid)
     iy, ix = point_index(g, lat, lon)
     cube = _cube(store, src, rid, slice(iy, iy + 1), slice(ix, ix + 1))
-    return _point(src, cube, rid, g["lat0"] + iy * g["dlat"], g["lon0"] + ix * g["dlon"], 0, 0,
-                  _op_cube(store, src, rid))
+    point = _point(src, cube, rid, g["lat0"] + iy * g["dlat"], g["lon0"] + ix * g["dlon"], 0, 0)
+    point["op"] = _op_at(_op_cube(store, src, rid), lat, lon)
+    return point
 
 
 def all_points(store: Store):
@@ -496,6 +510,22 @@ def all_points(store: Store):
             for ix in range(g["nx"]):
                 yield model, iy, ix, _point(src, cube, rid, g["lat0"] + iy * g["dlat"], g["lon0"] + ix * g["dlon"],
                                             iy, ix, op)
+
+
+def all_operational_points(store: Store):
+    for model, src in SOURCES.items():
+        rid = latest_complete(store, src)
+        if not rid:
+            continue
+        op = _op_cube(store, src, rid)
+        if not op:
+            continue
+        grid = op["t850"][1]
+        for iy in range(grid["ny"]):
+            for ix in range(grid["nx"]):
+                lat = grid["lat0"] + iy * grid["dlat"]
+                lon = grid["lon0"] + ix * grid["dlon"]
+                yield model, rid, iy, ix, _op_at(op, lat, lon)
 
 
 if __name__ == "__main__":  # python -m app.ensemble [gfs|ecmwf]: downloads the latest runs
