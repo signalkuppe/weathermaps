@@ -117,6 +117,7 @@
     borders: "regions",
     bordersOpacity: 1,
     extra: "none",
+    satProduct: "ir",
   }; // defaults: Outdoors, colours at 70%, borders down to regions at full contrast, smooth cells
   // "static": site published on GitHub Pages (pre-generated JSON files, no server)
   const STATIC = document.documentElement.dataset.mode === "static";
@@ -1208,6 +1209,8 @@
       if (d.extra === "radar" || d.extra === "sat" || d.extra === "snd")
         state.extra = d.extra;
       else if (d.radar === true) state.extra = "radar"; // setting saved by the first version of the radar
+      if (d.satProduct === "ir" || d.satProduct === "vis")
+        state.satProduct = d.satProduct;
       if (current && Number.isFinite(d.bordersOpacity))
         state.bordersOpacity = Math.min(1, Math.max(0.1, d.bordersOpacity));
     } catch {
@@ -1232,6 +1235,7 @@
           borders: state.borders,
           bordersOpacity: state.bordersOpacity,
           extra: state.extra,
+          satProduct: state.satProduct,
         }),
       );
     } catch {
@@ -1657,7 +1661,12 @@
   }
 
   function renderLegend() {
+    ui.legend.hidden = state.extra === "sat" && state.satProduct === "vis";
     if (state.extra === "sat") {
+      if (state.satProduct === "vis") {
+        ui.legend.innerHTML = "";
+        return;
+      }
       // satellite: colours of the clouds by height (infrared), from the lowest to the thunderstorm tops
       ui.legend.innerHTML =
         `<h2><span class="lg-label">Nubi da satellite </span>(infrarosso)</h2><ol class="lg-continuous">` +
@@ -2132,7 +2141,7 @@
       /** Latest image: from the capabilities of the single layer (8 kB), default attribute of the time dimension. */
       async latest() {
         const r = await fetch(
-          "https://view.eumetsat.int/geoserver/mtg_fd/ir105_hrfi/ows?service=WMS&request=GetCapabilities&version=1.3.0",
+          `https://view.eumetsat.int/geoserver/${this.layer.replace(":", "/")}/ows?service=WMS&request=GetCapabilities&version=1.3.0`,
         );
         const m = r.ok
           ? (await r.text()).match(
@@ -2142,6 +2151,14 @@
         return m ? new Date(m[1]).toISOString() : null;
       },
     },
+  };
+  const SAT_VISIBLE = {
+    ...EXTRAS.sat,
+    name: "Visibile",
+    layer: "mtg_fd:rgb_truecolour",
+    shareTitle: "Satellite visibile · EUMETSAT Meteosat",
+    shareSub: "Colori naturali",
+    clean: null,
   };
   map.createPane("radar");
   map.getPane("radar").style.zIndex = 405; // above the model colours, below borders, arrows and contours
@@ -2166,7 +2183,7 @@
         const ctx = c.getContext("2d");
         ctx.drawImage(img, 0, 0);
         const px = ctx.getImageData(0, 0, c.width, c.height);
-        cfg.clean(px.data);
+        cfg.clean?.(px.data);
         ctx.putImageData(px, 0, 0);
         c.toBlob(
           (blob) => resolve(blob ? URL.createObjectURL(blob) : null),
@@ -2192,7 +2209,10 @@
   }
   // animation: the last `frames` images, one layer per image loaded right away; switching from one to the next changes
   // only the opacity, so the animation does not flicker while the tiles arrive
-  const extraCfg = () => EXTRAS[state.extra];
+  const extraCfg = () =>
+    state.extra === "sat" && state.satProduct === "vis"
+      ? SAT_VISIBLE
+      : EXTRAS[state.extra];
   const fmtRadarTime = (t) =>
     new Date(t).toLocaleTimeString("it-IT", {
       timeZone: "Europe/Rome",
@@ -2214,6 +2234,8 @@
     if (all) radarReadyOnce = true;
     const loading = !!extraCfg() && !radarReadyOnce;
     $("radar-loader").hidden = !loading;
+    $("radar-slider").disabled = loading;
+    $("radar-play").disabled = loading;
     const was = document.body.classList.contains("radar-loading");
     document.body.classList.toggle("radar-loading", loading);
     if (was && !loading) {
@@ -2275,6 +2297,7 @@
       `${(100 * radarIdx) / (+$("radar-slider").max || 1)}%`,
     );
     $("radar-badge-time").textContent = f ? fmtRadarTime(f.time) : "—";
+    if (document.body.classList.contains("landscape-view")) renderLandscapeNav();
   }
   function stopRadarPlay() {
     cancelAnimationFrame(radarPlay);
@@ -2428,6 +2451,24 @@
       refreshRadar();
       radarTimer = setInterval(refreshRadar, cfg.stepMin * 60e3); // new image every 5 (radar) or 10 minutes (satellite)
     }
+    $("satellite-mode-row").hidden = state.extra !== "sat";
+    $("satellite-mode").replaceChildren(
+      ...[
+        ["ir", "Infrarosso"],
+        ["vis", "Visibile"],
+      ].map(([value, text]) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = text;
+        button.setAttribute("aria-pressed", String(value === state.satProduct));
+        button.addEventListener("click", () => {
+          if (state.satProduct === value) return;
+          state.satProduct = value;
+          setExtra("sat");
+        });
+        return button;
+      }),
+    );
     // tiles with a small picture of the layer (static/icons/extra) and its name
     $("extra-seg").replaceChildren(
       ...Object.entries(EXTRA_NAMES).map(([k, text]) => {
@@ -4989,14 +5030,19 @@
                 transparent_below: RADAR_CLASSES[0][0],
               },
             }
-          : {
-              units: "Nubi",
-              scale: {
-                continuous: true,
-                thresholds: ["basse", "medie", "alte", "temporali", ""],
-                colors: SAT_SHADES,
-              },
-            };
+          : state.satProduct === "vis"
+            ? {
+                units: "Colori naturali · zone illuminate dal Sole",
+                scale: { thresholds: [], colors: [] },
+              }
+            : {
+                units: "Nubi",
+                scale: {
+                  continuous: true,
+                  thresholds: ["basse", "medie", "alte", "temporali", ""],
+                  colors: SAT_SHADES,
+                },
+              };
       return {
         v,
         title: cfg.shareTitle,
@@ -9689,6 +9735,13 @@
     else goStep(+go);
   });
   function renderLandscapeNav() {
+    if (state.extra === "radar" || state.extra === "sat") {
+      const frame = radarFrames[radarIdx];
+      lvNav.querySelector(".lv-time").textContent = frame
+        ? fmtLocal(new Date(frame.time))
+        : "";
+      return;
+    }
     // the forecast hour too, as in the bar and the panel ("+51h"); with an interval the dates are enough
     const on = meta && state.run && variable();
     for (const button of lvNav.querySelectorAll("button"))
@@ -9708,6 +9761,10 @@
     if (on) {
       closeMapMenu();
       closePlacePop();
+      if (extraCfg() && !radarPlay) {
+        radarAutoplay = true;
+        updateRadarLoading();
+      }
       probeLL = null; // the tapped point's tooltip goes away too
       ui.probe.hidden = true;
       renderLandscapeNav();

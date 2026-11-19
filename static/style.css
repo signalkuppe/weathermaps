@@ -1486,9 +1486,34 @@ body.radar-mode .badge .extra-close {
   display: flex;
   margin-left: 6px;
 } /* .share-btn: same look as sharing */
-body.radar-mode .badge > :not(.badge-radar):not(.share-btn):not(.legend) {
+body.radar-mode .badge > :not(.badge-radar):not(.share-btn):not(.legend):not(.satellite-mode) {
   display: none;
 } /* .extra-close is .share-btn */
+.satellite-mode {
+  display: flex;
+  flex: none;
+  margin-left: 10px;
+  pointer-events: auto;
+}
+.satellite-mode .seg {
+  flex: 1;
+}
+.satellite-mode button {
+  min-height: 32px;
+  padding-inline: 10px;
+}
+body.sat-mode .badge {
+  max-width: calc(100% - 388px);
+  flex-wrap: wrap;
+}
+body.sat-mode .badge-radar {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+body.sat-mode .badge-radar input[type="range"] {
+  flex: 1;
+  min-width: 0;
+}
 body.radar-mode .badge-radar {
   display: flex;
   align-items: center;
@@ -2651,13 +2676,15 @@ body.radar-mode .badge-radar .badge-btn {
   }
   /* a single box at the bottom: image time + model/run, below it the compact legend */
   /* row: ‹ time › ▶ … model run; below, full width, the legend */
-  .badge {
+  .badge,
+  body.sat-mode .badge {
     top: auto;
     /* above the Home indicator in the app, but close to the edge: the reserved space (34px) is more than needed */
     bottom: max(8px, calc(env(safe-area-inset-bottom) - 12px));
     left: 8px;
     right: 8px;
     transform: none;
+    max-width: none;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -2669,6 +2696,11 @@ body.radar-mode .badge-radar .badge-btn {
   .badge-text {
     display: contents;
     line-height: inherit;
+  }
+  .satellite-mode {
+    order: 6;
+    flex: 1 0 calc(100% - 8px);
+    margin: 4px 0 4px 8px;
   }
   .badge-d {
     display: none;
@@ -2831,7 +2863,7 @@ body.radar-mode .badge-radar .badge-btn {
   .badge .legend {
     order: 7;
     flex-basis: 100%;
-    padding-left: 8px;
+    padding: 10px 0 10px 8px;
     flex-wrap: wrap;
   }
   /* compact legend above the run label: unit on the left, colour bar with the thresholds below */
@@ -3967,6 +3999,7 @@ body.synoptic-mode .iso-lbl span {
 body.landscape-view .panel,
 body.landscape-view .badge,
 body.landscape-view .legend,
+body.landscape-view.radar-mode.radar-loading .lv-nav,
 body.landscape-view .leaflet-control-zoom,
 body.landscape-view .wm-mapbox-controls .mapboxgl-ctrl-group {
   display: none !important;
@@ -3986,6 +4019,12 @@ body.landscape-view .lv-nav {
   align-items: center;
   justify-content: space-between;
   pointer-events: none; /* between the buttons the map stays touchable */
+}
+body.landscape-view.radar-mode .lv-nav {
+  justify-content: center;
+}
+body.landscape-view.radar-mode .lv-side {
+  display: none;
 }
 /* « ‹ on the left and › » on the right, close together; separate round buttons */
 .lv-side {

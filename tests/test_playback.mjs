@@ -17,6 +17,254 @@ vm.runInContext(
   context,
 );
 
+test("visible satellite preserves true colours and uses its own image times", async () => {
+  const requests = [];
+  const pixels = new Uint8ClampedArray([32, 96, 160, 255]);
+  const state = { extra: "sat" };
+  const context = vm.createContext({
+    state,
+    variable: () => ({}),
+    runDate: () => new Date("2026-11-19T00:00:00Z"),
+    cycle: () => "00Z",
+    fmtRunDay: () => "19/11",
+    fmtLocal: () => "19/11 11:00",
+    glBase: {},
+    radarFrames: [{ time: "2026-11-19T10:00:00Z" }],
+    radarIdx: 0,
+    location: { host: "localhost", pathname: "/" },
+    meta: { bbox: { lat_min: 0, lon_min: 0, lat_max: 1, lon_max: 1 } },
+    L: {
+      latLng: (lat, lon) => ({ x: lon, y: lat }),
+      CRS: { EPSG3857: { project: (point) => point } },
+    },
+    Image: class {
+      set src(url) {
+        requests.push(url);
+        this.onload();
+      }
+    },
+    document: {
+      createElement: () => ({
+        getContext: () => ({
+          drawImage() {},
+          getImageData: () => ({ data: pixels }),
+          putImageData() {},
+        }),
+        toBlob: (callback) => callback({}),
+      }),
+    },
+    URL: { createObjectURL: () => "blob:visible" },
+    wmsUrl: (base, params) => `${base}?${new URLSearchParams(params)}`,
+    fetch: async (url) => {
+      requests.push(url);
+      return {
+        ok: true,
+        text: async () =>
+          '<Dimension name="time" default="2026-11-19T10:00:00Z" />',
+      };
+    },
+  });
+  vm.runInContext(
+    source.slice(
+      source.indexOf("  const EXTRAS ="),
+      source.indexOf('  map.createPane("radar")'),
+    ) +
+    source.slice(
+      source.indexOf("  const EXTRA_W ="),
+      source.indexOf("  const fmtRadarTime ="),
+    ) +
+    source.slice(
+      source.indexOf("  function shareTexts()"),
+      source.indexOf("  // crop in coordinates"),
+    ) +
+    "\nglobalThis.config = extraCfg;",
+    context,
+  );
+  const infrared = context.config();
+  assert.equal(infrared.layer, "mtg_fd:ir105_hrfi");
+  assert.equal(typeof infrared.clean, "function");
+  state.satProduct = "vis";
+  const visible = context.config();
+  assert.equal(visible.layer, "mtg_fd:rgb_truecolour");
+  assert.equal(visible.clean, null);
+  assert.equal(visible.stepMin, 10);
+  assert.equal(await visible.latest(), "2026-11-19T10:00:00.000Z");
+  assert.match(requests.at(-1), /mtg_fd\/rgb_truecolour\/ows/);
+  assert.equal(
+    await context.extraImage(visible, "2026-11-19T10:00:00Z"),
+    "blob:visible",
+  );
+  assert.deepEqual(Array.from(pixels), [32, 96, 160, 255]);
+  assert.match(requests.at(-1), /layers=mtg_fd%3Argb_truecolour/);
+  const shared = context.shareTexts();
+  assert.match(shared.title, /Satellite visibile/);
+  assert.match(shared.sub, /Colori naturali/);
+  assert.equal(shared.v.scale.thresholds.length, 0);
+  assert.equal(shared.v.scale.colors.length, 0);
+  state.satProduct = "ir";
+  assert.equal(context.config(), infrared);
+  state.extra = "radar";
+  assert.equal(context.config().layer, "meteohub:radar-sri");
+});
+
+test("visible satellite has no legend and infrared restores its legend", () => {
+  const state = { extra: "sat", satProduct: "vis" };
+  const legend = { hidden: false, innerHTML: "previous legend" };
+  const context = vm.createContext({
+    state,
+    ui: { legend },
+    SAT_SHADES: ["gray", "white", "cyan", "blue", "navy"],
+  });
+  vm.runInContext(
+    source.slice(
+      source.indexOf("  function renderLegend()"),
+      source.indexOf("  function fieldUrl("),
+    ),
+    context,
+  );
+  context.renderLegend();
+  assert.equal(legend.hidden, true);
+  assert.equal(legend.innerHTML, "");
+  state.satProduct = "ir";
+  context.renderLegend();
+  assert.equal(legend.hidden, false);
+  assert.match(legend.innerHTML, /infrarosso/);
+});
+
+test("satellite channel preferences survive closing and reloading the satellite", () => {
+  const saved = new Map();
+  const state = { extra: "sat", satProduct: "ir" };
+  const context = vm.createContext({
+    state,
+    INTERVALS: [3, 6, 12, 24],
+    BORDER_NAMES: {},
+    localStorage: {
+      getItem: (key) => saved.get(key) ?? null,
+      setItem: (key, value) => saved.set(key, value),
+    },
+  });
+  vm.runInContext(
+    source.slice(
+      source.indexOf("  const SETTINGS_KEY ="),
+      source.indexOf("  // ---------- state in the URL"),
+    ),
+    context,
+  );
+  for (const product of ["vis", "ir"]) {
+    state.extra = "sat";
+    state.satProduct = product;
+    context.saveSettings();
+    state.extra = "none";
+    context.saveSettings();
+    state.satProduct = "ir";
+    context.loadSettings();
+    assert.equal(state.satProduct, product);
+    state.extra = "sat";
+    assert.equal(state.satProduct, product);
+  }
+  saved.set("weathermaps.settings.v1", JSON.stringify({ satProduct: "invalid" }));
+  state.satProduct = "ir";
+  context.loadSettings();
+  assert.equal(state.satProduct, "ir");
+});
+
+test("radar and satellite landscape dates follow the displayed image", () => {
+  for (const extra of ["radar", "sat"]) {
+    const time = { textContent: "forecast time" };
+    const context = vm.createContext({
+      state: { extra },
+      radarFrames: [
+        { time: "2026-11-19T10:00:00Z" },
+        { time: "2026-11-19T10:10:00Z" },
+      ],
+      radarIdx: 0,
+      lvNav: { querySelector: () => time },
+      fmtLocal: (date) => date.toISOString(),
+    });
+    vm.runInContext(
+      source.slice(
+        source.indexOf("  function renderLandscapeNav()"),
+        source.indexOf("  function applyLandscape()"),
+      ),
+      context,
+    );
+    context.renderLandscapeNav();
+    assert.equal(time.textContent, "2026-11-19T10:00:00.000Z");
+    context.radarIdx = 1;
+    context.renderLandscapeNav();
+    assert.equal(time.textContent, "2026-11-19T10:10:00.000Z");
+    context.radarFrames = [];
+    context.renderLandscapeNav();
+    assert.equal(time.textContent, "");
+  }
+});
+
+test("mobile landscape resumes extra-layer loops without duplicating playback", () => {
+  for (const extra of ["none", "radar", "sat"]) {
+    let updates = 0;
+    const context = vm.createContext({
+      landscapeMq: { matches: true },
+      document: { body: { classList: { toggle() {} } } },
+      glBase: null,
+      map: { doubleClickZoom: { disable() {}, enable() {} } },
+      closeMapMenu() {},
+      closePlacePop() {},
+      extraCfg: () => extra === "none" ? undefined : {},
+      radarPlay: null,
+      radarAutoplay: false,
+      updateRadarLoading: () => updates++,
+      probeLL: {},
+      ui: { probe: {} },
+      renderLandscapeNav() {},
+      setTimeout() {},
+    });
+    vm.runInContext(
+      source.slice(
+        source.indexOf("  function applyLandscape()"),
+        source.indexOf('  landscapeMq.addEventListener("change"'),
+      ),
+      context,
+    );
+    context.applyLandscape();
+    assert.equal(context.radarAutoplay, extra !== "none");
+    assert.equal(updates, extra === "none" ? 0 : 1);
+    context.radarPlay = 1;
+    context.radarAutoplay = false;
+    context.applyLandscape();
+    assert.equal(context.radarAutoplay, false);
+    assert.equal(updates, extra === "none" ? 0 : 1);
+    context.landscapeMq.matches = false;
+    context.radarPlay = null;
+    context.applyLandscape();
+    assert.equal(context.radarAutoplay, false);
+    assert.equal(updates, extra === "none" ? 0 : 1);
+  }
+});
+
+test("satellite controls and legends stay hidden while images load", () => {
+  const css = readFileSync(
+    new URL("../static/style.css", import.meta.url),
+    "utf8",
+  );
+  assert.match(css, /body\.radar-loading \.badge,\s*body\.radar-loading \.legend\s*\{\s*visibility:\s*hidden/);
+  assert.doesNotMatch(css, /body\.sat-mode\.radar-loading \.badge\s*\{[^}]*visibility:\s*visible/);
+  assert.doesNotMatch(css, /body\.landscape-view\.radar-mode \.radar-loader/);
+});
+
+test("satellite channels are selected from the shared desktop and mobile map bar", () => {
+  const html = readFileSync(
+    new URL("../static/index.html", import.meta.url),
+    "utf8",
+  );
+  const panel = html.slice(html.indexOf('id="extra"'), html.indexOf('id="credits"'));
+  assert.doesNotMatch(panel, /id="satellite-mode/);
+  const bar = html.slice(html.indexOf('id="badge"'), html.indexOf('id="share-dialog"'));
+  assert.match(bar, /id="satellite-mode-row" class="satellite-mode" hidden/);
+  assert.match(bar, /id="satellite-mode"[\s\S]*?aria-label="Canale satellitare"/);
+  assert.match(bar, /id="radar-slider"/);
+  assert.match(bar, /id="extra-close"/);
+});
+
 test("incoming run notice reports progress and hides manual refresh on static pages", () => {
   const noticeSource = source.slice(
     source.indexOf("  function renderRunLive("),
