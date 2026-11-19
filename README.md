@@ -11,29 +11,29 @@ lines are saved in the browser.
 
 The app's interface is in Italian; the code, comments and documentation are in English.
 
-| Model                  | Source                              | Resolution       | Range        | Runs         |
-| ---------------------- | ----------------------------------- | ---------------- | ------------ | ------------ |
-| GFS                    | NOAA/NCEP                           | 0.25°            | +192h        | 00/06/12/18  |
-| ECMWF IFS              | ECMWF Open Data                     | 0.25°            | +192h        | 00/12        |
-| ICON-2I                | ItaliaMeteo (MeteoHub)              | 2.2 km           | +72h         | 00/12        |
-| WRF                    | ItaliaMeteo, CIMA, LaMMA (MeteoHub) | 1.5 km           | +72h         | 00/12        |
-| ICON-D2                | DWD Open Data                       | 2.2 km           | +48h         | every 3 hours |
-| AROME                  | Météo-France Open Data              | 0.025° (~2.5 km) | +51h         | every 3 hours |
-| ICON-CH2-EPS (control) | MeteoSwiss                          | ~2 km            | +120h        | every 6 hours |
-| ICON-CH1-EPS (control) | MeteoSwiss                          | ~1 km            | +33h         | every 3 hours |
-| **Model median**       | computed                            | ~2 km            | up to +192h  | —            |
+| Model                  | Source                              | Resolution       | Range       | Runs          |
+| ---------------------- | ----------------------------------- | ---------------- | ----------- | ------------- |
+| GFS                    | NOAA/NCEP                           | 0.25°            | +192h       | 00/06/12/18   |
+| ECMWF IFS              | ECMWF Open Data                     | 0.25°            | +192h       | 00/12         |
+| ICON-2I                | ItaliaMeteo (MeteoHub)              | 2.2 km           | +72h        | 00/12         |
+| WRF                    | ItaliaMeteo, CIMA, LaMMA (MeteoHub) | 1.5 km           | +72h        | 00/12         |
+| ICON-D2                | DWD Open Data                       | 2.2 km           | +48h        | every 3 hours |
+| AROME                  | Météo-France Open Data              | 0.025° (~2.5 km) | +51h        | every 3 hours |
+| ICON-CH2-EPS (control) | MeteoSwiss                          | ~2 km            | +120h       | every 6 hours |
+| ICON-CH1-EPS (control) | MeteoSwiss                          | ~1 km            | +33h        | every 3 hours |
+| **Model median**       | computed                            | ~2 km            | up to +192h | —             |
 
 Fields available per model:
 
-| Model          | Precipitation | T 850 hPa | T and wet bulb 2 m | Snow                                | Freezing level            |
-| -------------- | ------------- | --------- | ------------------ | ----------------------------------- | ------------------------- |
-| GFS            | ✓             | ✓         | ✓                  | — (snowfall is not published)       | ✓                         |
-| ECMWF          | ✓             | ✓         | ✓                  | ✓                                   | — (not in the open data)  |
-| ICON-2I        | ✓             | ✓         | ✓                  | ✓                                   | ✓                         |
-| WRF            | ✓             | ✓         | T only             | —                                   | —                         |
-| ICON-D2        | ✓             | ✓         | ✓                  | ✓                                   | ✓                         |
-| AROME          | ✓             | —         | —                  | ✓                                   | —                         |
-| ICON-CH2 / CH1 | ✓             | —         | ✓                  | ✓                                   | ✓                         |
+| Model          | Precipitation | T 850 hPa | T and wet bulb 2 m | Snow                          | Freezing level           |
+| -------------- | ------------- | --------- | ------------------ | ----------------------------- | ------------------------ |
+| GFS            | ✓             | ✓         | ✓                  | — (snowfall is not published) | ✓                        |
+| ECMWF          | ✓             | ✓         | ✓                  | ✓                             | — (not in the open data) |
+| ICON-2I        | ✓             | ✓         | ✓                  | ✓                             | ✓                        |
+| WRF            | ✓             | ✓         | T only             | —                             | —                        |
+| ICON-D2        | ✓             | ✓         | ✓                  | ✓                             | ✓                        |
+| AROME          | ✓             | —         | —                  | ✓                             | —                        |
+| ICON-CH2 / CH1 | ✓             | —         | ✓                  | ✓                             | ✓                        |
 
 **Snow** is in cm of fresh snow: the models give the water equivalent (mm), converted with the standard 10:1 ratio
 (1 mm of water = 1 cm of snow). It is an estimate: wet snow accumulates less, powder snow more. In the ICON models it
@@ -57,7 +57,7 @@ profile: without a crossing, even with the whole column below zero, the value st
 is about 5.5 km and varies in time; heights aloft are GFS geopotential heights. It is not a snow level and is not
 part of the model median.
 
-For each model **only the latest complete run** is kept and shown. While the next run is coming out, the page shows
+For each model **only the latest complete run** is shown. While the next run is coming out, the page shows
 its progress ("12Z in arrivo · 20/56 passi", i.e. "12Z incoming · 20/56 steps"); once complete it replaces the
 previous one, which is deleted.
 
@@ -134,16 +134,16 @@ Tests: `pytest` (Python, including the parts that run the page's code in node) a
 
 ## Configuration (environment variables)
 
-| Variable                 | Default                  | Meaning                                                                                                                                                                                                   |
-| ------------------------ | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BBOX`                   | `42,49,4,17`             | Area: `lat_min,lat_max,lon_min,lon_max` (lon -180..180)                                                                                                                                                   |
-| `INITIAL_VIEW`           | `44.68,46.64,8.50,11.43` | View on opening (Lombardy), same format, inside `BBOX`                                                                                                                                                    |
-| `DATA_DIR`               | `./data`                 | Data folder                                                                                                                                                                                               |
-| `SCHEDULER_ENABLED`      | `1`                      | Automatic updates                                                                                                                                                                                         |
-| `SCHEDULER_INTERVAL_MIN` | `10`                     | Update frequency                                                                                                                                                                                          |
+| Variable                 | Default                  | Meaning                                                                                                                                                                                                              |
+| ------------------------ | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BBOX`                   | `42,49,4,17`             | Area: `lat_min,lat_max,lon_min,lon_max` (lon -180..180)                                                                                                                                                              |
+| `INITIAL_VIEW`           | `44.68,46.64,8.50,11.43` | View on opening (Lombardy), same format, inside `BBOX`                                                                                                                                                               |
+| `DATA_DIR`               | `./data`                 | Data folder                                                                                                                                                                                                          |
+| `SCHEDULER_ENABLED`      | `1`                      | Automatic updates                                                                                                                                                                                                    |
+| `SCHEDULER_INTERVAL_MIN` | `10`                     | Update frequency                                                                                                                                                                                                     |
 | `MAPBOX_TOKEN`           | —                        | Public [Mapbox](https://account.mapbox.com) token (`pk.…`) for the Outdoors and Base basemaps: it ends up in the page, so restrict it to the site's domains in the Mapbox dashboard (static site: repository secret) |
-| `THUNDERFOREST_KEY`      | —                        | [Thunderforest](https://manage.thunderforest.com) key for the fallback basemap without Mapbox (static site: repository secret)                                                                           |
-| `APP_VERSION`            | from git tags            | Version shown next to the name: normally `git describe` (`v1.2.0` on the tag, `v1.2.0+3` three commits later); set it where there is no `.git`, for example in the Docker image. Without tags nothing is shown |
+| `THUNDERFOREST_KEY`      | —                        | [Thunderforest](https://manage.thunderforest.com) key for the fallback basemap without Mapbox (static site: repository secret)                                                                                       |
+| `APP_VERSION`            | from git tags            | Version shown next to the name: normally `git describe` (`v1.2.0` on the tag, `v1.2.0+3` three commits later); set it where there is no `.git`, for example in the Docker image. Without tags nothing is shown       |
 
 ## Favourite places
 
@@ -195,38 +195,39 @@ more than one. Wind (`vector`) will need a dedicated arrow renderer.
 ## Free publishing on GitHub Pages
 
 The `.github/workflows/pages.yml` workflow runs once an hour on GitHub Actions: it restores the already downloaded
-data from the cache, downloads only the new steps (`scripts/fetch_once.py`), generates the static site
-(`scripts/build_static.py`) and publishes it on GitHub Pages.
+data from cache, downloads missing steps (`scripts/fetch_once.py`), generates the static site
+(`scripts/build_static.py`) and publishes it on GitHub Pages. Only complete runs are published as maps.
+
 Fields are published in a compact format (`.bin`, values as 16-bit integers, `app/packed.py`): about a third of the
 JSON, to stay well below GitHub Pages' 1 GB limit.
-On the static site the Interval mode is computed in the browser and the "Aggiorna" (refresh) button reloads the
-published data (the real download happens once an hour).
+On the static site Interval mode is computed in the browser. The incoming-run notice is informational: there is
+no manual download button. New data become available after the hourly publication.
 
 ### Why once an hour, with an external trigger
 
-- **Once an hour is enough.** The most frequent models (ICON-D2, ICON-CH1, AROME) have a run every 3 hours, the
-  others every 6 or 12, and the data come out 2–8 hours after the start of the run: with one round per hour a new run
-  appears at most an hour after publication. Running more often would only show the steps of a still partial run
-  earlier.
+- **Only complete runs are shown.** The most frequent models have a new run every three hours; hourly publication
+  makes completed runs available without rebuilding the site every time another forecast step arrives.
 - **GitHub's cron is not reliable.** GitHub treats scheduled runs as "best effort": under load it delays or drops
   them without a trace. In the repository's first 15 hours, with a cron every 30 minutes, only one run out of about
   thirty started.
 - **So the real trigger comes from outside.** An external service ([cron-job.org](https://cron-job.org), free) calls
-  the GitHub API once an hour to start the workflow (`workflow_dispatch`). The cron in the workflow (`17 * * * *`,
-  away from the full hour, the busiest moment) stays as a fallback. If both start, the `concurrency` group queues them
-  and the second round finds little or nothing to download.
+  the GitHub API once an hour to start the workflow (`workflow_dispatch`). The workflow also has a native schedule
+  at minute `17`: this is an additional trigger, not a conditional fallback. A running publication is not canceled
+  by a newer request. Provider availability, Actions queueing and Pages deployment can add delays.
 
 Setting up the external trigger:
 
 1. On GitHub create a _fine-grained_ token (Settings → Developer settings → Personal access tokens → Fine-grained
    tokens) with access to the `weathermaps` repository only and only the **Actions: Read and write** permission.
    Note the expiry date: when it expires the external trigger stops.
-2. On cron-job.org create a job:
+2. On cron-job.org create one job:
    - URL: `https://api.github.com/repos/signalkuppe/weathermaps/actions/workflows/pages.yml/dispatches`
-   - Method: `POST`, schedule: every hour (for example at minute 47, offset from the fallback cron)
-   - Headers: `Authorization: Bearer <token>`, `Accept: application/vnd.github+json`,
-     `X-GitHub-Api-Version: 2022-11-28`, `Content-Type: application/json`
-   - Body: `{"ref":"main"}`
+
+- Method: `POST`, timezone: `Europe/Rome`, schedule: every hour at minute `0` (`0 * * * *`)
+- Headers: `Authorization: Bearer <token>`, `Accept: application/vnd.github+json`,
+  `X-GitHub-Api-Version: 2022-11-28`, `Content-Type: application/json`
+- Body: `{"ref":"main"}`
+
 3. Expected response: `204 No Content`. A `401` or `403` means an expired token or one without the Actions
    permission.
 
@@ -236,6 +237,7 @@ Test from a terminal, with the same token:
 curl -i -X POST \
   -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" \
   https://api.github.com/repos/signalkuppe/weathermaps/actions/workflows/pages.yml/dispatches \
+  -H "Content-Type: application/json" -H "X-GitHub-Api-Version: 2022-11-28" \
   -d '{"ref":"main"}'
 ```
 
@@ -246,8 +248,7 @@ python scripts/build_static.py public
 cd public && python -m http.server 8090   # http://localhost:8090
 ```
 
-Note: GitHub disables the workflow of a public repository after 60 days without commits, and from then on the
-external trigger fails too (error response on cron-job.org); just re-enable it from the Actions tab.
+Keep the external token valid and check the cron service's execution history.
 
 ## API
 

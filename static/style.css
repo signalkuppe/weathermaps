@@ -6,8 +6,16 @@
   --line: #333a46;
   --accent: #5fa0ff;
   --accent-tint: rgba(95, 160, 255, 0.16);
+  /* border of the inline info boxes (.settings-syn, .run-live); tooltips and bubbles stay dark */
+  --info-border: color-mix(in srgb, var(--accent) 45%, transparent);
   --panel: rgba(24, 28, 36, 0.94);
   --panel-solid: #181c24;
+  /* warnings (no data, errors, chart notices): one orange everywhere */
+  --warn: #c2410c;
+  --warn-border: rgba(194, 65, 12, 0.35);
+  --warn-tint: rgba(194, 65, 12, 0.08);
+  --warn-fg: #fdba74;
+  --warn-title: #fb923c;
   --shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
 }
 
@@ -22,7 +30,10 @@ html,
 body {
   /* all digits the same width: changing numbers (time during play, values) do not shift the rest */
   font-variant-numeric: tabular-nums;
-  height: var(--app-h, 100%); /* --app-h: Home Screen app on iPhone, see fixAppHeight in app.js */
+  height: var(
+    --app-h,
+    100%
+  ); /* --app-h: Home Screen app on iPhone, see fixAppHeight in app.js */
   margin: 0;
 }
 body {
@@ -174,14 +185,19 @@ body.share-wide .wm-native-map {
 
 .panel {
   position: absolute;
-  top: calc(12px + env(safe-area-inset-top)); /* below the status bar in the Home Screen app */
+  top: calc(
+    12px + env(safe-area-inset-top)
+  ); /* below the status bar in the Home Screen app */
   left: 12px;
   z-index: 1000;
   width: 300px;
   max-width: calc(100vw - 24px);
   /* never beyond the screen edge: one section open at a time and places with a maximum height, so the
      panel does not scroll (only on very short screens, see .panel-body) */
-  max-height: calc(var(--app-h, 100dvh) - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  max-height: calc(
+    var(--app-h, 100dvh) - 24px - env(safe-area-inset-top) -
+      env(safe-area-inset-bottom)
+  );
   display: flex;
   flex-direction: column;
   background: var(--panel);
@@ -555,7 +571,9 @@ body.share-wide .wm-native-map {
   .panel-body > details[open].more-below::after {
     content: "";
     position: sticky;
-    transform: translateZ(0); /* own layer: the gradient is not repainted at each scroll frame */
+    transform: translateZ(
+      0
+    ); /* own layer: the gradient is not repainted at each scroll frame */
     bottom: -16px; /* down to the edge: sticky stops at the section's padding-bottom (16px) */
     display: block;
     height: 56px;
@@ -723,12 +741,13 @@ input[type="range"] {
 .model-info {
   position: absolute;
   top: calc(100% + 8px);
-  left: -4px;
+  /* as wide as the panel column: the panel body clips what goes beyond it */
+  left: 0;
+  right: 0;
   z-index: 1100;
-  width: min(300px, calc(100vw - 32px));
+  /* tooltip: dark, a single grey border (the same as the places export bubble) */
   padding: 9px 11px;
   border: 1px solid var(--line);
-  border-left: 3px solid var(--accent);
   border-radius: 8px;
   background: var(--bg);
   color: var(--fg);
@@ -741,7 +760,7 @@ input[type="range"] {
   content: "";
   position: absolute;
   top: -6px;
-  left: 68px;
+  left: 58px; /* centred under the icon (the box starts at the column edge) */
   width: 10px;
   height: 10px;
   background: var(--bg);
@@ -925,29 +944,36 @@ input[type="range"] {
 
 .run-live {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  align-items: flex-start;
   gap: 8px;
-  padding: 4px 6px 4px 8px;
-  border: 1px dashed #c2410c;
+  /* information, not an error: the same box as the other info boxes (.settings-syn) */
+  padding: 8px 10px;
+  border: 1px solid var(--info-border);
   border-radius: 8px;
-  font-size: 12px;
-  color: #c2410c;
+  background: var(--accent-tint);
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--fg);
+}
+.run-live svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--accent);
 }
 .refresh-btn {
   font: inherit;
   font-weight: 650;
   padding: 3px 8px;
-  border: 1px solid #c2410c;
+  border: 1px solid var(--accent); /* blue like its info box (.run-live) */
   border-radius: 6px;
   background: var(--bg);
-  color: #c2410c;
+  color: var(--accent);
   cursor: pointer;
   white-space: nowrap;
 }
 @media (hover: hover) {
   .refresh-btn:hover:not(:disabled) {
-    background: #c2410c;
+    background: var(--accent);
     color: #fff;
   }
 }
@@ -1064,7 +1090,8 @@ body.field-loading .badge::after {
   right: 14px;
   height: 2px;
   border-radius: 1px;
-  background: linear-gradient(90deg, transparent, var(--accent), transparent) no-repeat;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent)
+    no-repeat;
   background-size: 40% 100%;
   animation: field-loading 0.9s linear infinite;
   pointer-events: none;
@@ -1413,8 +1440,15 @@ body.range-mode .stepper .interval-step {
   font-size: 12px;
   min-height: 1em;
 }
+/* errors (server unreachable, start-up): the same box as "Grandezza non disponibile" (.nodata) */
 .status.warn {
-  color: #c2410c;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--warn-border);
+  background: var(--warn-tint);
+  color: var(--warn-fg);
+  font-size: 12.5px;
+  line-height: 1.4;
 }
 .status:empty {
   display: none;
@@ -1909,7 +1943,13 @@ body.radar-mode .badge-radar .badge-btn {
   margin-top: -8px; /* not "+": after the models there are the (hidden) notices */
 }
 /* a notice shown between the models and the places (no data, error): it keeps its space above the line */
-.panel-body:has(> .nodata:not([hidden]), > .status:not(:empty)) > #points-box {
+.panel-body:has(
+    > .run-live:not([hidden]),
+    > .run-live-note:not(:empty),
+    > .nodata:not([hidden]),
+    > .status:not(:empty)
+  )
+  > #points-box {
   margin-top: 0;
 }
 /* last section: same space before the "last update" line as before the other lines */
@@ -1918,6 +1958,16 @@ body.radar-mode .badge-radar .badge-btn {
 }
 .panel-body > details.points-box[open] {
   padding-bottom: 16px; /* as between the title and the content (summary padding + the content gap) */
+}
+/* a notice right under the slider (incoming run, no data, error): closer to it, 16px instead of 24 */
+.panel-body
+  > details.models[open]:has(
+    ~ .run-live:not([hidden]),
+    ~ .run-live-note:not(:empty),
+    ~ .nodata:not([hidden]),
+    ~ .status:not(:empty)
+  ) {
+  padding-bottom: 8px;
 }
 /* section titles: taller tap area (the space above the text is in the title, not in the section) */
 .points-box summary {
@@ -1946,8 +1996,10 @@ body.radar-mode .badge-radar .badge-btn {
 }
 .points-box summary::after,
 #collapse {
-  --bar-h: linear-gradient(currentColor, currentColor) center / var(--sign-len) var(--sign-w) no-repeat;
-  --bar-v: linear-gradient(currentColor, currentColor) center / var(--sign-w) var(--sign-len) no-repeat;
+  --bar-h: linear-gradient(currentColor, currentColor) center / var(--sign-len)
+    var(--sign-w) no-repeat;
+  --bar-v: linear-gradient(currentColor, currentColor) center / var(--sign-w)
+    var(--sign-len) no-repeat;
 }
 .points-box summary::after {
   content: "";
@@ -2235,10 +2287,11 @@ body.radar-mode .badge-radar .badge-btn {
   display: flex;
   gap: 6px;
   align-items: flex-start;
+  /* tooltip: the same as the model note (.model-info), dark with a single grey border */
   padding: 9px 8px 9px 11px;
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--panel-solid);
+  background: var(--bg);
   box-shadow: var(--shadow);
 }
 .places-export-tip[hidden] {
@@ -2431,7 +2484,8 @@ body.radar-mode .badge-radar .badge-btn {
 #points-box .folders:has(> .folders-empty) {
   margin-top: 6px;
 }
-@media (max-width: 600px), (orientation: portrait) and (pointer: coarse) and (max-width: 1100px) {
+@media (max-width: 600px),
+  (orientation: portrait) and (pointer: coarse) and (max-width: 1100px) {
   #points-box .folders:has(> .folders-empty) {
     margin-top: -2px;
   }
@@ -2531,7 +2585,10 @@ body.radar-mode .badge-radar .badge-btn {
     right: 8px;
     width: auto;
     max-width: none;
-    max-height: calc(var(--app-h, 100dvh) - 108px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); /* as wide as the bottom bar */
+    max-height: calc(
+      var(--app-h, 100dvh) - 108px - env(safe-area-inset-top) -
+        env(safe-area-inset-bottom)
+    ); /* as wide as the bottom bar */
     background: var(--panel-solid);
   } /* solid: sticky titles and fades in the same colour as the panel */
   /* Home Screen app: below the clock, clear of the fade iOS puts under the bar too */
@@ -3056,7 +3113,9 @@ body.radar-mode .badge-radar .badge-btn {
   fill: var(--fg);
 }
 .chart-body .ch-leg {
-  font: 400 11.5px system-ui, sans-serif;
+  font:
+    400 11.5px system-ui,
+    sans-serif;
   fill: var(--muted);
 }
 .chart-body .ch-leg tspan {
@@ -3070,15 +3129,15 @@ body.radar-mode .badge-radar .badge-btn {
 .chart-body .ch-tick {
   fill: var(--muted);
 }
-/* notice next to a panel title (e.g. freezing level below the ground): same look as .chart-warn */
+/* notice next to a panel title (e.g. freezing level below the ground): same colours as .chart-warn and .nodata */
 .chart-body .ch-info-bg {
   fill: var(--bg);
 }
 .chart-body .ch-info {
-  fill: #f59f00;
-  fill-opacity: 0.12;
-  stroke: #f59f00;
-  stroke-opacity: 0.55;
+  fill: var(--warn);
+  fill-opacity: 0.08;
+  stroke: var(--warn);
+  stroke-opacity: 0.35;
   stroke-width: 1;
 }
 .chart-body .ch-info-text {
@@ -3312,8 +3371,8 @@ body.radar-mode .badge-radar .badge-btn {
   --cm: 40px;
   /* Home Screen app: below the clock iOS fades the content for ~25px beyond the status bar, hence
      ×1.4 (in the browser the bar is 0 and --cm remains) */
-  padding: max(var(--cm), calc(env(safe-area-inset-top) * 1.4)) calc(var(--cm) - 14px)
-    max(var(--cm), env(safe-area-inset-bottom)) var(--cm);
+  padding: max(var(--cm), calc(env(safe-area-inset-top) * 1.4))
+    calc(var(--cm) - 14px) max(var(--cm), env(safe-area-inset-bottom)) var(--cm);
   gap: 26px;
 }
 .chart-dialog .share-head {
@@ -3351,9 +3410,9 @@ body.radar-mode .badge-radar .badge-btn {
   gap: 2px;
   padding: 8px 10px;
   border-radius: 8px;
-  border: 1px solid rgba(194, 65, 12, 0.35);
-  background: rgba(194, 65, 12, 0.08);
-  color: #fdba74;
+  border: 1px solid var(--warn-border);
+  background: var(--warn-tint);
+  color: var(--warn-fg);
   font-size: 12.5px;
   line-height: 1.4;
 }
@@ -3363,11 +3422,13 @@ body.radar-mode .badge-radar .badge-btn {
 .nodata b {
   font-size: 13px;
   font-weight: 650;
-  color: #fb923c;
+  color: var(--warn-title);
 }
 .map-nodata .leaflet-tile-pane,
 body.no-data .wm-native-map canvas {
-  filter: grayscale(1); /* the Mapbox basemap too, which is not inside the Leaflet map */
+  filter: grayscale(
+    1
+  ); /* the Mapbox basemap too, which is not inside the Leaflet map */
 }
 /* without data only the main menu stays above the map: no bar, legend, places or tooltip */
 .no-data .badge,
@@ -3413,7 +3474,9 @@ body.no-data .wm-native-map canvas {
 @media (max-width: 600px),
   (orientation: portrait) and (pointer: coarse) and (max-width: 1100px) {
   .wm-mapbox-logo {
-    margin-bottom: calc(var(--logo-bottom, 140px) + max(0px, env(safe-area-inset-bottom) - 12px)) !important;
+    margin-bottom: calc(
+      var(--logo-bottom, 140px) + max(0px, env(safe-area-inset-bottom) - 12px)
+    ) !important;
     transition:
       margin 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
       opacity 0.2s ease;
@@ -3424,11 +3487,15 @@ body.no-data .wm-native-map canvas {
     pointer-events: none;
   }
   body.radar-mode .wm-mapbox-logo {
-    margin-bottom: calc(104px + max(0px, env(safe-area-inset-bottom) - 12px)) !important;
+    margin-bottom: calc(
+      104px + max(0px, env(safe-area-inset-bottom) - 12px)
+    ) !important;
   } /* radar and satellite: the bar does not change */
   /* soundings: no bar or legend at the bottom, the logo stays fixed in the corner */
   body.snd-mode .wm-mapbox-logo {
-    margin-bottom: calc(8px + max(0px, env(safe-area-inset-bottom) - 12px)) !important;
+    margin-bottom: calc(
+      8px + max(0px, env(safe-area-inset-bottom) - 12px)
+    ) !important;
     transition: none;
   }
 }
@@ -3855,7 +3922,7 @@ body.sat-mode #settings .settings-body > .row {
   align-items: flex-start;
   margin: 0;
   padding: 8px 10px;
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border: 1px solid var(--info-border);
   border-radius: 8px;
   background: var(--accent-tint);
   color: var(--fg);
@@ -4054,12 +4121,17 @@ body.landscape-view .wm-mapbox-logo {
   height: 100%;
 }
 /* everything else of the page hidden (panel, bars, legend, tooltips): only the map under the frame */
-body.share-live > :not(#map):not(.wm-native-map):not(#share-dialog):not(#share-toast):not(script) {
+body.share-live
+  > :not(#map):not(.wm-native-map):not(#share-dialog):not(#share-toast):not(
+    script
+  ) {
   visibility: hidden !important;
 }
 body.share-live .share-toast {
   z-index: 3100;
-  bottom: calc(150px + env(safe-area-inset-bottom)); /* above the share controls */
+  bottom: calc(
+    150px + env(safe-area-inset-bottom)
+  ); /* above the share controls */
 }
 /* "Località" switch off: the places disappear from the map as from the image */
 body.share-nopoints .leaflet-marker-icon.pt {
@@ -4075,7 +4147,9 @@ body.share-nopoints .leaflet-marker-icon.pt {
   border-radius: 6px;
   background: #1d2330;
   color: #fff;
-  font: 650 13px system-ui, sans-serif;
+  font:
+    650 13px system-ui,
+    sans-serif;
   white-space: nowrap;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
@@ -4095,7 +4169,10 @@ body.share-nopoints .leaflet-marker-icon.pt {
   border-radius: 50%;
   background: #1d2330;
   border: 2px solid #fff;
-  box-shadow: inset 0 0 0 5px #1d2330, inset 0 0 0 11px #fff, 0 1px 3px rgba(0, 0, 0, 0.4);
+  box-shadow:
+    inset 0 0 0 5px #1d2330,
+    inset 0 0 0 11px #fff,
+    0 1px 3px rgba(0, 0, 0, 0.4);
   box-sizing: border-box;
 }
 
@@ -4134,14 +4211,15 @@ body.share-nopoints .leaflet-marker-icon.pt {
   grid-column: 1 / -1; /* in the chart header: edge to edge */
   margin-top: 8px;
   margin-right: 19px; /* ends where the close X ends (not where its button ends) */
-  padding: 5px 10px;
+  padding: 8px 10px;
   max-width: 100%;
   box-sizing: border-box;
-  border: 1px solid color-mix(in srgb, #f59f00 55%, transparent);
-  border-radius: 6px;
-  background: color-mix(in srgb, #f59f00 12%, transparent);
-  color: var(--fg);
-  font-size: 12px;
+  /* the same box as "Grandezza non disponibile" (.nodata) */
+  border: 1px solid var(--warn-border);
+  border-radius: 8px;
+  background: var(--warn-tint);
+  color: var(--warn-fg);
+  font-size: 12.5px;
   line-height: 1.4;
 }
 .chart-warn[hidden] {
@@ -4149,7 +4227,8 @@ body.share-nopoints .leaflet-marker-icon.pt {
 }
 .chart-warn summary {
   cursor: pointer;
-  font-weight: 600;
+  font-weight: 650;
+  color: var(--warn-title);
   white-space: nowrap; /* a single row on phones too */
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4190,7 +4269,9 @@ body.share-nopoints .leaflet-marker-icon.pt {
   border-radius: 4px;
   background: rgba(29, 35, 48, 0.85);
   color: #fff;
-  font: 600 11px system-ui, sans-serif;
+  font:
+    600 11px system-ui,
+    sans-serif;
 }
 .chart-sounding {
   max-width: 14em;
@@ -4208,9 +4289,11 @@ body.snd-mode .badge {
   display: none !important;
 }
 .snd-missing .snd-dot {
-  background: #f59f00; /* same amber as the notice */
+  background: var(--warn-title); /* same orange as the notices */
   color: #1d2330;
-  font: 800 13px system-ui, sans-serif;
+  font:
+    800 13px system-ui,
+    sans-serif;
 }
 .snd-missing .snd-name {
   opacity: 0.8;
@@ -4260,10 +4343,11 @@ body.snd-mode .badge {
   color: var(--accent);
   font-weight: 600;
 }
-/* notice (e.g. sounding not available): same amber colours as the notice in the charts, but solid on the map */
+/* notice (e.g. sounding not available): same orange as the other notices, but solid on the map */
 .share-toast.warn {
-  border: 1px solid #f59f00;
-  background: color-mix(in srgb, #f59f00 22%, #1d2330);
+  border: 1px solid var(--warn);
+  background: color-mix(in srgb, var(--warn) 22%, #1d2330);
+  color: var(--warn-fg);
 }
 
 /* sounding on desktop: narrow panel on the right (the diagram is tall and narrow), slides in from the right;

@@ -5,9 +5,15 @@
     <meta name="color-scheme" content="dark" />
     <!-- viewport-fit=cover: opened from the Home Screen the map also goes under the (transparent) status bar; the
          panels move by env(safe-area-inset-*) in style.css -->
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
     <title>Weathermaps</title>
     <!-- "Cella" logo (static/icons): favicon, phone home-screen icon and manifest to add it as an app -->
     <link rel="icon" href="icons/favicon.svg" type="image/svg+xml" />
@@ -97,7 +103,9 @@
       try {
         if (sessionStorage.getItem("weathermaps.updating")) {
           sessionStorage.removeItem("weathermaps.updating");
-          document.querySelector("#startup-loader .startup-payoff").textContent = "Aggiorno l'app";
+          document.querySelector(
+            "#startup-loader .startup-payoff",
+          ).textContent = "Aggiorno l'app";
         }
       } catch {}
     </script>
@@ -105,7 +113,13 @@
     <!-- Home Screen app reopened: the map blurred under the check for new runs (app.js, resumeApp) -->
     <div id="resume-overlay" class="resume-overlay" role="status" hidden>
       <div class="resume-card">
-        <img class="startup-logo resume-logo" src="icons/favicon.svg" alt="" width="44" height="44" />
+        <img
+          class="startup-logo resume-logo"
+          src="icons/favicon.svg"
+          alt=""
+          width="44"
+          height="44"
+        />
         <span>Controllo gli aggiornamenti</span>
       </div>
     </div>
@@ -202,26 +216,18 @@
             </div>
             <label class="row" id="var-row" hidden>
               <span>Grandezza</span>
-              <select id="var" class="rich-select" aria-label="Grandezza"></select>
+              <select
+                id="var"
+                class="rich-select"
+                aria-label="Grandezza"
+              ></select>
             </label>
             <div class="run-block">
-              <!-- only the latest complete run is shown; the incoming one appears in the notice below -->
+              <!-- only the latest complete run is shown; the incoming one appears in the notice under the slider (#run-live) -->
               <div class="run-head">
                 <span>Corsa</span><span id="run" class="run-line"></span
                 ><span id="run-age" class="run-age"></span>
               </div>
-              <div id="run-live" class="run-live" hidden>
-                <span id="run-live-text"></span>
-                <button
-                  id="refresh"
-                  class="refresh-btn"
-                  type="button"
-                  title="Controlla subito se sono usciti nuovi passi"
-                >
-                  ↻ Aggiorna
-                </button>
-              </div>
-              <div id="run-live-note" class="run-live-note" role="status"></div>
             </div>
             <div class="row" id="mode-row">
               <span>Modalità</span>
@@ -271,6 +277,34 @@
             </div>
           </div>
         </details>
+        <!-- incoming run: under the time slider, like the notice below -->
+        <div id="run-live" class="run-live" hidden>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <path d="M12 16v-4" />
+            <path d="M12 8h.01" />
+          </svg>
+          <span id="run-live-text"></span>
+          <button
+            id="refresh"
+            class="refresh-btn"
+            type="button"
+            title="Controlla subito se sono usciti nuovi passi"
+          >
+            ↻ Aggiorna
+          </button>
+        </div>
+        <div id="run-live-note" class="run-live-note" role="status"></div>
         <!-- model/field/time combination without data (meanwhile the map is grey) -->
         <div id="nodata" class="nodata" role="status" hidden>
           <b id="nodata-title"></b><span id="nodata-text"></span>
@@ -304,7 +338,22 @@
               title="Nuova cartella"
               aria-label="Nuova cartella"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/><path d="M12 11v6M9 14h6"/></svg>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path
+                  d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"
+                />
+                <path d="M12 11v6M9 14h6" />
+              </svg>
             </button>
             <button
               id="places-edit"
@@ -320,23 +369,80 @@
           <ol id="points" class="points"></ol>
           <!-- copy all places and folders as a link, to paste on another device (only at the top level) -->
           <div id="places-export" class="places-export" hidden>
-            <button id="places-export-btn" class="places-export-btn" type="button">
+            <button
+              id="places-export-btn"
+              class="places-export-btn"
+              type="button"
+            >
               <!-- Lucide "copy" (ISC) -->
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+                <path
+                  d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"
+                />
+              </svg>
               <span>Copia su altro dispositivo</span>
             </button>
             <!-- explanation after the copy: a bubble above the button (the section does not grow), with its close -->
-            <div id="places-export-tip" class="places-export-tip" role="status" hidden>
+            <div
+              id="places-export-tip"
+              class="places-export-tip"
+              role="status"
+              hidden
+            >
               <div id="places-export-help" class="places-export-help"></div>
-              <button id="places-export-close" class="places-export-close" type="button" aria-label="Chiudi" title="Chiudi">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+              <button
+                id="places-export-close"
+                class="places-export-close"
+                type="button"
+                aria-label="Chiudi"
+                title="Chiudi"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M18 6 6 18" />
+                  <path d="m6 6 12 12" />
+                </svg>
               </button>
             </div>
           </div>
           <!-- 500 hPa chart: the places are not drawn on the map, a note says so (same box as in Settings), at the bottom of the section -->
           <p class="settings-syn places-syn">
             <!-- Lucide "info" (ISC) -->
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 16v-4" />
+              <path d="M12 8h.01" />
+            </svg>
             <span>Non mostrate sulle mappe a 500</span>
           </p>
         </details>
@@ -346,7 +452,21 @@
             <!-- 500 hPa chart: the settings do not apply (fixed colours, lines and borders), only this note -->
             <p class="settings-syn">
               <!-- Lucide "info" (ISC) -->
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <path d="M12 16v-4" />
+                <path d="M12 8h.01" />
+              </svg>
               <span>Visualizzazione gestita dall'app</span>
             </p>
             <div class="row">
@@ -399,7 +519,12 @@
           <div class="settings-body">
             <!-- one at a time: radar (national mosaic, every 5 minutes), satellite (clouds, Meteosat, every 10 minutes) or
                  soundings (the stations on the map, tapping them opens the Skew-T diagram) -->
-            <div class="extra-tiles" id="extra-seg" role="group" aria-label="Livello extra"></div>
+            <div
+              class="extra-tiles"
+              id="extra-seg"
+              role="group"
+              aria-label="Livello extra"
+            ></div>
           </div>
         </details>
         <details id="credits" class="points-box credits">
@@ -409,7 +534,8 @@
             ItaliaMeteo ICON-2I (CC-BY), WRF (CIMA, LaMMA) · DWD ICON-D2 ·
             Météo-France AROME (Licence Ouverte) · MeteoSvizzera ICON-CH1/CH2
             (CC-BY) · Radar: Protezione Civile / ItaliaMeteo (MeteoHub) ·
-            Satellite: EUMETSAT · Radiosondaggi: University of Wyoming · Confini: Natural Earth
+            Satellite: EUMETSAT · Radiosondaggi: University of Wyoming ·
+            Confini: Natural Earth
           </p>
           <div id="attrib" class="attrib"></div>
           <p class="credits-data">
@@ -435,8 +561,17 @@
         <!-- last element of the panel: when the data were updated; the clock (Lucide "clock", ISC) sits
              in the column of the section triangles -->
         <p id="updated-row" class="updated-row" hidden>
-          <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5"
-            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <svg
+            viewBox="0 0 24 24"
+            width="11"
+            height="11"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
             <circle cx="12" cy="12" r="10" />
             <path d="M12 6v6l4 2" />
           </svg>
@@ -718,7 +853,11 @@
       </div>
     </dialog>
     <!-- import of places from a link (opened in the browser or pasted in the search field) -->
-    <dialog id="import-dialog" class="import-dialog" aria-labelledby="import-title">
+    <dialog
+      id="import-dialog"
+      class="import-dialog"
+      aria-labelledby="import-title"
+    >
       <div id="import-icon" class="import-icon" hidden></div>
       <h2 id="import-title">Importa località</h2>
       <p id="import-text"></p>
@@ -815,14 +954,14 @@
             non sono inviate al gestore del sito.
           </p>
           <p>
-            Con «Copia su altro dispositivo», in fondo alle località preferite, l'app crea un link che
-            contiene i nomi e le coordinate delle località preferite e delle
-            cartelle. Il link viene copiato negli appunti del dispositivo e non
-            è inviato al gestore del sito né a terzi; le località sono
-            contenute nella parte finale dell'indirizzo, che il browser non
-            trasmette al server. Chiunque riceva il link può però leggerle:
-            conviene condividerlo solo con sé stessi o con persone di
-            fiducia.
+            Con «Copia su altro dispositivo», in fondo alle località preferite,
+            l'app crea un link che contiene i nomi e le coordinate delle
+            località preferite e delle cartelle. Il link viene copiato negli
+            appunti del dispositivo e non è inviato al gestore del sito né a
+            terzi; le località sono contenute nella parte finale dell'indirizzo,
+            che il browser non trasmette al server. Chiunque riceva il link può
+            però leggerle: conviene condividerlo solo con sé stessi o con
+            persone di fiducia.
           </p>
           <p>
             Mapbox può salvare nella memoria locale identificatori tecnici e
@@ -831,11 +970,11 @@
             memoria locale o tecniche di fingerprinting. Se l'app incontra un
             errore tecnico, ne invia una descrizione a Sentry (messaggio, punto
             del codice, browser e sistema operativo, versione dell'app, al più
-            il paese), senza indirizzo IP, coordinate o nomi delle località,
-            per poterlo correggere. I dati restano su server Sentry
-            nell'Unione europea. Non risultano cookie o
-            strumenti usati da Weathermaps per pubblicità o profilazione; per
-            questo non viene richiesto un consenso tramite banner.
+            il paese), senza indirizzo IP, coordinate o nomi delle località, per
+            poterlo correggere. I dati restano su server Sentry nell'Unione
+            europea. Non risultano cookie o strumenti usati da Weathermaps per
+            pubblicità o profilazione; per questo non viene richiesto un
+            consenso tramite banner.
           </p>
         </section>
 
@@ -932,7 +1071,12 @@
               <button type="button" data-v="t850">T 850 hPa</button>
             </div>
             <!-- sounding: launch choice (instead of the model) -->
-            <select id="chart-sounding" class="chart-sounding" aria-label="Lancio" hidden></select>
+            <select
+              id="chart-sounding"
+              class="chart-sounding"
+              aria-label="Lancio"
+              hidden
+            ></select>
             <span id="chart-details"></span>
           </div>
         </div>

@@ -12,20 +12,25 @@
   // a page taller than the window ended up with its bottom (the controls panel) under the navigation bar.
   // Registered before Leaflet and Mapbox: on resize the new size is ready when they recompute.
   const IOS =
-    /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   function fixAppHeight() {
     const app =
-      IOS && (window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true);
+      IOS &&
+      (window.matchMedia?.("(display-mode: standalone)").matches ||
+        navigator.standalone === true);
     const full = Math.max(screen.width, screen.height);
     const portrait = innerHeight > innerWidth;
     const root = document.documentElement.style;
-    if (app && portrait && innerHeight < full) root.setProperty("--app-h", `${full}px`);
+    if (app && portrait && innerHeight < full)
+      root.setProperty("--app-h", `${full}px`);
     else root.removeProperty("--app-h");
   }
   fixAppHeight();
   window.addEventListener("resize", fixAppHeight);
   // the start screen (index.html), kept to show it again before reloading for a new version of the app
-  const STARTUP_HTML = document.getElementById("startup-loader")?.outerHTML || "";
+  const STARTUP_HTML =
+    document.getElementById("startup-loader")?.outerHTML || "";
 
   const ui = {
     model: $("model"),
@@ -123,7 +128,16 @@
   let currentArrows = null; // wind components in combined entries with arrows (e.g. 700 hPa wind over precipitation)
   let overlay = null;
   // sharing over the live map (see liveStart): declared here, it is read by the map's tooltip, menu and popup
-  const live = { on: false, x: 0, y: 0, w: 0, h: 0, pin: null, seq: 0, timer: null };
+  const live = {
+    on: false,
+    x: 0,
+    y: 0,
+    w: 0,
+    h: 0,
+    pin: null,
+    seq: 0,
+    timer: null,
+  };
   let menuLL = null; // point of the open map menu (right click or long press), see openMapMenu
   let probeLL = null; // point tapped on mobile: the value tooltip stays there (see "point tooltip")
   let playTimer = null;
@@ -524,7 +538,11 @@
     };
     for (const [id, lvl] of Object.entries(levels)) {
       if (!m.getLayer(id)) continue;
-      m.setLayoutProperty(id, "visibility", n >= lvl && !synoptic() ? "visible" : "none");
+      m.setLayoutProperty(
+        id,
+        "visibility",
+        n >= lvl && !synoptic() ? "visible" : "none",
+      );
       if (id.endsWith("-bg")) {
         // light halo under the line: white as in Streets (Outdoors has it pinkish)
         m.setPaintProperty(id, "line-color", "#ffffff");
@@ -687,10 +705,18 @@
       };
       for (const l of m.getStyle().layers) {
         // our layers (data, extra images, borders) stay; not our relief: the background is flat, as in the classic pictures
-        if (glImgs.has(l.id) || (l.id.startsWith("wm-") && l.id !== "wm-relief")) continue;
+        if (
+          glImgs.has(l.id) ||
+          (l.id.startsWith("wm-") && l.id !== "wm-relief")
+        )
+          continue;
         if (l.type === "background") paint(l.id, "background-color", SAT_LAND);
-        else if (l.id === "water" && l.type === "fill") paint(l.id, "fill-color", SAT_SEA);
-        else if (!SAT_KEEP.test(l.id) && m.getLayoutProperty(l.id, "visibility") !== "none") {
+        else if (l.id === "water" && l.type === "fill")
+          paint(l.id, "fill-color", SAT_SEA);
+        else if (
+          !SAT_KEEP.test(l.id) &&
+          m.getLayoutProperty(l.id, "visibility") !== "none"
+        ) {
           m.__satHidden.add(l.id);
           m.setLayoutProperty(l.id, "visibility", "none");
         }
@@ -698,7 +724,8 @@
     } else if (!on && m.__satHidden) {
       for (const id of m.__satHidden)
         if (m.getLayer(id)) m.setLayoutProperty(id, "visibility", "visible");
-      for (const [id, prop, value] of m.__satPaint) if (m.getLayer(id)) m.setPaintProperty(id, prop, value);
+      for (const [id, prop, value] of m.__satPaint)
+        if (m.getLayer(id)) m.setPaintProperty(id, prop, value);
       m.__satHidden = m.__satPaint = null;
     }
   }
@@ -896,26 +923,34 @@
       ...(month ? { month: "short" } : {}),
     });
   const fmtHour = (d) =>
-    d.toLocaleTimeString("it-IT", { timeZone: "Europe/Rome", hour: "2-digit", minute: "2-digit" });
+    d.toLocaleTimeString("it-IT", {
+      timeZone: "Europe/Rome",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   /** Interval between two times, with the day written once if it is the same:
    *  "ven 13 nov, 06:00 → 18:00" or "gio 12, 18:00 → ven 13 nov, 06:00" (the month at the start only if it changes). */
   function fmtSpan(a, b, { month = true } = {}) {
     if (fmtDay(a) === fmtDay(b))
       return `${fmtDay(b, month)}, ${fmtHour(a)} → ${fmtHour(b)}`;
-    const startMonth = month && fmtDay(a).split(" ").pop() !== fmtDay(b).split(" ").pop();
+    const startMonth =
+      month && fmtDay(a).split(" ").pop() !== fmtDay(b).split(" ").pop();
     return `${fmtDay(a, startMonth)}, ${fmtHour(a)} → ${fmtDay(b, month)}, ${fmtHour(b)}`;
   }
-  const stepDate = (step) => new Date(runDate(state.run).getTime() + step * 3600e3);
+  const stepDate = (step) =>
+    new Date(runDate(state.run).getTime() + step * 3600e3);
   // start of the accumulation shown, only for chosen intervals (not for the total since the run)
   // start of the accumulation (also the total since the start of the run): so start and end can always be read
   const intervalStartDate = (s = state.step) =>
-    state.run && rangeMode() && intervalPrev(s) < s ? stepDate(intervalPrev(s)) : null;
+    state.run && rangeMode() && intervalPrev(s) < s
+      ? stepDate(intervalPrev(s))
+      : null;
   // time shown, or the interval if one is chosen: for panel, popup and shared image
   const fmtShown = (s = state.step, opts) => {
     const start = intervalStartDate(s);
     return start ? fmtSpan(start, stepDate(s), opts) : fmtLocal(stepDate(s));
   };
-  const hexToRgb = (h) =>[1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const hexToRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
   const variable = () => meta.variables.find((v) => v.id === state.var);
   const rangeMode = () =>
     variable()?.modes.includes("total") &&
@@ -965,7 +1000,10 @@
   }
   /** Hours between `from` and `to`: every step with Total (play inside the period); with fixed hours one every `hours`
    *  hours (each the last `hours` hours). */
-  function rangeFrames(from = state.rangeFrom ?? 0, to = state.rangeTo ?? state.step) {
+  function rangeFrames(
+    from = state.rangeFrom ?? 0,
+    to = state.rangeTo ?? state.step,
+  ) {
     const avail = availableSteps();
     const inside = steps().filter((x) => x > from && x <= to && avail.has(x));
     if (state.cum !== "hours") return inside;
@@ -983,18 +1021,25 @@
   // mark was placed as for a too narrow range (above the thumbs) and stayed there on opening. When the slider gets its
   // width back, positions are computed again
   const sliderWidths = new ResizeObserver(() => {
-    if (playbackSelection && !intervalSliders.some((s) => s.progressAnimation)) syncIntervalSliders();
+    if (playbackSelection && !intervalSliders.some((s) => s.progressAnimation))
+      syncIntervalSliders();
   });
-  queueMicrotask(() => intervalSliders.forEach((s) => sliderWidths.observe(s.element)));
+  queueMicrotask(() =>
+    intervalSliders.forEach((s) => sliderWidths.observe(s.element)),
+  );
   function stopProgressAnimation() {
     for (const slider of intervalSliders) {
       const animation = slider.progressAnimation;
       if (!animation) continue;
       if (playbackSelection) {
         const duration = animation.effect.getTiming().duration;
-        playbackSelection.progress = Math.min(1, animation.currentTime / duration);
+        playbackSelection.progress = Math.min(
+          1,
+          animation.currentTime / duration,
+        );
       }
-      if (slider.element.clientWidth > 0 && !slider.progress.hidden) animation.commitStyles();
+      if (slider.element.clientWidth > 0 && !slider.progress.hidden)
+        animation.commitStyles();
       animation.cancel();
       slider.progressAnimation = null;
     }
@@ -1016,8 +1061,16 @@
     }
     const values = intervalSteps();
     // the slider shows the (fixed) range, not the accumulation of the time shown
-    const from = Math.max(0, values.indexOf(playbackSelection?.from ?? state.rangeFrom ?? intervalPrev()));
-    const to = Math.max(from + 1, values.indexOf(playbackSelection?.to ?? state.rangeTo ?? state.step));
+    const from = Math.max(
+      0,
+      values.indexOf(
+        playbackSelection?.from ?? state.rangeFrom ?? intervalPrev(),
+      ),
+    );
+    const to = Math.max(
+      from + 1,
+      values.indexOf(playbackSelection?.to ?? state.rangeTo ?? state.step),
+    );
     const position = (step) => {
       const fraction = values.indexOf(step) / (values.length - 1);
       return `calc(${fraction * 100}% + var(--interval-thumb-size) * ${0.5 - fraction})`;
@@ -1033,7 +1086,9 @@
       slider.progress.hidden = !playbackSelection;
       if (playbackSelection) {
         const thumbSize = thumbs[0].offsetWidth;
-        const span = (to - from) / (values.length - 1) * (slider.element.clientWidth - thumbSize);
+        const span =
+          ((to - from) / (values.length - 1)) *
+          (slider.element.clientWidth - thumbSize);
         const crowded = span < thumbSize + 8;
         const start = crowded
           ? position(values[from])
@@ -1150,7 +1205,8 @@
       if (typeof d.crisp === "boolean") state.crisp = d.crisp;
       if (typeof d.iso === "boolean") state.iso = d.iso;
       if (current && BORDER_NAMES[d.borders]) state.borders = d.borders;
-      if (d.extra === "radar" || d.extra === "sat" || d.extra === "snd") state.extra = d.extra;
+      if (d.extra === "radar" || d.extra === "sat" || d.extra === "snd")
+        state.extra = d.extra;
       else if (d.radar === true) state.extra = "radar"; // setting saved by the first version of the radar
       if (current && Number.isFinite(d.bordersOpacity))
         state.bordersOpacity = Math.min(1, Math.max(0.1, d.bordersOpacity));
@@ -1195,7 +1251,11 @@
     if (p.has("to") && Number.isFinite(+p.get("to"))) {
       state.rangeFrom = Number.isFinite(+p.get("from")) ? +p.get("from") : 0;
       state.rangeTo = +p.get("to");
-    } else if (p.has("from") && Number.isFinite(+p.get("from")) && p.get("step")) {
+    } else if (
+      p.has("from") &&
+      Number.isFinite(+p.get("from")) &&
+      p.get("step")
+    ) {
       state.rangeFrom = +p.get("from");
       state.rangeTo = +p.get("step");
       state.cum = "total";
@@ -1355,7 +1415,8 @@
         if (h) b.dataset.hours = h;
         if (h)
           b.title = `Le ${h} ore che finiscono all'ora mostrata (il play va avanti di ${h} ore)`;
-        else if (m === "total") b.title = "Cumulata dall'inizio dell'intervallo";
+        else if (m === "total")
+          b.title = "Cumulata dall'inizio dell'intervallo";
         b.setAttribute("aria-pressed", String(modePressed(m, h)));
         b.addEventListener("click", () => {
           if (rangeMode()) {
@@ -1384,12 +1445,17 @@
   // lit button: with accumulations the chosen kind (Total or hours), otherwise the mode
   function modePressed(m, h) {
     if (!rangeMode()) return m === state.mode;
-    return h ? state.cum === "hours" && h === state.hours : state.cum !== "hours";
+    return h
+      ? state.cum === "hours" && h === state.hours
+      : state.cum !== "hours";
   }
   function updateModeSelection() {
     for (const button of ui.mode.querySelectorAll("button")) {
       const hours = button.dataset.hours ? +button.dataset.hours : null;
-      button.setAttribute("aria-pressed", String(modePressed(button.dataset.mode, hours)));
+      button.setAttribute(
+        "aria-pressed",
+        String(modePressed(button.dataset.mode, hours)),
+      );
     }
   }
 
@@ -1410,7 +1476,9 @@
     state.run = r ? r.run : null;
     if (!r) {
       // field the model does not have: the notice already says so, no run to show here
-      ui.run.textContent = variable()?.models.includes(state.model) ? "nessuna corsa disponibile" : "—";
+      ui.run.textContent = variable()?.models.includes(state.model)
+        ? "nessuna corsa disponibile"
+        : "—";
       ui.run.title = "";
       ui.runAge.textContent = "";
     } else {
@@ -1541,6 +1609,9 @@
     if (state.model === model) renderRunLive(incomingRun());
   }
   ui.refresh.addEventListener("click", doRefresh);
+  // published site: the data are rebuilt every hour, the button could not bring anything newer (only on the local server
+  // does it start the download)
+  if (STATIC) ui.refresh.hidden = true;
 
   function setupSteps() {
     const s = steps();
@@ -1559,13 +1630,24 @@
         state.rangeTo = last;
         fresh = true;
       }
-      if (!interval.includes(state.rangeFrom) || state.rangeFrom >= state.rangeTo) state.rangeFrom = 0;
+      if (
+        !interval.includes(state.rangeFrom) ||
+        state.rangeFrom >= state.rangeTo
+      )
+        state.rangeFrom = 0;
       if (presetMode()) {
         // fixed hours: the time shown must be one of the thumb's stops
         const frames = slideSteps();
         if (!frames.includes(state.step))
-          state.step = [...frames].reverse().find((x) => x <= state.step) ?? frames[0] ?? state.step;
-      } else if (fresh || !(state.step > state.rangeFrom && state.step <= state.rangeTo)) state.step = state.rangeTo;
+          state.step =
+            [...frames].reverse().find((x) => x <= state.step) ??
+            frames[0] ??
+            state.step;
+      } else if (
+        fresh ||
+        !(state.step > state.rangeFrom && state.step <= state.rangeTo)
+      )
+        state.step = state.rangeTo;
       syncMode();
     }
     ui.step.max = slideSteps().length - 1;
@@ -1958,7 +2040,10 @@
   ];
   const SAT_SHADES = SAT_STOPS.map(([, c]) => c);
   const SAT_LUT = (() => {
-    const rgb = SAT_STOPS.map(([v, h]) => [v, [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16))]);
+    const rgb = SAT_STOPS.map(([v, h]) => [
+      v,
+      [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)),
+    ]);
     const lut = [];
     for (let v = 0; v < 256; v++) {
       let k = 0;
@@ -2147,7 +2232,9 @@
       enter(ui.badge, "badge-enter");
       if (!ui.badge.contains(ui.legend)) enter(ui.legend, "legend-enter"); // on mobile the legend is inside the bar
     }
-    $("radar-loader-name").textContent = extraCfg() ? `il ${extraCfg().name.toLowerCase()}` : ""; // "Carico il radar"
+    $("radar-loader-name").textContent = extraCfg()
+      ? `il ${extraCfg().name.toLowerCase()}`
+      : ""; // "Carico il radar"
     $("radar-loader-count").textContent = radarFrames.length
       ? `${ready} di ${radarFrames.length} immagini`
       : "in attesa…";
@@ -2291,8 +2378,14 @@
       getElement: () => null,
     };
   }
-  const EXTRA_NAMES = { none: "Nessuno", radar: "Radar", sat: "Satellite", snd: "Radiosondaggi" };
+  const EXTRA_NAMES = {
+    none: "Nessuno",
+    radar: "Radar",
+    sat: "Satellite",
+    snd: "Radiosondaggi",
+  };
   function setExtra(name, save = true) {
+    const previous = state.extra;
     clearInterval(radarTimer);
     stopRadarPlay();
     for (const f of radarFrames) {
@@ -2302,7 +2395,13 @@
     radarFrames = [];
     radarIdx = -1;
     // radar, satellite and soundings only on the normal map
-    state.extra = (EXTRAS[name] || name === "snd") && !synoptic() ? name : "none";
+    state.extra =
+      (EXTRAS[name] || name === "snd") && !synoptic() ? name : "none";
+    if ((previous === "none") !== (state.extra === "none")) {
+      glBase?.stop();
+      map.stop();
+      map.setZoom(map.getMinZoom(), { animate: false });
+    }
     const cfg = extraCfg();
     // soundings: the model colours go away as with the radar, map and stations remain (see renderSoundings)
     const snd = state.extra === "snd";
@@ -2884,9 +2983,17 @@
     synLoad ??= fetch("borders-synoptic.json")
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.statusText))))
       .then((b) => {
-        const st = { renderer: synRenderer, interactive: false, color: "#1f2328" };
-        synLayer.addLayer(L.polyline(b.coast, { ...st, weight: 1.2, opacity: 0.85 }));
-        synLayer.addLayer(L.polyline(b.countries, { ...st, weight: 0.9, opacity: 0.7 }));
+        const st = {
+          renderer: synRenderer,
+          interactive: false,
+          color: "#1f2328",
+        };
+        synLayer.addLayer(
+          L.polyline(b.coast, { ...st, weight: 1.2, opacity: 0.85 }),
+        );
+        synLayer.addLayer(
+          L.polyline(b.countries, { ...st, weight: 0.9, opacity: 0.7 }),
+        );
       })
       .catch(() => {
         synLoad = null;
@@ -3034,7 +3141,12 @@
       f._smooth = {
         ...f,
         // synoptic chart: soft isobars like in the classic charts (at 0.25° otherwise no pass)
-        values: blurred(f.values, nx, ny, synoptic() ? 3 : Math.min(4, Math.round(0.1 / dlon))),
+        values: blurred(
+          f.values,
+          nx,
+          ny,
+          synoptic() ? 3 : Math.min(4, Math.round(0.1 / dlon)),
+        ),
       };
     }
     return f._smooth;
@@ -3163,7 +3275,13 @@
           }),
         );
         // base thickness; the one drawn depends on screen and sharing (isoWeights)
-        layers.at(-1)._wmWeight = synoptic() ? (isBold ? 4 : 3) : isBold ? 2 : 0.9;
+        layers.at(-1)._wmWeight = synoptic()
+          ? isBold
+            ? 4
+            : 3
+          : isBold
+            ? 2
+            : 0.9;
       }
       drawing = { data, layers };
       cached.set(cfg, drawing);
@@ -3243,7 +3361,11 @@
     // time and step ("ven 13 nov, 18:00 · +18h")
     const span = state.run && intervalStartDate(s);
     // without a run (field the model does not have) no dates: fmtShown needs the run
-    const panelTime = !state.run ? "" : span ? fmtShown(s, { month: false }) : `${fmtShown(s)} · +${s}h`;
+    const panelTime = !state.run
+      ? ""
+      : span
+        ? fmtShown(s, { month: false })
+        : `${fmtShown(s)} · +${s}h`;
     ui.valid.classList.toggle("valid-span", !!span);
     ui.valid.textContent = panelTime;
     if (!state.run) {
@@ -3264,9 +3386,10 @@
     // the accumulation of the image shown (during play too: with the chosen hours the last hours, not the whole range)
     const rangeStart = intervalPrev(s);
     const rangeEnd = s;
-    const rangeLabel = rangeStart === 0
-      ? `+${rangeEnd} ore`
-      : `Da +${rangeStart}h a +${rangeEnd}h · ${rangeEnd - rangeStart}h`;
+    const rangeLabel =
+      rangeStart === 0
+        ? `+${rangeEnd} ore`
+        : `Da +${rangeStart}h a +${rangeEnd}h · ${rangeEnd - rangeStart}h`;
     // with an interval the start time too; on mobile without the month to fit on one row
     const mobileTime = fmtShown(s, { month: false });
     // with the start already written in the dates the duration is enough, so the row stays single
@@ -3290,7 +3413,10 @@
       r.style.setProperty("--pct", `${(100 * +r.value) / (+r.max || 1)}%`); // covered part
     // accumulations (interval or total): dates in the row above, steps and duration in the bottom bar and in the legend;
     // the UTC time remains only for instantaneous fields
-    ui.range.textContent = state.mode === "interval" || state.mode === "total" ? "" : `${fmtUTC(valid)} UTC`;
+    ui.range.textContent =
+      state.mode === "interval" || state.mode === "total"
+        ? ""
+        : `${fmtUTC(valid)} UTC`;
     if (typeof renderLandscapeNav === "function") renderLandscapeNav(); // mini bar of the phone in landscape
   }
 
@@ -3312,7 +3438,10 @@
       const names = meta.models
         .filter((m) => variable().models.includes(m.id))
         .map((m) => shortLabel(m.id));
-      showNoData("Grandezza non disponibile", `Disponibile con: ${names.join(", ")}.`);
+      showNoData(
+        "Grandezza non disponibile",
+        `Disponibile con: ${names.join(", ")}.`,
+      );
       return;
     }
     if (!state.run) {
@@ -3433,20 +3562,34 @@
     return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   };
   const unb64u = (text) =>
-    Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+    Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/")), (c) =>
+      c.charCodeAt(0),
+    );
   const throughStream = async (bytes, stream) =>
-    new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer());
+    new Uint8Array(
+      await new Response(
+        new Blob([bytes]).stream().pipeThrough(stream),
+      ).arrayBuffer(),
+    );
   async function exportCode() {
     const index = new Map(folders.map((f, i) => [f.id, i]));
     const data = {
       v: 1,
       f: folders.map((f) => f.name),
-      p: allPlaces.map((p) => [p.name, p.lat, p.lon, index.has(p.folder) ? index.get(p.folder) : -1]),
+      p: allPlaces.map((p) => [
+        p.name,
+        p.lat,
+        p.lon,
+        index.has(p.folder) ? index.get(p.folder) : -1,
+      ]),
     };
     const bytes = new TextEncoder().encode(JSON.stringify(data));
     // "z": deflate (all recent browsers), "j": plain JSON
     if (typeof CompressionStream === "function")
-      return "z" + b64u(await throughStream(bytes, new CompressionStream("deflate-raw")));
+      return (
+        "z" +
+        b64u(await throughStream(bytes, new CompressionStream("deflate-raw")))
+      );
     return "j" + b64u(bytes);
   }
   function refreshExportLink() {
@@ -3461,13 +3604,27 @@
   /** Places of a link: [{name, lat, lon, folder (name or null)}]. Throws if the link is damaged. */
   async function decodeImport(code) {
     let bytes = unb64u(code.slice(1));
-    if (code[0] === "z") bytes = await throughStream(bytes, new DecompressionStream("deflate-raw"));
+    if (code[0] === "z")
+      bytes = await throughStream(
+        bytes,
+        new DecompressionStream("deflate-raw"),
+      );
     else if (code[0] !== "j") throw new Error("formato");
     const d = JSON.parse(new TextDecoder().decode(bytes));
     if (d?.v !== 1 || !Array.isArray(d.p)) throw new Error("formato");
-    const names = Array.isArray(d.f) ? d.f.map((n) => (typeof n === "string" && n.trim() ? n.slice(0, 60) : null)) : [];
+    const names = Array.isArray(d.f)
+      ? d.f.map((n) =>
+          typeof n === "string" && n.trim() ? n.slice(0, 60) : null,
+        )
+      : [];
     const places = d.p
-      .filter((a) => Array.isArray(a) && typeof a[0] === "string" && Number.isFinite(a[1]) && Number.isFinite(a[2]))
+      .filter(
+        (a) =>
+          Array.isArray(a) &&
+          typeof a[0] === "string" &&
+          Number.isFinite(a[1]) &&
+          Number.isFinite(a[2]),
+      )
       .map(([name, lat, lon, i]) => ({
         name: name.slice(0, 80),
         lat: +lat.toFixed(4),
@@ -3481,7 +3638,11 @@
     try {
       ({ places: incoming, folders: linkFolders } = await decodeImport(code));
     } catch {
-      importDialog({ kind: "warn", title: "Link non valido", text: "Il link delle località non è valido o è incompleto: copialo di nuovo dall'altro dispositivo." });
+      importDialog({
+        kind: "warn",
+        title: "Link non valido",
+        text: "Il link delle località non è valido o è incompleto: copialo di nuovo dall'altro dispositivo.",
+      });
       return;
     }
     const key = (name) => name.trim().toLocaleLowerCase("it");
@@ -3495,24 +3656,43 @@
     for (const p of incoming) {
       const fk = p.folder ? key(p.folder) : null;
       const dup = [...existing, ...add].some(
-        (q) => q.fk === fk && Math.abs(q.lat - p.lat) < 0.005 && Math.abs(q.lon - p.lon) < 0.005,
+        (q) =>
+          q.fk === fk &&
+          Math.abs(q.lat - p.lat) < 0.005 &&
+          Math.abs(q.lon - p.lon) < 0.005,
       );
       if (!dup) add.push({ ...p, fk });
     }
     // folders of the link not there yet, also the empty ones (in the order of the link)
-    const newFolders = [...new Map(linkFolders.filter((n) => !byName.has(key(n))).map((n) => [key(n), n])).values()];
+    const newFolders = [
+      ...new Map(
+        linkFolders.filter((n) => !byName.has(key(n))).map((n) => [key(n), n]),
+      ).values(),
+    ];
     if (!add.length && !newFolders.length) {
-      importDialog({ kind: "info", title: "Niente da aggiungere", text: "Le località del link ci sono già tutte su questo dispositivo." });
+      importDialog({
+        kind: "info",
+        title: "Niente da aggiungere",
+        text: "Le località del link ci sono già tutte su questo dispositivo.",
+      });
       return;
     }
     const skipped = incoming.length - add.length;
     const nf = newFolders.length;
-    const folderText = nf ? ` e ${nf} ${nf === 1 ? "cartella" : "cartelle"}` : "";
+    const folderText = nf
+      ? ` e ${nf} ${nf === 1 ? "cartella" : "cartelle"}`
+      : "";
     const ok = await importDialog({
       title: "Importa località",
       text:
-        (add.length ? `Aggiungo ${add.length} località${folderText}` : `Aggiungo ${nf} ${nf === 1 ? "cartella" : "cartelle"}`) +
-        (skipped === 1 ? " (1 c'è già e non viene duplicata)" : skipped ? ` (${skipped} ci sono già e non vengono duplicate)` : "") +
+        (add.length
+          ? `Aggiungo ${add.length} località${folderText}`
+          : `Aggiungo ${nf} ${nf === 1 ? "cartella" : "cartelle"}`) +
+        (skipped === 1
+          ? " (1 c'è già e non viene duplicata)"
+          : skipped
+            ? ` (${skipped} ci sono già e non vengono duplicate)`
+            : "") +
         ". Le località che hai restano come sono.",
       confirm: "Aggiungi",
     });
@@ -3537,9 +3717,13 @@
     editing = false;
     savePlaces();
     setupPoints();
-    importDialog({ kind: "ok", title: "Fatto", text: add.length
+    importDialog({
+      kind: "ok",
+      title: "Fatto",
+      text: add.length
         ? `${add.length === 1 ? "Aggiunta" : "Aggiunte"} ${add.length} località${folderText}.`
-        : `${nf === 1 ? "Aggiunta 1 cartella" : `Aggiunte ${nf} cartelle`}.` });
+        : `${nf === 1 ? "Aggiunta 1 cartella" : `Aggiunte ${nf} cartelle`}.`,
+    });
   }
   /** The import window: confirmation (two buttons, resolves true/false) or outcome with an animated icon
    *  ("ok" tick, "info", "warn"; one button). The outcome replaces the confirmation in the same window. */
@@ -3580,7 +3764,11 @@
   };
   /** Copy to the clipboard; without the API (old browsers, http) with a hidden selected field. */
   function copyText(text) {
-    if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text).then(() => true, () => false);
+    if (navigator.clipboard?.writeText)
+      return navigator.clipboard.writeText(text).then(
+        () => true,
+        () => false,
+      );
     const t = document.createElement("textarea");
     t.value = text;
     t.setAttribute("readonly", "");
@@ -3631,7 +3819,9 @@
               Number.isFinite(p.lat) &&
               Number.isFinite(p.lon),
           )
-          .map((p) => (p.folder && !ids.has(p.folder) ? { ...p, folder: undefined } : p));
+          .map((p) =>
+            p.folder && !ids.has(p.folder) ? { ...p, folder: undefined } : p,
+          );
         return { places, folders, open: ids.has(fd.open) ? fd.open : null };
       }
     } catch {
@@ -3642,8 +3832,14 @@
   function savePlaces() {
     try {
       // still v1: the places stay readable by an older page (it ignores folders and shows them all)
-      localStorage.setItem(PLACES_KEY, JSON.stringify({ v: 1, places: allPlaces }));
-      localStorage.setItem(FOLDERS_KEY, JSON.stringify({ v: 1, folders, open: openFolder }));
+      localStorage.setItem(
+        PLACES_KEY,
+        JSON.stringify({ v: 1, places: allPlaces }),
+      );
+      localStorage.setItem(
+        FOLDERS_KEY,
+        JSON.stringify({ v: 1, folders, open: openFolder }),
+      );
     } catch {
       /* private browsing or full storage: changes last while you stay on the page */
     }
@@ -3734,7 +3930,10 @@
     // icon only (pencil, check when editing): more room for the search field
     ui.placesEdit.innerHTML = editing ? CHECK_ICON : PENCIL_ICON;
     ui.placesEdit.title = editing ? "Fine" : "Modifica";
-    ui.placesEdit.setAttribute("aria-label", editing ? "Fine modifica" : "Modifica località e cartelle");
+    ui.placesEdit.setAttribute(
+      "aria-label",
+      editing ? "Fine modifica" : "Modifica località e cartelle",
+    );
     ui.placesEdit.setAttribute("aria-pressed", String(editing));
     // copy for another device: at the bottom of the list, at the top level, if there is at least one place
     $("places-export").hidden = !allPlaces.length || !!openFolder || editing;
@@ -3754,7 +3953,8 @@
       return;
     }
     // copy not allowed: the link in a field to copy by hand
-    help.innerHTML = "Copia questo link e incollalo sull'altro dispositivo nel campo <b>Cerca una località</b>:";
+    help.innerHTML =
+      "Copia questo link e incollalo sull'altro dispositivo nel campo <b>Cerca una località</b>:";
     const input = document.createElement("input");
     input.readOnly = true;
     input.value = link || "";
@@ -3842,7 +4042,10 @@
         if (editing) r.append(folderDelButton(f));
         continue;
       }
-      r.insertAdjacentHTML("beforeend", `<span class="folder-name"></span><span class="folder-n">${n}</span><span class="folder-go" aria-hidden="true">›</span>`);
+      r.insertAdjacentHTML(
+        "beforeend",
+        `<span class="folder-name"></span><span class="folder-n">${n}</span><span class="folder-go" aria-hidden="true">›</span>`,
+      );
       r.querySelector(".folder-name").textContent = f.name;
       r.title = `Apri ${f.name}`;
       r.setAttribute("role", "button");
@@ -3869,7 +4072,11 @@
     del.type = "button";
     del.className = "folder-del" + (confirmDelete === f.id ? " confirm" : "");
     del.textContent =
-      confirmDelete === f.id ? (n ? `Elimina con ${n === 1 ? "1 località" : `${n} località`}` : "Elimina") : "✕";
+      confirmDelete === f.id
+        ? n
+          ? `Elimina con ${n === 1 ? "1 località" : `${n} località`}`
+          : "Elimina"
+        : "✕";
     del.setAttribute("aria-label", `Elimina la cartella ${f.name}`);
     del.addEventListener("click", () => {
       if (confirmDelete !== f.id) {
@@ -4132,8 +4339,7 @@
     }
     // a waiting state right away: spinner in the field and "Cerco…" in the list (Open-Meteo answers in a few tenths)
     setSearching(true);
-    ui.placeResults.innerHTML =
-      '<li class="place-none place-wait">Cerco…</li>';
+    ui.placeResults.innerHTML = '<li class="place-none place-wait">Cerco…</li>';
     ui.placeResults.hidden = false;
     placeResults();
     searchTimer = setTimeout(() => searchPlaces(q), 300);
@@ -4256,7 +4462,8 @@
   // and, if the chosen model has the ensemble (GFS, ECMWF), the spaghetti
   // phone in landscape: places and point menu are tapped as in portrait (to open the charts; if they
   // look bad you rotate the phone); no value tooltip on tap
-  const landscapeView = () => document.body.classList.contains("landscape-view");
+  const landscapeView = () =>
+    document.body.classList.contains("landscape-view");
   function openPlacePop(idx) {
     if (live.on) return;
     if (synoptic()) return; // on the 500 hPa chart places are not shown
@@ -4345,10 +4552,7 @@
       const x = extraValue(d, p.lat, p.lon);
       rows.push([d.label, x === undefined ? "…" : (x ?? "—")]);
     }
-    const foot =
-      state.run && state.step != null
-        ? fmtShown()
-        : "";
+    const foot = state.run && state.step != null ? fmtShown() : "";
     pop.innerHTML =
       `<div class="pt-pop-head"><strong>${esc(p.name)}</strong>` +
       `<button type="button" class="pt-pop-close" aria-label="Chiudi"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>` +
@@ -4361,7 +4565,7 @@
         .join("") + // without a value the row is not there
       (foot ? `<div class="pt-pop-foot">${esc(foot)}</div>` : "") +
       // side-by-side buttons: time chart and, if the model has the ensemble, the spaghetti
-      (meta.series && state.run || meta.ensemble?.[state.model]
+      ((meta.series && state.run) || meta.ensemble?.[state.model]
         ? '<div class="pt-pop-btns">' +
           (meta.series && state.run
             ? '<button type="button" class="pt-pop-chart" title="Grafico nel tempo">Grafico</button>'
@@ -4384,7 +4588,9 @@
       ?.addEventListener("click", () => openChart(p));
     pop
       .querySelector(".pt-pop-ens")
-      ?.addEventListener("click", () => openChart(p, { ensemble: true, model: state.model }));
+      ?.addEventListener("click", () =>
+        openChart(p, { ensemble: true, model: state.model }),
+      );
     pop.hidden = false;
     markPoppedPoint();
     placePlacePop();
@@ -4643,7 +4849,13 @@
     if (synCanvas && synoptic()) {
       const r = synCanvas.getBoundingClientRect();
       ctx.globalAlpha = bordersOpacity();
-      ctx.drawImage(synCanvas, r.left - cr.left, r.top - cr.top, r.width, r.height);
+      ctx.drawImage(
+        synCanvas,
+        r.left - cr.left,
+        r.top - cr.top,
+        r.width,
+        r.height,
+      );
       ctx.globalAlpha = 1;
     }
     const arrowsCanvas = map.getPane("arrows").querySelector("canvas");
@@ -4684,7 +4896,9 @@
         y = r.top - cr.top + r.height / 2;
       ctx.lineWidth = 3;
       // black shadow under the white labels of the synoptic chart, light halo under the dark ones
-      ctx.strokeStyle = synoptic() ? "rgba(0,0,0,0.9)" : "rgba(255,255,255,0.9)";
+      ctx.strokeStyle = synoptic()
+        ? "rgba(0,0,0,0.9)"
+        : "rgba(255,255,255,0.9)";
       ctx.lineJoin = "round";
       ctx.strokeText(el.textContent, x, y);
       ctx.fillStyle = cs.color;
@@ -4811,7 +5025,8 @@
     const cy = crop.y + cropH() / 2;
     crop.ratio = r;
     [outCanvas.width, outCanvas.height] = RATIOS[r];
-    if (live.on) liveLayout(); // the frame follows the proportions; the crop is taken from it at capture time
+    if (live.on)
+      liveLayout(); // the frame follows the proportions; the crop is taken from it at capture time
     else {
       if (shareUi.dialog.open) layoutView();
       crop.w = clampW(crop.w);
@@ -5104,7 +5319,8 @@
   const viewScale = () => view.fw / crop.w; // view px per map px
   function renderView() {
     // capture not ready yet (a render asked while the dialog opens, before the first capture)
-    if (shareUi.dialog.classList.contains("share-preparing") || !crop.snap) return;
+    if (shareUi.dialog.classList.contains("share-preparing") || !crop.snap)
+      return;
     renderOut();
     const ctx = shareUi.canvas.getContext("2d");
     const { snap } = crop;
@@ -5252,7 +5468,9 @@
     if (own) {
       isoSharing = true;
       isoWeights();
-      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      await new Promise((r) =>
+        requestAnimationFrame(() => requestAnimationFrame(r)),
+      );
     }
     glShot = glBase ? await glCapture() : null;
     crop.snap = snapshotMap();
@@ -5273,8 +5491,12 @@
   /** Frame: the largest of the chosen proportions between the dialog's top bar and its controls. */
   function liveLayout() {
     const d = shareUi.dialog.getBoundingClientRect();
-    const head = shareUi.dialog.querySelector(".share-head").getBoundingClientRect();
-    const tools = shareUi.dialog.querySelector(".share-tools").getBoundingClientRect();
+    const head = shareUi.dialog
+      .querySelector(".share-head")
+      .getBoundingClientRect();
+    const tools = shareUi.dialog
+      .querySelector(".share-tools")
+      .getBoundingClientRect();
     const pad = 14;
     const top = head.bottom + pad,
       availW = d.width - 2 * pad,
@@ -5306,7 +5528,10 @@
     ctx.setTransform(k, 0, 0, k, 0, 0);
     drawDecor(ctx, OW, OH, crop.texts);
     // places hidden on the map too when they are not in the image (switch off, or a single point shared)
-    document.body.classList.toggle("share-nopoints", !shareUi.points.checked || !!crop.pinLL);
+    document.body.classList.toggle(
+      "share-nopoints",
+      !shareUi.points.checked || !!crop.pinLL,
+    );
   }
   /** The map moved: the prepared image is no longer valid; a new one is prepared when it stops. */
   function liveInvalidate() {
@@ -5327,7 +5552,9 @@
     crop.y = live.y - mr.top;
     crop.w = live.w;
     renderOut();
-    const blob = await new Promise((res) => outCanvas.toBlob(res, "image/jpeg", 0.9));
+    const blob = await new Promise((res) =>
+      outCanvas.toBlob(res, "image/jpeg", 0.9),
+    );
     if (my !== live.seq || !live.on) return shareFile;
     shareFile = new File([blob], crop.texts.name, { type: "image/jpeg" });
     return shareFile;
@@ -5360,7 +5587,8 @@
     // strip of the map) and 4:3 on desktop
     crop.ratio = crop.chosenRatio || (mobileMq.matches ? "1:1" : "4:3");
     [outCanvas.width, outCanvas.height] = RATIOS[crop.ratio];
-    shareUi.pointsRow.hidden = !pointMarkers.length || !!crop.pinLL || synoptic();
+    shareUi.pointsRow.hidden =
+      !pointMarkers.length || !!crop.pinLL || synoptic();
     shareUi.points.checked = state.extra === "none";
     document.body.classList.add("share-live");
     shareUi.dialog.classList.add("share-live");
@@ -5384,7 +5612,13 @@
       }).addTo(map);
       const mr = map.getContainer().getBoundingClientRect();
       const p = map.latLngToContainerPoint(crop.pinLL);
-      map.panBy([p.x - (live.x - mr.left + live.w / 2), p.y - (live.y - mr.top + live.h / 2)], { animate: false });
+      map.panBy(
+        [
+          p.x - (live.x - mr.left + live.w / 2),
+          p.y - (live.y - mr.top + live.h / 2),
+        ],
+        { animate: false },
+      );
     }
     liveInvalidate();
   }
@@ -5472,7 +5706,11 @@
     shareUi.dialog.classList.remove("share-preparing");
     if (live.on) liveEnd(); // first: minimum zoom and bounds back, then the view
     if (shareRestore)
-      map.setView(shareRestore.center, Math.max(shareRestore.zoom, map.getMinZoom()), { animate: false });
+      map.setView(
+        shareRestore.center,
+        Math.max(shareRestore.zoom, map.getMinZoom()),
+        { animate: false },
+      );
     shareRestore = null;
     shareWideEnd();
     liveEnd();
@@ -5537,8 +5775,10 @@
     const size = map.getSize();
     const nw = map.latLngToContainerPoint(SYN_FRAME.getNorthWest());
     const se = map.latLngToContainerPoint(SYN_FRAME.getSouthEast());
-    const inside = nw.x > -2 && nw.y > -2 && se.x < size.x + 2 && se.y < size.y + 2;
-    const tight = Math.abs(se.x - nw.x - size.x) < 4 || Math.abs(se.y - nw.y - size.y) < 4;
+    const inside =
+      nw.x > -2 && nw.y > -2 && se.x < size.x + 2 && se.y < size.y + 2;
+    const tight =
+      Math.abs(se.x - nw.x - size.x) < 4 || Math.abs(se.y - nw.y - size.y) < 4;
     if (!inside || !tight) return false;
     if (!glBase) return true;
     const c = map.getCenter(),
@@ -5580,8 +5820,12 @@
   }
 
   // +/− (desktop): zoom of the map under the frame
-  shareUi.zoomIn.addEventListener("click", () => map.setZoom(map.getZoom() + 0.5));
-  shareUi.zoomOut.addEventListener("click", () => map.setZoom(Math.max(map.getMinZoom(), map.getZoom() - 0.5)));
+  shareUi.zoomIn.addEventListener("click", () =>
+    map.setZoom(map.getZoom() + 0.5),
+  );
+  shareUi.zoomOut.addEventListener("click", () =>
+    map.setZoom(Math.max(map.getMinZoom(), map.getZoom() - 0.5)),
+  );
 
   function toast(text, warn = false) {
     shareUi.toast.textContent = text;
@@ -5713,7 +5957,9 @@
         if (iy < 0 || ix < 0 || iy >= g.ny || ix >= g.nx) return; // outside the model domain
         const ty = Math.floor(iy / g.block),
           tx = Math.floor(ix / g.block);
-        const r = await fetch(`data/series/${model}/${run}/${name}/${ty}_${tx}.bin`);
+        const r = await fetch(
+          `data/series/${model}/${run}/${name}/${ty}_${tx}.bin`,
+        );
         if (r.status === 404) return; // tile entirely outside the domain: it does not exist
         if (!r.ok) throw new Error("serie non disponibile per questo punto");
         const t = unpackField(await r.arrayBuffer());
@@ -5727,7 +5973,8 @@
               .map((x) => (x == null ? null : x / v.scale)),
           };
         }
-        if (name === "native") [out.lat, out.lon] = [g.lat0 + iy * g.dlat, g.lon0 + ix * g.dlon];
+        if (name === "native")
+          [out.lat, out.lon] = [g.lat0 + iy * g.dlat, g.lon0 + ix * g.dlon];
       }),
     );
     return out;
@@ -5762,7 +6009,8 @@
       const d = new Date(ms);
       const jan1 = Date.UTC(d.getUTCFullYear(), 0, 1);
       let day = Math.floor((ms - jan1) / 864e5);
-      const leap = new Date(Date.UTC(d.getUTCFullYear(), 1, 29)).getUTCMonth() === 1;
+      const leap =
+        new Date(Date.UTC(d.getUTCFullYear(), 1, 29)).getUTCMonth() === 1;
       if (leap && day >= 59) day -= 1; // 29 February counts as the 28th (the climatology has 365 days)
       return [Math.min(day, 364), Math.floor(d.getUTCHours() / 6)];
     };
@@ -5779,12 +6027,17 @@
   /** Ensemble spaghetti of a model at the nearest point: from the server or, on the static site, from the point's file. */
   async function getEnsemble(model, lat, lon) {
     if (!STATIC) {
-      const r = await fetch(`api/ensemble?${new URLSearchParams({ model, lat, lon })}`);
+      const r = await fetch(
+        `api/ensemble?${new URLSearchParams({ model, lat, lon })}`,
+      );
       if (!r.ok) throw new Error(r.statusText);
       return r.json();
     }
     const { run, grid: g } = meta.ensemble[model];
-    const iy = Math.min(Math.max(Math.round((lat - g.lat0) / g.dlat), 0), g.ny - 1),
+    const iy = Math.min(
+        Math.max(Math.round((lat - g.lat0) / g.dlat), 0),
+        g.ny - 1,
+      ),
       ix = Math.min(Math.max(Math.round((lon - g.lon0) / g.dlon), 0), g.nx - 1);
     const r = await fetch(`data/ensemble/${model}/${run}/${iy}_${ix}.json`);
     if (!r.ok) throw new Error("ensemble non disponibile per questo punto");
@@ -5806,7 +6059,11 @@
     else params.delete("chartEns");
     if (chartContext.multi) params.set("chartMulti", chartContext.multi);
     else params.delete("chartMulti");
-    if (chartContext.sounding) params.set("chartSnd", `${chartContext.sounding.station}:${chartContext.sounding.time || ""}`);
+    if (chartContext.sounding)
+      params.set(
+        "chartSnd",
+        `${chartContext.sounding.station}:${chartContext.sounding.time || ""}`,
+      );
     else params.delete("chartSnd");
     if (push)
       history.pushState(
@@ -5864,7 +6121,9 @@
         until,
         pushHistory: false,
         ensemble: params.get("chartEns") === "1" && !!meta.ensemble?.[model],
-        multi: ["tp", "t850"].includes(params.get("chartMulti")) ? params.get("chartMulti") : null,
+        multi: ["tp", "t850"].includes(params.get("chartMulti"))
+          ? params.get("chartMulti")
+          : null,
       },
     );
   }
@@ -5891,7 +6150,11 @@
     chartUi.dialog.classList.remove("side-panel"); // the model charts full screen
     if (multi) {
       // the map's period (model, run and slider hours), turned into dates in loadMulti: the models start at different times
-      const ref = run || (model === state.model ? state.run : (runs[model] || []).find((x) => !x.incoming)?.run);
+      const ref =
+        run ||
+        (model === state.model
+          ? state.run
+          : (runs[model] || []).find((x) => !x.incoming)?.run);
       chartContext = { place: p, model, run: ref, from, until, multi };
       writeChartHash(pushHistory && !chartUi.dialog.open);
       if (!chartUi.dialog.open) chartUi.dialog.showModal();
@@ -5901,7 +6164,11 @@
     }
     if (ensemble)
       // spaghetti: only the models with the ensemble (GFS, ECMWF)
-      fillModelSelect(meta.models.filter((m) => meta.ensemble?.[m.id]), model, chartUi.model);
+      fillModelSelect(
+        meta.models.filter((m) => meta.ensemble?.[m.id]),
+        model,
+        chartUi.model,
+      );
     else {
       fillModelSelect(meta.models, model, chartUi.model);
       for (const option of chartUi.model.options)
@@ -5910,7 +6177,14 @@
         );
     }
     chartContext = ensemble
-      ? { place: p, model, run: meta.ensemble?.[model]?.run, from: 0, until: 384, ensemble: true }
+      ? {
+          place: p,
+          model,
+          run: meta.ensemble?.[model]?.run,
+          from: 0,
+          until: 384,
+          ensemble: true,
+        }
       : {
           place: p,
           model,
@@ -5929,7 +6203,14 @@
   function chartPointWarning(series, request, model, run) {
     const v = dataVar();
     const sv = series.vars?.[v];
-    if (!current || !sv || !["tp", "sf"].includes(v) || state.model !== model || state.run !== run) return;
+    if (
+      !current ||
+      !sv ||
+      !["tp", "sf"].includes(v) ||
+      state.model !== model ||
+      state.run !== run
+    )
+      return;
     if (!rangeMode() || intervalPrev() !== 0) return; // only the total since the start of the run is comparable
     const i = sv.steps.indexOf(state.step);
     const onChart = i >= 0 ? sv.values[i] : null;
@@ -5942,7 +6223,9 @@
     const km =
       R *
       Math.hypot(
-        (series.lon - request.place.lon) * rad * Math.cos(request.place.lat * rad),
+        (series.lon - request.place.lon) *
+          rad *
+          Math.cos(request.place.lat * rad),
         (series.lat - request.place.lat) * rad,
       );
     const u = current.units;
@@ -5967,7 +6250,8 @@
     if (chartContext.sounding) return loadSounding();
     const run = chartContext.ensemble
       ? meta.ensemble?.[model]?.run // spaghetti: the latest complete run of the model's ensemble
-      : selectedRun || (runs[model] || []).find((entry) => !entry.incoming)?.run;
+      : selectedRun ||
+        (runs[model] || []).find((entry) => !entry.incoming)?.run;
     const request = { ...chartContext, model, run };
     chartContext = request;
     writeChartHash();
@@ -5977,18 +6261,36 @@
         ? `${info.label} · ${cycle(run)} ${fmtRunDay(run)}`
         : "Ensemble non disponibile";
       chartUi.warn.hidden = true;
-      chartUi.body.innerHTML = '<div class="chart-empty">Carico il grafico…</div>';
+      chartUi.body.innerHTML =
+        '<div class="chart-empty">Carico il grafico…</div>';
       chartData = null;
       chartPin = null;
       $("chart-readout").hidden = true;
       try {
         if (!run) throw new Error("nessuna corsa disponibile");
-        const ens = await getEnsemble(model, request.place.lat, request.place.lon);
-        const clim = await climT850(ens.lat, ens.lon, runDate(run).getTime(), ens.steps);
+        const ens = await getEnsemble(
+          model,
+          request.place.lat,
+          request.place.lon,
+        );
+        const clim = await climT850(
+          ens.lat,
+          ens.lon,
+          runDate(run).getTime(),
+          ens.steps,
+        );
         if (chartContext !== request || !chartUi.dialog.open) return;
         // operational run of the same cycle, downloaded with the ensemble over its whole range (app/ensemble.py)
         const op = ens.op && { t850: ens.op.t850, tp: ens.op.tp };
-        chartData = { ensemble: ens, clim, op, model, run, from: 0, until: 384 };
+        chartData = {
+          ensemble: ens,
+          clim,
+          op,
+          model,
+          run,
+          from: 0,
+          until: 384,
+        };
         drawChart();
       } catch (e) {
         if (chartContext !== request || !chartUi.dialog.open) return;
@@ -6010,7 +6312,8 @@
       ? `${cycle(run)} · ${period}`
       : "Nessuna corsa disponibile";
     chartUi.warn.hidden = true;
-    chartUi.body.innerHTML = '<div class="chart-empty">Carico il grafico…</div>';
+    chartUi.body.innerHTML =
+      '<div class="chart-empty">Carico il grafico…</div>';
     chartData = null;
     chartPin = null;
     $("chart-readout").hidden = true;
@@ -6047,7 +6350,8 @@
   }
   chartUi.multi.addEventListener("click", (e) => {
     const b = e.target.closest("button[data-v]");
-    if (!b || !chartContext?.multi || b.dataset.v === chartContext.multi) return;
+    if (!b || !chartContext?.multi || b.dataset.v === chartContext.multi)
+      return;
     chartContext.multi = b.dataset.v;
     loadMulti();
   });
@@ -6056,7 +6360,14 @@
     const model = chartUi.model.value;
     const ctx = chartContext;
     const newRun = (runs[model] || []).find((entry) => !entry.incoming)?.run;
-    if (ctx && !ctx.ensemble && !ctx.multi && !ctx.sounding && ctx.run && newRun) {
+    if (
+      ctx &&
+      !ctx.ensemble &&
+      !ctx.multi &&
+      !ctx.sounding &&
+      ctx.run &&
+      newRun
+    ) {
       // e.g. GFS 00Z +30h = ICON-D2 06Z +24h; "from 0" (start of the run) stays the start of the new run
       const shift = Math.round((runDate(ctx.run) - runDate(newRun)) / 3600e3);
       const until = ctx.until + shift;
@@ -6111,13 +6422,13 @@
         "#12357a",
     }; // precipitation accumulation
   }
-  const WARN_AMBER = "#f59f00"; // notice next to a panel title: same amber as .chart-warn
+  const WARN = "#c2410c"; // notice next to a panel title: same orange as .chart-warn (--warn in style.css)
   const chartCss = (c) =>
     [
       // the page classes do not apply inside an image: same styles and colours
       `.ch-title{font:650 12.5px system-ui,sans-serif;fill:${c.fg}}.ch-note{font-weight:400;font-size:11.5px;fill:${c.muted}}.ch-leg{font:400 11.5px system-ui,sans-serif;fill:${c.muted}}.ch-leg tspan{font-weight:650;fill:${c.fg}}`,
       `.ch-tick{font:11px system-ui,sans-serif;fill:${c.muted}}.ch-grid{stroke:${c.line};stroke-width:1}`,
-      `.ch-info-bg{fill:${c.bg}}.ch-info{fill:${WARN_AMBER};fill-opacity:.12;stroke:${WARN_AMBER};stroke-opacity:.55;stroke-width:1}`,
+      `.ch-info-bg{fill:${c.bg}}.ch-info{fill:${WARN};fill-opacity:.08;stroke:${WARN};stroke-opacity:.35;stroke-width:1}`,
       `.ch-info-text{font:11.5px system-ui,sans-serif;fill:${c.fg}}`,
       `.ch-day{stroke:${c.line};stroke-width:1;stroke-dasharray:3 3}`,
       `.ch-zero{stroke:${c.muted};stroke-width:1}text{font-variant-numeric:tabular-nums}`,
@@ -6129,9 +6440,10 @@
   async function makeChartFile() {
     const { model, run } = chartData;
     const title = chartUi.title.textContent;
-    const subtitle = chartData.ensemble || chartData.multi || chartData.sounding
-      ? chartUi.details.textContent // already says "Ensemble GFS/ECMWF" or "Modelli a confronto"
-      : `${meta.models.find((entry) => entry.id === model)?.label || model} · ${chartUi.details.textContent}`;
+    const subtitle =
+      chartData.ensemble || chartData.multi || chartData.sounding
+        ? chartUi.details.textContent // already says "Ensemble GFS/ECMWF" or "Modelli a confronto"
+        : `${meta.models.find((entry) => entry.id === model)?.label || model} · ${chartUi.details.textContent}`;
     // 4:5 portrait image (2160 × 2700 px): full format on Instagram, whole in chats; the panels stretch.
     // Drawn on 600 × 750 points scaled up 3.6 times: texts and lines in proportion as in the page on the phone
     // (on 1080 points, shrunk on screen, everything looked tiny)
@@ -6212,10 +6524,19 @@
         colW = [];
       if (tb) {
         ctx.font = `400 ${TF}px ${FONT}`;
-        labW = Math.max(...tb.rows.map((r) => Math.ceil(ctx.measureText(r.t).width)));
+        labW = Math.max(
+          ...tb.rows.map((r) => Math.ceil(ctx.measureText(r.t).width)),
+        );
         colW = tb.cols.map(() => 0);
         ctx.font = `650 ${TF}px ${FONT}`;
-        for (const r of tb.rows) r.vals.forEach((v, k) => (colW[k] = Math.max(colW[k], Math.ceil(ctx.measureText(v).width))));
+        for (const r of tb.rows)
+          r.vals.forEach(
+            (v, k) =>
+              (colW[k] = Math.max(
+                colW[k],
+                Math.ceil(ctx.measureText(v).width),
+              )),
+          );
       }
       const tableW = tb ? labW + colW.reduce((a, w) => a + COLGAP + w, 0) : 0;
       const HF = tb ? TF : PB.font, // box font and line height (smaller for the spaghetti)
@@ -6224,7 +6545,11 @@
       ctx.font = `400 ${HF}px ${FONT}`;
       const bw =
         Math.ceil(
-          Math.max(ctx.measureText(pb.head).width, tableW, ...pb.rows.map(widthOf)),
+          Math.max(
+            ctx.measureText(pb.head).width,
+            tableW,
+            ...pb.rows.map(widthOf),
+          ),
         ) +
         HP * 2 +
         4;
@@ -6233,7 +6558,10 @@
       const by = TOP + 24,
         bx = Math.max(
           M,
-          Math.min(pb.x < pb.right / 2 ? lx + 10 : lx - bw - 10, M + pb.right - bw),
+          Math.min(
+            pb.x < pb.right / 2 ? lx + 10 : lx - bw - 10,
+            M + pb.right - bw,
+          ),
         );
       ctx.beginPath();
       ctx.roundRect(bx + 0.5, by + 0.5, bw, bh, 7);
@@ -6388,21 +6716,68 @@
     const ctl = E.control ? E.members.indexOf(E.control) : -1; // the ECMWF open-data ensemble has no control
     const op = chartData.op; // operational run of the same cycle, if downloaded
     const panels = [
-      { title: "Temperatura 850 hPa", short: "T 850 hPa", unit: "°C", rows: E.t850, op: op?.t850, dec: 1, zero: true, ph: 170, clim: chartData.clim },
-      { title: "Pioggia", short: "Pioggia 6h", rain: true, unit: "mm in 6 ore", rows: E.tp, op: op?.tp, dec: 1, min: 2, floor0: true, ph: 110 },
+      {
+        title: "Temperatura 850 hPa",
+        short: "T 850 hPa",
+        unit: "°C",
+        rows: E.t850,
+        op: op?.t850,
+        dec: 1,
+        zero: true,
+        ph: 170,
+        clim: chartData.clim,
+      },
+      {
+        title: "Pioggia",
+        short: "Pioggia 6h",
+        rain: true,
+        unit: "mm in 6 ore",
+        rows: E.tp,
+        op: op?.tp,
+        dec: 1,
+        min: 2,
+        floor0: true,
+        ph: 110,
+      },
     ];
     // legend below the axis: what the lines are, in several columns
     const legend = [
-      ...(op ? [{ label: "Ufficiale", attrs: `stroke="${OFFICIAL}" stroke-width="3"` }] : []),
-      ...(ctl >= 0 ? [{ label: "Controllo", attrs: 'class="ch-ens-ctl" stroke-width="1.6" stroke-dasharray="4 3"' }] : []),
+      ...(op
+        ? [
+            {
+              label: "Ufficiale",
+              attrs: `stroke="${OFFICIAL}" stroke-width="3"`,
+            },
+          ]
+        : []),
+      ...(ctl >= 0
+        ? [
+            {
+              label: "Controllo",
+              attrs:
+                'class="ch-ens-ctl" stroke-width="1.6" stroke-dasharray="4 3"',
+            },
+          ]
+        : []),
       { label: "Media", attrs: 'class="ch-ens-mean" stroke-width="3"' },
-      ...(chartData.clim ? [{ label: "1991–2020", attrs: `stroke="${CLIM_RED}" stroke-width="2.5"` }] : []),
+      ...(chartData.clim
+        ? [
+            {
+              label: "1991–2020",
+              attrs: `stroke="${CLIM_RED}" stroke-width="2.5"`,
+            },
+          ]
+        : []),
     ];
     const legPer = Math.max(2, Math.floor(W / 170)),
       LEG = 8 + Math.ceil(legend.length / legPer) * 18;
     // height: the image's or, in the dialog, all the available one (the panels stretch)
-    const fitH = exportH || (chartUi.body.clientHeight > 320 ? chartUi.body.clientHeight - 12 : null);
-    const avail = fitH ? fitH - AXIS - LEG - panels.length * (HEAD + GAP) + GAP : null;
+    const fitH =
+      exportH ||
+      (chartUi.body.clientHeight > 320 ? chartUi.body.clientHeight - 12 : null);
+    const avail = fitH
+      ? fitH - AXIS - LEG - panels.length * (HEAD + GAP) + GAP
+      : null;
     if (avail) {
       const tot = panels.reduce((a, p) => a + p.ph, 0);
       for (const p of panels) p.ph = Math.max(60, (p.ph / tot) * avail);
@@ -6412,7 +6787,11 @@
     const tickText = (t) => fmt(t, Math.abs(t) < 10 && t % 1 ? 1 : 0);
     for (const p of panels) {
       p.mean = mean(p.rows);
-      const vals = [...p.rows.flat(), ...(p.clim || []), ...(p.op || [])].filter((x) => x != null);
+      const vals = [
+        ...p.rows.flat(),
+        ...(p.clim || []),
+        ...(p.op || []),
+      ].filter((x) => x != null);
       let lo = p.floor0 ? 0 : Math.min(...vals),
         hi = Math.max(p.min ?? -Infinity, ...vals);
       if (p.zero) {
@@ -6425,7 +6804,9 @@
     }
     {
       // the chart starts right after the widest axis number (11-11.5 px, ~6.6 px per digit)
-      const chars = Math.max(...panels.flatMap((p) => p.ticks.map((t) => tickText(t).length)));
+      const chars = Math.max(
+        ...panels.flatMap((p) => p.ticks.map((t) => tickText(t).length)),
+      );
       L = Math.ceil(chars * 6.6) + 5;
       pw = W - L - R;
     }
@@ -6438,13 +6819,17 @@
         `<text class="ch-title" x="0" y="${top - 20}">${p.title} <tspan class="ch-note">(${p.unit})</tspan></text>`,
       );
       for (const t of ticks) {
-        svg.push(`<line class="ch-grid" x1="${L}" x2="${L + pw}" y1="${Y(t)}" y2="${Y(t)}"/>`);
+        svg.push(
+          `<line class="ch-grid" x1="${L}" x2="${L + pw}" y1="${Y(t)}" y2="${Y(t)}"/>`,
+        );
         svg.push(
           `<text class="ch-tick" x="${L - 4}" y="${Y(t) + 3.5}" text-anchor="end">${tickText(t)}</text>`,
         );
       }
       if (p.zero && lo < 0 && hi > 0)
-        svg.push(`<line class="ch-zero" x1="${L}" x2="${L + pw}" y1="${Y(0)}" y2="${Y(0)}"/>`);
+        svg.push(
+          `<line class="ch-zero" x1="${L}" x2="${L + pw}" y1="${Y(0)}" y2="${Y(0)}"/>`,
+        );
       const path = (row) => {
         let d = "",
           pen = false;
@@ -6512,11 +6897,15 @@
     let nDay = 0;
     for (let h = Math.floor(x0) + 1; h <= x1; h++) {
       if (hourOf(h) % 24 !== 0) continue;
-      svg.push(`<line class="ch-day" x1="${X(h)}" x2="${X(h)}" y1="${HEAD + 2}" y2="${yBot}"/>`);
+      svg.push(
+        `<line class="ch-day" x1="${X(h)}" x2="${X(h)}" y1="${HEAD + 2}" y2="${yBot}"/>`,
+      );
       if (nDay++ % labelEvery) continue;
       const d = new Date(t0 + h * 3600e3).toLocaleDateString("it-IT", {
         timeZone: "Europe/Rome",
-        ...(perDay >= 52 ? { weekday: "short", day: "numeric" } : { day: "numeric" }),
+        ...(perDay >= 52
+          ? { weekday: "short", day: "numeric" }
+          : { day: "numeric" }),
       });
       svg.push(
         `<text class="ch-tick" x="${X(h)}" y="${yBot + 16}" text-anchor="middle" font-weight="600">${d}</text>`,
@@ -6527,14 +6916,21 @@
     // a column per chart (the same field under each other, easy to compare), a row per line
     const valueTable = (i) => {
       const series = [
-        ...(op ? [{ t: "Ufficiale", col: OFFICIAL, at: (p) => p.op?.[i] }] : []),
+        ...(op
+          ? [{ t: "Ufficiale", col: OFFICIAL, at: (p) => p.op?.[i] }]
+          : []),
         { t: "Media", at: (p) => p.mean[i] },
         // 1991-2020 climatology: temperature only, a dash under precipitation
-        ...(chartData.clim ? [{ t: "Cli.No.", col: CLIM_RED, at: (p) => p.clim?.[i] }] : [])]; // climate normal 1991-2020
+        ...(chartData.clim
+          ? [{ t: "Cli.No.", col: CLIM_RED, at: (p) => p.clim?.[i] }]
+          : []),
+      ]; // climate normal 1991-2020
       const rows = series.map(({ t, col, at }) => ({
         t,
         col,
-        vals: panels.map((p) => (at(p) == null ? "—" : `${fmt(at(p), p.dec)} ${unitOf(p)}`)),
+        vals: panels.map((p) =>
+          at(p) == null ? "—" : `${fmt(at(p), p.dec)} ${unitOf(p)}`,
+        ),
       }));
       if (rows.every((r) => r.vals.every((x) => x === "—"))) return null;
       return { cols: panels.map((p) => p.short), rows };
@@ -6544,7 +6940,9 @@
     if (exportW) {
       // pinned time: line on the chart and box with time and values next to it, at the top (like the other charts)
       if (pin != null)
-        svg.push(`<line class="ch-pin" x1="${X(pin)}" x2="${X(pin)}" y1="${HEAD + 2}" y2="${yBot}"/>`);
+        svg.push(
+          `<line class="ch-pin" x1="${X(pin)}" x2="${X(pin)}" y1="${HEAD + 2}" y2="${yBot}"/>`,
+        );
       const i = steps.indexOf(pin);
       const pinBox =
         pin == null
@@ -6565,14 +6963,33 @@
       return (
         `<div class="ens-vals" style="grid-template-columns:auto${" auto".repeat(tb.cols.length)}">` +
         tb.rows
-          .map((r) => `<span class="h"${r.col ? ` style="color:${r.col}"` : ""}>${r.t}</span>` + r.vals.map((v) => `<b>${v}</b>`).join(""))
+          .map(
+            (r) =>
+              `<span class="h"${r.col ? ` style="color:${r.col}"` : ""}>${r.t}</span>` +
+              r.vals.map((v) => `<b>${v}</b>`).join(""),
+          )
           .join("") +
         "</div>"
       );
     };
     const headOf = (st) => `${fmtLocal(new Date(t0 + st * 3600e3))} · +${st}h`;
-    mountTimeChart({ svg, W, H, L, pw, x0, x1, steps, X, HEAD, yBot, rowsHtml, headOf, pin,
-      label: "Spaghetti dell'ensemble" });
+    mountTimeChart({
+      svg,
+      W,
+      H,
+      L,
+      pw,
+      x0,
+      x1,
+      steps,
+      X,
+      HEAD,
+      yBot,
+      rowsHtml,
+      headOf,
+      pin,
+      label: "Spaghetti dell'ensemble",
+    });
   }
 
   /** Shared interactions of the single-panel "over time" charts (spaghetti, model comparison): hover tooltip,
@@ -6585,7 +7002,11 @@
   }
   /** By touch: a tap outside the chart (titles, legend) closes the reading tooltip (not the pinned time card,
    *  which has its own ✕). A property, not a listener: at every redraw the previous handler is replaced. */
-  function closeTipOutside(tip, hide, canClose = () => !tip.classList.contains("pinned")) {
+  function closeTipOutside(
+    tip,
+    hide,
+    canClose = () => !tip.classList.contains("pinned"),
+  ) {
     chartUi.body.onpointerdown = (ev) => {
       if (ev.pointerType === "mouse" || tip.hidden || !canClose()) return;
       if (ev.target.closest?.("[id$='-hit'], .chart-tip")) return;
@@ -6593,12 +7014,30 @@
     };
   }
 
-  function mountTimeChart({ svg, W, H, L, pw, x0, x1, steps, X, HEAD, yBot, rowsHtml, headOf, label, pin }) {
+  function mountTimeChart({
+    svg,
+    W,
+    H,
+    L,
+    pw,
+    x0,
+    x1,
+    steps,
+    X,
+    HEAD,
+    yBot,
+    rowsHtml,
+    headOf,
+    label,
+    pin,
+  }) {
     svg.push(
       `<line class="ch-cursor" id="ch-cursor" x1="0" x2="0" y1="${HEAD + 2}" y2="${yBot}" visibility="hidden"/>`,
       `<line class="ch-cursor pinned" id="ch-pinline" x1="0" x2="0" y1="${HEAD + 2}" y2="${yBot}" visibility="hidden"/>`,
     );
-    svg.push(`<rect id="ch-hit" x="${L}" y="0" width="${pw}" height="${yBot}" fill="transparent"/>`);
+    svg.push(
+      `<rect id="ch-hit" x="${L}" y="0" width="${pw}" height="${yBot}" fill="transparent"/>`,
+    );
     chartUi.body.innerHTML =
       `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="${label}">${svg.join("")}</svg>` +
       '<div class="chart-tip" hidden></div>';
@@ -6609,9 +7048,11 @@
       hit = svgEl.querySelector("#ch-hit");
     const stepAt = (clientX) => {
       const r = svgEl.getBoundingClientRect();
-      const h = x0 + (((clientX - r.left) * (W / r.width) - L) / pw) * (x1 - x0);
+      const h =
+        x0 + (((clientX - r.left) * (W / r.width) - L) / pw) * (x1 - x0);
       let i = 0;
-      for (let k = 1; k < steps.length; k++) if (Math.abs(steps[k] - h) < Math.abs(steps[i] - h)) i = k;
+      for (let k = 1; k < steps.length; k++)
+        if (Math.abs(steps[k] - h) < Math.abs(steps[i] - h)) i = k;
       return steps[i];
     };
     // reading tooltip (dark) or pinned time card (light, with Condividi · Scarica · ✕)
@@ -6633,7 +7074,10 @@
       const cx = clientX - br.left,
         w = tip.offsetWidth;
       tip.style.left = `${Math.min(Math.max(cx + 14 + w > br.width ? cx - 14 - w : cx + 14, 4), br.width - w - 4)}px`;
-      tip.style.top = tipTop(tip, clientY - br.top + chartUi.body.scrollTop - 20);
+      tip.style.top = tipTop(
+        tip,
+        clientY - br.top + chartUi.body.scrollTop - 20,
+      );
     };
     const hide = () => {
       tip.hidden = true;
@@ -6649,7 +7093,12 @@
     // pinned time card at the top, next to its line
     const showPinTip = () => {
       const r = svgEl.getBoundingClientRect();
-      showAt(chartPin, r.left + (X(chartPin) / W) * r.width, chartUi.body.getBoundingClientRect().top + 4, true);
+      showAt(
+        chartPin,
+        r.left + (X(chartPin) / W) * r.width,
+        chartUi.body.getBoundingClientRect().top + 4,
+        true,
+      );
     };
     const pinAt = (st) => {
       chartPin = st;
@@ -6714,8 +7163,10 @@
       if (!touch) return;
       clearTimeout(touch.timer);
       const tap = ev.type === "pointerup" && !touch.moved && !touch.pinning;
-      if (tap && chartPin != null) unpin(); // short tap with a pinned time: removes it
-      else if (tap && !tip.hidden) hide(); // short tap with the tooltip open: closes it
+      if (tap && chartPin != null)
+        unpin(); // short tap with a pinned time: removes it
+      else if (tap && !tip.hidden)
+        hide(); // short tap with the tooltip open: closes it
       else if (tap) showAt(stepAt(ev.clientX), ev.clientX, ev.clientY);
       else if (ev.type === "pointercancel" && chartPin == null) hide();
       touch = null;
@@ -6729,7 +7180,7 @@
     clearChartPin = unpin;
     renderPin(); // redraw (dialog resized): the pinned time stays
     if (pin != null) showPinTip();
-    }
+  }
 
   // ---------- model comparison: accumulated precipitation or temperature at 850 hPa of all models and the
   // median at the place, from the meteogram series. Runs start at different hours: the chart starts at the start of the
@@ -6748,11 +7199,14 @@
   async function loadMulti() {
     const request = chartContext;
     const v = request.multi;
-    for (const b of chartUi.multi.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.v === v));
-    const what = v === "t850" ? "temperatura a 850 hPa" : "precipitazione cumulata";
+    for (const b of chartUi.multi.querySelectorAll("button"))
+      b.setAttribute("aria-pressed", String(b.dataset.v === v));
+    const what =
+      v === "t850" ? "temperatura a 850 hPa" : "precipitazione cumulata";
     chartUi.details.textContent = `Modelli a confronto · ${what}`;
     chartUi.warn.hidden = true;
-    chartUi.body.innerHTML = '<div class="chart-empty">Carico il grafico…</div>';
+    chartUi.body.innerHTML =
+      '<div class="chart-empty">Carico il grafico…</div>';
     chartData = null;
     chartPin = null;
     $("chart-readout").hidden = true;
@@ -6761,7 +7215,9 @@
     const models = meta.models; // the median too
     const got = await Promise.all(
       models.map(async (m) => {
-        const r = (runs[m.id] || []).find((x) => !x.incoming && x.variables?.[v]);
+        const r = (runs[m.id] || []).find(
+          (x) => !x.incoming && x.variables?.[v],
+        );
         if (!r) return null;
         try {
           const sv = (await getSeries(m.id, r.run, lat, lon)).vars?.[v];
@@ -6774,7 +7230,8 @@
     if (chartContext !== request || !chartUi.dialog.open) return;
     const ok = got.filter(Boolean);
     if (!ok.length) {
-      chartUi.body.innerHTML = '<div class="chart-empty">Nessun modello ha dati in questo punto.</div>';
+      chartUi.body.innerHTML =
+        '<div class="chart-empty">Nessun modello ha dati in questo punto.</div>';
       return;
     }
     const T0 = Math.max(...ok.map((m) => runDate(m.run).getTime()));
@@ -6782,10 +7239,13 @@
     const refT = request.run ? runDate(request.run).getTime() : T0;
     let s0 = Math.max(0, (refT + (request.from || 0) * 3600e3 - T0) / 3600e3);
     let s1 = (refT + (request.until ?? 384) * 3600e3 - T0) / 3600e3;
-    if (!(s1 > s0)) (s0 = 0), (s1 = Infinity); // period entirely before the common time: the whole range
+    if (!(s1 > s0)) ((s0 = 0), (s1 = Infinity)); // period entirely before the common time: the whole range
     if (request.run && s1 < Infinity) {
       const at = (h) => new Date(T0 + h * 3600e3);
-      const period = s0 > 0 ? fmtSpan(at(s0), at(s1), { month: false }) : `fino a ${fmtLocal(at(s1))}`;
+      const period =
+        s0 > 0
+          ? fmtSpan(at(s0), at(s1), { month: false })
+          : `fino a ${fmtLocal(at(s1))}`;
       chartUi.details.textContent = `Modelli a confronto · ${what} · ${period}`;
     }
     // each model: accumulated since its start (0 at the start of the run), brought back to 0 at the start of the period
@@ -6794,7 +7254,8 @@
         const start = runDate(m.run).getTime();
         const pts = [[(start - T0) / 3600e3, 0]];
         m.sv.steps.forEach((st, i) => {
-          if (m.sv.values[i] != null) pts.push([(start + st * 3600e3 - T0) / 3600e3, m.sv.values[i]]);
+          if (m.sv.values[i] != null)
+            pts.push([(start + st * 3600e3 - T0) / 3600e3, m.sv.values[i]]);
         });
         const at = (h) => {
           for (let i = 1; i < pts.length; i++)
@@ -6813,7 +7274,11 @@
             if (h < first || h > last) return null;
             for (let i = 1; i < src.length; i++)
               if (src[i][0] >= h)
-                return src[i - 1][1] + ((src[i][1] - src[i - 1][1]) * (h - src[i - 1][0])) / (src[i][0] - src[i - 1][0] || 1);
+                return (
+                  src[i - 1][1] +
+                  ((src[i][1] - src[i - 1][1]) * (h - src[i - 1][0])) /
+                    (src[i][0] - src[i - 1][0] || 1)
+                );
             return src[0][1];
           };
           const a = atSrc(s0),
@@ -6834,10 +7299,25 @@
           out = clip(pts.slice(1));
         }
         const mean = m.id === "mean";
-        return { id: m.id, label: mean ? "Mediana" : shortLabel(m.id), mean, color: mean ? null : MULTI_COLORS[m.id] || "#adb5bd", pts: out, run: m.run };
+        return {
+          id: m.id,
+          label: mean ? "Mediana" : shortLabel(m.id),
+          mean,
+          color: mean ? null : MULTI_COLORS[m.id] || "#adb5bd",
+          pts: out,
+          run: m.run,
+        };
       })
       .filter((l) => l.pts.length > 1);
-    chartData = { multi: v, lines, t0: T0, model: "mean", run: ok[0].run, from: 0, until: 384 };
+    chartData = {
+      multi: v,
+      lines,
+      t0: T0,
+      model: "mean",
+      run: ok[0].run,
+      from: 0,
+      until: 384,
+    };
     drawChart();
   }
 
@@ -6849,14 +7329,21 @@
     const R = exportW ? CHART_R : 14,
       HEAD = 36,
       AXIS = 34;
-    const steps = [...new Set(lines.flatMap((l) => l.pts.map(([h]) => h)))].sort((a, b) => a - b);
+    const steps = [
+      ...new Set(lines.flatMap((l) => l.pts.map(([h]) => h))),
+    ].sort((a, b) => a - b);
     const x0 = steps[0],
       x1 = steps[steps.length - 1];
     const valueAt = (l, h) => {
       const p = l.pts;
       if (h > p[p.length - 1][0] + 1e-6) return null; // beyond the end of the model
       for (let i = 1; i < p.length; i++)
-        if (p[i][0] >= h) return p[i - 1][1] + ((p[i][1] - p[i - 1][1]) * (h - p[i - 1][0])) / (p[i][0] - p[i - 1][0] || 1);
+        if (p[i][0] >= h)
+          return (
+            p[i - 1][1] +
+            ((p[i][1] - p[i - 1][1]) * (h - p[i - 1][0])) /
+              (p[i][0] - p[i - 1][0] || 1)
+          );
       return p[0][1];
     };
     const fmt = (x) => (x == null ? "—" : x.toFixed(1).replace("-", "−"));
@@ -6867,13 +7354,16 @@
     lo = Math.min(lo, ticks[0]);
     const top = HEAD,
       tickText = (t) => (t % 1 ? t.toFixed(1) : String(t)).replace("-", "−");
-    const L = Math.ceil(Math.max(...ticks.map((t) => tickText(t).length)) * 6.6) + 5,
+    const L =
+        Math.ceil(Math.max(...ticks.map((t) => tickText(t).length)) * 6.6) + 5,
       pw = W - L - R;
     // legend below the axis: colour and name, in several columns
     const per = Math.max(2, Math.floor((pw + L) / 150)), // ~150 px per entry ("ICON-CH2 12.5 mm")
       legRows = Math.ceil(lines.length / per),
       LEG = 14 + legRows * 18;
-    const fitH = exportH || (chartUi.body.clientHeight > 320 ? chartUi.body.clientHeight - 12 : null);
+    const fitH =
+      exportH ||
+      (chartUi.body.clientHeight > 320 ? chartUi.body.clientHeight - 12 : null);
     const PH = Math.max(140, (fitH || 380) - HEAD - AXIS - LEG);
     const bot = top + PH,
       hiT = Math.max(hi, ticks[ticks.length - 1]);
@@ -6882,34 +7372,56 @@
     const svg = [
       `<text class="ch-title" x="0" y="${top - 20}">${temp ? "Temperatura 850 hPa" : "Precipitazione"} <tspan class="ch-note">(${temp ? unit : `${unit}, cumulata`})</tspan></text>`,
     ];
-    if (temp && lo < 0) svg.push(`<line class="ch-zero" x1="${L}" x2="${L + pw}" y1="${Y(0)}" y2="${Y(0)}"/>`);
+    if (temp && lo < 0)
+      svg.push(
+        `<line class="ch-zero" x1="${L}" x2="${L + pw}" y1="${Y(0)}" y2="${Y(0)}"/>`,
+      );
     for (const t of ticks) {
-      svg.push(`<line class="ch-grid" x1="${L}" x2="${L + pw}" y1="${Y(t)}" y2="${Y(t)}"/>`);
-      svg.push(`<text class="ch-tick" x="${L - 4}" y="${Y(t) + 3.5}" text-anchor="end">${tickText(t)}</text>`);
+      svg.push(
+        `<line class="ch-grid" x1="${L}" x2="${L + pw}" y1="${Y(t)}" y2="${Y(t)}"/>`,
+      );
+      svg.push(
+        `<text class="ch-tick" x="${L - 4}" y="${Y(t) + 3.5}" text-anchor="end">${tickText(t)}</text>`,
+      );
     }
     const yBot = bot;
     const hourOf = (h) =>
-      +new Date(t0 + h * 3600e3).toLocaleString("it-IT", { timeZone: "Europe/Rome", hour: "2-digit", hour12: false });
+      +new Date(t0 + h * 3600e3).toLocaleString("it-IT", {
+        timeZone: "Europe/Rome",
+        hour: "2-digit",
+        hour12: false,
+      });
     const perDay = pw / ((x1 - x0) / 24);
     const labelEvery = perDay >= 34 ? 1 : perDay >= 17 ? 2 : 4;
     let nDay = 0;
     for (let h = Math.floor(x0) + 1; h <= x1; h++) {
       if (hourOf(h) % 24 !== 0) continue;
-      svg.push(`<line class="ch-day" x1="${X(h)}" x2="${X(h)}" y1="${HEAD + 2}" y2="${yBot}"/>`);
+      svg.push(
+        `<line class="ch-day" x1="${X(h)}" x2="${X(h)}" y1="${HEAD + 2}" y2="${yBot}"/>`,
+      );
       if (nDay++ % labelEvery) continue;
       const d = new Date(t0 + h * 3600e3).toLocaleDateString("it-IT", {
         timeZone: "Europe/Rome",
-        ...(perDay >= 52 ? { weekday: "short", day: "numeric" } : { day: "numeric" }),
+        ...(perDay >= 52
+          ? { weekday: "short", day: "numeric" }
+          : { day: "numeric" }),
       });
-      svg.push(`<text class="ch-tick" x="${X(h)}" y="${yBot + 16}" text-anchor="middle" font-weight="600">${d}</text>`);
+      svg.push(
+        `<text class="ch-tick" x="${X(h)}" y="${yBot + 16}" text-anchor="middle" font-weight="600">${d}</text>`,
+      );
     }
     // the median last, above the others, thick in the text colour
-    for (const l of [...lines.filter((x) => !x.mean), ...lines.filter((x) => x.mean)])
+    for (const l of [
+      ...lines.filter((x) => !x.mean),
+      ...lines.filter((x) => x.mean),
+    ])
       svg.push(
         `<path ${l.mean ? 'class="ch-ens-mean" ' : ""}d="${l.pts.map(([h, x], i) => `${i ? "L" : "M"}${X(h).toFixed(1)},${Y(x).toFixed(1)}`).join("")}" fill="none"${l.mean ? "" : ` stroke="${l.color}"`} stroke-width="${l.mean ? (exportW ? 2.4 : 3) * (temp ? 0.8 : 1) : (exportW ? 1.6 : 2) * (temp ? 0.6 : 1)}" stroke-linejoin="round" stroke-linecap="round"/>`,
       );
     // legend: with precipitation from the highest total to the lowest (with the total at the end of the run), with temperature the names
-    const sorted = temp ? lines : [...lines].sort((a, b) => b.pts.at(-1)[1] - a.pts.at(-1)[1]);
+    const sorted = temp
+      ? lines
+      : [...lines].sort((a, b) => b.pts.at(-1)[1] - a.pts.at(-1)[1]);
     const colW = (pw + L) / per;
     sorted.forEach((l, i) => {
       const x = (i % per) * colW,
@@ -6930,13 +7442,19 @@
     const rowsHtml = (h) =>
       `<div class="ens-vals" style="grid-template-columns:auto 1fr">` +
       rowsAt(h)
-        .map(({ l, v }) => `<span class="h"${l.mean ? "" : ` style="color:${l.color}"`}>${l.label}</span><b>${fmt(v)} ${unit}</b>`)
+        .map(
+          ({ l, v }) =>
+            `<span class="h"${l.mean ? "" : ` style="color:${l.color}"`}>${l.label}</span><b>${fmt(v)} ${unit}</b>`,
+        )
         .join("") +
       "</div>";
     const headOf = (h) => fmtLocal(new Date(t0 + h * 3600e3));
     const pin = chartPin != null && steps.includes(chartPin) ? chartPin : null;
     if (exportW) {
-      if (pin != null) svg.push(`<line class="ch-pin" x1="${X(pin)}" x2="${X(pin)}" y1="${HEAD + 2}" y2="${yBot}"/>`);
+      if (pin != null)
+        svg.push(
+          `<line class="ch-pin" x1="${X(pin)}" x2="${X(pin)}" y1="${HEAD + 2}" y2="${yBot}"/>`,
+        );
       const pinBox =
         pin == null
           ? null
@@ -6944,11 +7462,30 @@
               x: X(pin),
               right: X(x1),
               head: headOf(pin),
-              rows: rowsAt(pin).map(({ l, v }) => [[`${l.label} `, false, l.color || undefined], [`${fmt(v)} ${unit}`, true]]),
+              rows: rowsAt(pin).map(({ l, v }) => [
+                [`${l.label} `, false, l.color || undefined],
+                [`${fmt(v)} ${unit}`, true],
+              ]),
             };
       return { markup: svg.join(""), W, H, pinBox };
     }
-    mountTimeChart({ svg, W, H, L, pw, x0, x1, steps, X, HEAD, yBot, rowsHtml, headOf, pin, label: "Modelli a confronto" });
+    mountTimeChart({
+      svg,
+      W,
+      H,
+      L,
+      pw,
+      x0,
+      x1,
+      steps,
+      X,
+      HEAD,
+      yBot,
+      rowsHtml,
+      headOf,
+      pin,
+      label: "Modelli a confronto",
+    });
   }
 
   // ---------- observed soundings (University of Wyoming, see app/soundings.py): the stations on the map
@@ -6959,7 +7496,9 @@
   async function getSoundingIndex() {
     if (!soundingIndex || Date.now() - soundingIndexAt > 15 * 60e3) {
       soundingIndexAt = Date.now();
-      soundingIndex = fetch(STATIC ? "data/soundings/index.json" : "api/soundings")
+      soundingIndex = fetch(
+        STATIC ? "data/soundings/index.json" : "api/soundings",
+      )
         .then((r) => (r.ok ? r.json() : Promise.reject()))
         .catch(() => {
           soundingIndexAt = 0; // requested again at the next attempt
@@ -6970,7 +7509,9 @@
   }
   async function getSounding(station, time) {
     const r = await fetch(
-      STATIC ? `data/soundings/${station}/${time}.json` : `api/sounding?${new URLSearchParams({ station, time })}`,
+      STATIC
+        ? `data/soundings/${station}/${time}.json`
+        : `api/sounding?${new URLSearchParams({ station, time })}`,
     );
     if (!r.ok) throw new Error("radiosondaggio non disponibile");
     return r.json();
@@ -7003,11 +7544,18 @@
           html: `<span class="snd-dot">${ok ? BALLOON : "!"}</span><span class="snd-name">${short}</span>`,
           iconSize: null,
         }),
-        title: ok ? `Radiosondaggio ${st.name}` : `${st.name}: radiosondaggio non ancora disponibile`,
+        title: ok
+          ? `Radiosondaggio ${st.name}`
+          : `${st.name}: radiosondaggio non ancora disponibile`,
       }).addTo(soundingLayer);
       // without data: a notice that disappears by itself (a popup would move the map near the edges)
       m.on("click", () =>
-        ok ? openSounding(st.id) : toast(`${short}: radiosondaggio non ancora disponibile, riprova più tardi`, true),
+        ok
+          ? openSounding(st.id)
+          : toast(
+              `${short}: radiosondaggio non ancora disponibile, riprova più tardi`,
+              true,
+            ),
       );
     }
   }
@@ -7036,9 +7584,19 @@
   }
   // side panel: a click outside (on the veiled map) closes it
   chartUi.dialog.addEventListener("click", (e) => {
-    if (e.target !== chartUi.dialog || !chartUi.dialog.classList.contains("side-panel")) return;
+    if (
+      e.target !== chartUi.dialog ||
+      !chartUi.dialog.classList.contains("side-panel")
+    )
+      return;
     const r = chartUi.dialog.getBoundingClientRect();
-    if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) chartUi.dialog.close();
+    if (
+      e.clientX < r.left ||
+      e.clientX > r.right ||
+      e.clientY < r.top ||
+      e.clientY > r.bottom
+    )
+      chartUi.dialog.close();
   });
   chartUi.sounding.addEventListener("change", () => {
     if (!chartContext?.sounding) return;
@@ -7051,7 +7609,8 @@
     const { station, time } = request.sounding;
     chartUi.details.textContent = "Radiosondaggio"; // then launch time, freezing level and cloud base (drawSkewT)
     chartUi.warn.hidden = true;
-    chartUi.body.innerHTML = '<div class="chart-empty">Carico il grafico…</div>';
+    chartUi.body.innerHTML =
+      '<div class="chart-empty">Carico il grafico…</div>';
     chartData = null;
     chartPin = null;
     $("chart-readout").hidden = true;
@@ -7086,7 +7645,8 @@
     }
     if (zero == null && lv[0]?.[2] < 0) zero = lv[0][1]; // already below zero at the surface
     const g = levels[0];
-    const lcl = g && g[2] != null && g[3] != null ? g[1] + 125 * (g[2] - g[3]) : null;
+    const lcl =
+      g && g[2] != null && g[3] != null ? g[1] + 125 * (g[2] - g[3]) : null;
     return { zero, lcl, ground: g?.[1] };
   }
   function drawSkewT(exportW, exportH) {
@@ -7096,8 +7656,13 @@
     const HEAD = 12, // time and indices are in the subtitle below the place
       L = 34,
       R = 46; // wind barbs on the right
-    const fitH = exportH || (chartUi.body.clientHeight > 320 ? chartUi.body.clientHeight - 12 : null);
-    const PH = Math.max(260, Math.min((fitH || 560) - HEAD - 40, (avail - L - R) * 2.2)); // below: degrees and legend (40)
+    const fitH =
+      exportH ||
+      (chartUi.body.clientHeight > 320 ? chartUi.body.clientHeight - 12 : null);
+    const PH = Math.max(
+      260,
+      Math.min((fitH || 560) - HEAD - 40, (avail - L - R) * 2.2),
+    ); // below: degrees and legend (40)
     // a roughly square diagram: on wide screens it does not grow further (200 °C of scale would remain)
     const pw = Math.min(avail - L - R, Math.round(PH * 0.85)),
       W = exportW || L + pw + R;
@@ -7105,7 +7670,8 @@
       bot = top + PH;
     const P0 = Math.max(1000, Math.ceil(levels[0][0] / 10) * 10 + 10),
       P1 = 100;
-    const Y = (p) => bot - ((Math.log(P0) - Math.log(p)) / (Math.log(P0) - Math.log(P1))) * PH; // 1000 hPa at the bottom
+    const Y = (p) =>
+      bot - ((Math.log(P0) - Math.log(p)) / (Math.log(P0) - Math.log(P1))) * PH; // 1000 hPa at the bottom
     // temperatures: 80 °C across the width; from the surface to 100 hPa the isotherms shift 70 °C to the right, so
     // the profile stays inside on narrow, tall screens as on wide ones. At the surface the temperature falls at ~60%
     const degPx = pw / 80,
@@ -7121,16 +7687,29 @@
     const km = (m) => (m == null ? "—" : `${Math.round(m / 10) * 10} m`);
     const when = (() => {
       const k = snd.time;
-      const d = new Date(Date.UTC(+k.slice(0, 4), +k.slice(4, 6) - 1, +k.slice(6, 8), +k.slice(8, 10)));
+      const d = new Date(
+        Date.UTC(
+          +k.slice(0, 4),
+          +k.slice(4, 6) - 1,
+          +k.slice(6, 8),
+          +k.slice(8, 10),
+        ),
+      );
       return `${k.slice(8, 10)} UTC ${d.toLocaleDateString("it-IT", { timeZone: "UTC", weekday: "short", day: "numeric", month: "short" })}`;
     })();
     // subtitle below the place (in the shared image too): launch time, freezing level and cloud base
     chartUi.details.innerHTML = `${when} · <b class="snd-ix">Zero termico ${km(ix.zero)}</b> · <b class="snd-ix">base nubi ${km(ix.lcl)}</b>`;
     // grid: pressure levels
-    for (const p of [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200, 150, 100]) {
+    for (const p of [
+      1000, 925, 850, 700, 600, 500, 400, 300, 250, 200, 150, 100,
+    ]) {
       if (p > P0) continue;
-      svg.push(`<line class="ch-grid" x1="${L}" x2="${L + pw}" y1="${Y(p)}" y2="${Y(p)}"/>`);
-      svg.push(`<text class="ch-tick" x="${L - 4}" y="${Y(p) + 3.5}" text-anchor="end">${p}</text>`);
+      svg.push(
+        `<line class="ch-grid" x1="${L}" x2="${L + pw}" y1="${Y(p)}" y2="${Y(p)}"/>`,
+      );
+      svg.push(
+        `<text class="ch-tick" x="${L - 4}" y="${Y(p) + 3.5}" text-anchor="end">${p}</text>`,
+      );
     }
     const g = [`<g clip-path="url(#skc)">`];
     // isotherms every 10 °C (zero highlighted) and dry adiabats every 10 K
@@ -7144,25 +7723,38 @@
         const t = (th + 273.15) * (p / 1000) ** 0.2857 - 273.15;
         d += `${d ? "L" : "M"}${X(t, p).toFixed(1)},${Y(p).toFixed(1)}`;
       }
-      g.push(`<path d="${d}" fill="none" stroke="#fab005" stroke-opacity="0.18" stroke-dasharray="4 4"/>`);
+      g.push(
+        `<path d="${d}" fill="none" stroke="#fab005" stroke-opacity="0.18" stroke-dasharray="4 4"/>`,
+      );
     }
     const line = (k, color, w) => {
       let d = "";
-      for (const l of levels) if (l[k] != null) d += `${d ? "L" : "M"}${X(l[k], l[0]).toFixed(1)},${Y(l[0]).toFixed(1)}`;
+      for (const l of levels)
+        if (l[k] != null)
+          d += `${d ? "L" : "M"}${X(l[k], l[0]).toFixed(1)},${Y(l[0]).toFixed(1)}`;
       return `<path d="${d}" fill="none" stroke="${color}" stroke-width="${w}" stroke-linejoin="round" stroke-linecap="round"/>`;
     };
-    g.push(line(3, DEW_GREEN, exportW ? 1.8 : 2.2), line(2, TEMP_RED, exportW ? 1.8 : 2.2));
+    g.push(
+      line(3, DEW_GREEN, exportW ? 1.8 : 2.2),
+      line(2, TEMP_RED, exportW ? 1.8 : 2.2),
+    );
     g.push("</g>");
     svg.push(...g);
     // no degrees on the isotherms (too busy): temperatures are read in the tooltip, zero is in the legend
     // wind: barbs on the right at the main levels (where it comes from; half barb 5 knots, full 10, triangle 50)
     const bx = L + pw + 24;
 
-    const near = (p) => levels.reduce((a, b) => (Math.abs(b[0] - p) < Math.abs(a[0] - p) ? b : a));
-    for (const p of [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200, 150, 100]) {
+    const near = (p) =>
+      levels.reduce((a, b) =>
+        Math.abs(b[0] - p) < Math.abs(a[0] - p) ? b : a,
+      );
+    for (const p of [
+      1000, 925, 850, 700, 600, 500, 400, 300, 250, 200, 150, 100,
+    ]) {
       if (p > P0) continue;
       const l = near(p);
-      if (Math.abs(l[0] - p) > p * 0.05 || l[4] == null || l[5] == null) continue;
+      if (Math.abs(l[0] - p) > p * 0.05 || l[4] == null || l[5] == null)
+        continue;
       const y = Y(l[0]),
         kt = l[5] / 1.852,
         a = (l[4] * Math.PI) / 180;
@@ -7194,8 +7786,14 @@
         const [x1, y1] = at(1 - pos - (pos ? 0 : 0.12));
         path += `M${x1.toFixed(1)},${y1.toFixed(1)}l${(px * 4 + ux * 1.5).toFixed(1)},${(py * 4 + uy * 1.5).toFixed(1)}`;
       }
-      if (kt < 2.5) svg.push(`<circle cx="${bx}" cy="${y}" r="3" fill="none" stroke="currentColor" stroke-opacity="0.7"/>`);
-      else svg.push(`<path d="${path}" fill="none" stroke="currentColor" stroke-opacity="0.8" stroke-width="1.2" stroke-linejoin="round"/>`);
+      if (kt < 2.5)
+        svg.push(
+          `<circle cx="${bx}" cy="${y}" r="3" fill="none" stroke="currentColor" stroke-opacity="0.7"/>`,
+        );
+      else
+        svg.push(
+          `<path d="${path}" fill="none" stroke="currentColor" stroke-opacity="0.8" stroke-width="1.2" stroke-linejoin="round"/>`,
+        );
     }
     // legend at the bottom
     const H = bot + 40;
@@ -7208,7 +7806,13 @@
       `<line x1="${L + 252}" x2="${L + 266}" y1="${H - 8}" y2="${H - 8}" stroke="#4dabf7" stroke-width="2" stroke-linecap="round"/>`,
       `<text class="ch-leg" x="${L + 271}" y="${H - 4}"><tspan>0 °C</tspan></text>`,
     );
-    if (exportW) return { markup: svg.join("").replace(/currentColor/g, "#c9ced6"), W, H, pinBox: null };
+    if (exportW)
+      return {
+        markup: svg.join("").replace(/currentColor/g, "#c9ced6"),
+        W,
+        H,
+        pinBox: null,
+      };
     // tooltip: the level nearest to the pointer height
     chartUi.body.innerHTML =
       `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="Radiosondaggio" style="color:var(--fg);max-width:${W}px;display:block">${svg.join("")}` +
@@ -7222,12 +7826,21 @@
     const show = (ev) => {
       const r = svgEl.getBoundingClientRect();
       const y = (ev.clientY - r.top) * (H / r.height);
-      const l = levels.reduce((a, b) => (Math.abs(Y(b[0]) - y) < Math.abs(Y(a[0]) - y) ? b : a));
+      const l = levels.reduce((a, b) =>
+        Math.abs(Y(b[0]) - y) < Math.abs(Y(a[0]) - y) ? b : a,
+      );
       cur.setAttribute("y1", Y(l[0]));
       cur.setAttribute("y2", Y(l[0]));
       cur.setAttribute("visibility", "visible");
-      const f = (x, u, d = 1) => (x == null ? "—" : `${x.toFixed(d).replace("-", "−")} ${u}`);
-      const dir = l[4] == null ? "" : (dirName(-10 * Math.sin((l[4] * Math.PI) / 180), -10 * Math.cos((l[4] * Math.PI) / 180)) || "");
+      const f = (x, u, d = 1) =>
+        x == null ? "—" : `${x.toFixed(d).replace("-", "−")} ${u}`;
+      const dir =
+        l[4] == null
+          ? ""
+          : dirName(
+              -10 * Math.sin((l[4] * Math.PI) / 180),
+              -10 * Math.cos((l[4] * Math.PI) / 180),
+            ) || "";
       tip.innerHTML =
         `<div class="t">${l[0]} hPa · ${f(l[1], "m", 0)}</div>` +
         `<div class="ens-vals" style="grid-template-columns:auto 1fr">` +
@@ -7239,16 +7852,23 @@
       const cx = ev.clientX - br.left,
         w = tip.offsetWidth;
       tip.style.left = `${Math.min(Math.max(cx + 14 + w > br.width ? cx - 14 - w : cx + 14, 4), br.width - w - 4)}px`;
-      tip.style.top = tipTop(tip, ev.clientY - br.top + chartUi.body.scrollTop - 20);
+      tip.style.top = tipTop(
+        tip,
+        ev.clientY - br.top + chartUi.body.scrollTop - 20,
+      );
     };
     // by touch: tapping reads the level, a short tap with the tooltip already open closes it
     let press = null;
     hit.addEventListener("pointermove", (ev) => {
-      if (press && Math.hypot(ev.clientX - press.x, ev.clientY - press.y) > 8) press.moved = true;
+      if (press && Math.hypot(ev.clientX - press.x, ev.clientY - press.y) > 8)
+        press.moved = true;
       show(ev);
     });
     hit.addEventListener("pointerdown", (ev) => {
-      press = ev.pointerType === "mouse" ? null : { x: ev.clientX, y: ev.clientY, open: !tip.hidden, moved: false };
+      press =
+        ev.pointerType === "mouse"
+          ? null
+          : { x: ev.clientX, y: ev.clientY, open: !tip.hidden, moved: false };
       show(ev);
     });
     hit.addEventListener("pointerup", () => {
@@ -7355,28 +7975,50 @@
       const at = new Map(rawRain.steps.map((x, i) => [x, rawRain.values[i]]));
       // snow (cm, 10:1 = mm of water) of the models that provide it: for each bar the part that fell as snow
       const rawSnow = series.vars.sf;
-      const snowAt = new Map((rawSnow?.steps || []).map((x, i) => [x, rawSnow.values[i]]));
-      const snowBase = from > 0 ? (series.vars.sf?.values[series.vars.sf.steps.indexOf(from)] ?? null) : 0;
+      const snowAt = new Map(
+        (rawSnow?.steps || []).map((x, i) => [x, rawSnow.values[i]]),
+      );
+      const snowBase =
+        from > 0
+          ? (series.vars.sf?.values[series.vars.sf.steps.indexOf(from)] ?? null)
+          : 0;
       const withSnow = (d) => {
         if (!V.sf) return d;
         const cur = snowAt.get(d.b),
           prev = d.a > 0 ? snowAt.get(d.a) : 0;
-        const snow = cur == null || prev == null || d.y == null ? null : Math.min(d.y, Math.max(0, cur - prev));
-        return { ...d, snow, snowCum: cur == null || snowBase == null ? null : Math.max(0, cur - snowBase) };
-      };
-      const data = intervals(V.tp).map(withSnow).map((d) => {
-        if (!rainHours || d.b - d.a >= rainHours || d.cum == null) return d;
-        const a = V.tp.steps.filter((x) => x <= d.b - rainHours).pop() ?? 0; // like intervalPrev on the map
-        const prev = a ? at.get(a) : 0;
+        const snow =
+          cur == null || prev == null || d.y == null
+            ? null
+            : Math.min(d.y, Math.max(0, cur - prev));
         return {
           ...d,
-          // d.cum is from the start of the period shown, prev from the start of the run: same baseline
-          win: prev == null || rainBase == null ? null : Math.max(0, d.cum + rainBase - prev),
-          winH: d.b - a,
+          snow,
+          snowCum:
+            cur == null || snowBase == null
+              ? null
+              : Math.max(0, cur - snowBase),
         };
-      });
+      };
+      const data = intervals(V.tp)
+        .map(withSnow)
+        .map((d) => {
+          if (!rainHours || d.b - d.a >= rainHours || d.cum == null) return d;
+          const a = V.tp.steps.filter((x) => x <= d.b - rainHours).pop() ?? 0; // like intervalPrev on the map
+          const prev = a ? at.get(a) : 0;
+          return {
+            ...d,
+            // d.cum is from the start of the period shown, prev from the start of the run: same baseline
+            win:
+              prev == null || rainBase == null
+                ? null
+                : Math.max(0, d.cum + rainBase - prev),
+            winH: d.b - a,
+          };
+        });
       // with snow forecast the panel becomes "Precipitazione" and the snow part of the bars is violet
-      const snowTot = [...data].reverse().find((d) => d.snowCum != null)?.snowCum;
+      const snowTot = [...data]
+        .reverse()
+        .find((d) => d.snowCum != null)?.snowCum;
       const snowy = data.some((d) => d.snow >= 0.05);
       panels.push({
         title: snowy ? "Precipitazione" : "Pioggia",
@@ -7471,7 +8113,8 @@
               ` · ${p.cumLabel || "tot"} ${b(fmt(d.cum, p.dec))} ${p.unit}` +
               (d.snowCum >= 0.05 ? ` (${b(fmt(d.snowCum, 1))} cm)` : "")
             : ""; // map accumulation (if chosen) and total since the start
-      const snow = p.kind === "bar" && d.snow >= 0.05 ? ` (${b(fmt(d.snow, 1))} cm)` : ""; // snow, as in the title
+      const snow =
+        p.kind === "bar" && d.snow >= 0.05 ? ` (${b(fmt(d.snow, 1))} cm)` : ""; // snow, as in the title
       return `${b(fmt(d.y, p.dec))} ${p.unit}${span && p.kind === "bar" ? ` in ${d.b - d.a}h` : ""}${snow}${extra}`;
     };
     const pin =
@@ -7495,7 +8138,10 @@
       const weight = (p) => (p.kind === "bar" ? 1.4 : 1);
       const total = panels.reduce((s, p) => s + weight(p), 0);
       for (const p of panels)
-        p.h = Math.max(PH, Math.min(CHART_MAX_PH, Math.floor((free * weight(p)) / total)));
+        p.h = Math.max(
+          PH,
+          Math.min(CHART_MAX_PH, Math.floor((free * weight(p)) / total)),
+        );
     }
     const H = panels.reduce((s, p) => s + HEAD + p.h + GAP, 0) + AXIS;
     const svg = [];
@@ -7537,12 +8183,18 @@
       }
       if (p.min != null && p.kind === "line") lo = Math.max(0, lo);
       const ticks = niceTicks(lo, hi);
-      p.scale = { ticks, lo: Math.min(lo, ticks[0]), hi: Math.max(hi, ticks[ticks.length - 1]) };
+      p.scale = {
+        ticks,
+        lo: Math.min(lo, ticks[0]),
+        hi: Math.max(hi, ticks[ticks.length - 1]),
+      };
     }
     // the chart starts right after the widest axis number on the left (11-11.5 px, ~6.6 px per digit): wider
     // especially on phones
     if (panels.length) {
-      const chars = Math.max(...panels.flatMap((p) => p.scale.ticks.map((t) => tickText(t).length)));
+      const chars = Math.max(
+        ...panels.flatMap((p) => p.scale.ticks.map((t) => tickText(t).length)),
+      );
       L = Math.ceil(chars * 6.6) + 5;
       pw = W - L - R;
     }
@@ -7653,7 +8305,9 @@
           // isolated value (missing before and after, e.g. the freezing level above the ground for one step only):
           // a line of a single point is invisible, so a dot
           if (p.data[j - 1]?.y == null && p.data[j + 1]?.y == null)
-            svg.push(`<circle cx="${X(d.x).toFixed(1)}" cy="${Y(d.y).toFixed(1)}" r="3" fill="${p.color}"/>`);
+            svg.push(
+              `<circle cx="${X(d.x).toFixed(1)}" cy="${Y(d.y).toFixed(1)}" r="3" fill="${p.color}"/>`,
+            );
         });
         svg.push(
           `<path d="${path}" fill="none" stroke="${p.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`,
@@ -7675,9 +8329,12 @@
       if (p.info) {
         // notice next to the title, like the chart notices (amber). Widths estimated from the characters: title
         // 12.5 px bold ~7.3 px, unit 11.5 px ~6.3 px, box text 11.5 px ~6.2 px
-        const bx = Math.ceil(p.title.length * 7.3 + (p.unit.length + 3) * 6.3) + 8,
+        const bx =
+            Math.ceil(p.title.length * 7.3 + (p.unit.length + 3) * 6.3) + 8,
           room = W - R - bx,
-          text = p.info.find((t) => t.length * 6.2 + 16 <= room) ?? p.info[p.info.length - 1],
+          text =
+            p.info.find((t) => t.length * 6.2 + 16 <= room) ??
+            p.info[p.info.length - 1],
           bw = Math.ceil(text.length * 6.2) + 16,
           bh = 19,
           by = top - 20 - 13.5;
@@ -7907,7 +8564,12 @@
       const st = stepAt(ev.clientX);
       if (ev.pointerType !== "mouse" && touchUi) {
         if (drag?.timer) clearTimeout(drag.timer); // second finger (see the meteogram)
-        const d = (drag = { touch: true, x0: ev.clientX, moved: false, pinning: false });
+        const d = (drag = {
+          touch: true,
+          x0: ev.clientX,
+          moved: false,
+          pinning: false,
+        });
         d.timer = setTimeout(() => {
           if (drag !== d) return;
           d.pinning = true;
@@ -7931,8 +8593,10 @@
       if (drag.touch) {
         clearTimeout(drag.timer);
         const tap = ev.type === "pointerup" && !drag.moved && !drag.pinning;
-        if (tap && chartPin != null) unpin(); // short tap with a pinned time: removes it
-        else if (tap && !tip.hidden) hide(); // short tap with the tooltip open: closes it
+        if (tap && chartPin != null)
+          unpin(); // short tap with a pinned time: removes it
+        else if (tap && !tip.hidden)
+          hide(); // short tap with the tooltip open: closes it
         else if (tap) showAt(stepAt(ev.clientX), ev.clientX, ev.clientY, true);
         else if (chartPin != null) showPinTip();
         else if (ev.type === "pointercancel") hide(); // the browser took the vertical scroll
@@ -8156,7 +8820,13 @@
       vh = vv?.height ?? innerHeight;
     if (keep && !mapMenu.hidden) {
       const r = mapMenu.getBoundingClientRect();
-      if (r.top >= vy + 4 && r.bottom <= vy + vh - 4 && r.left >= vx + 4 && r.right <= vx + vw - 4) return;
+      if (
+        r.top >= vy + 4 &&
+        r.bottom <= vy + vh - 4 &&
+        r.left >= vx + 4 &&
+        r.right <= vx + vw - 4
+      )
+        return;
     }
     // below right of the point; if it does not fit, left or above, always inside the visible part
     let left = x + 12,
@@ -8193,7 +8863,9 @@
     mapMenuPin.hidden = false;
     document.body.classList.add("map-menu-open"); // normal cursor on the map while the menu is open
     placeMapMenu();
-    mapMenu.querySelector("[role=menuitem]:not(:disabled)")?.focus({ preventScroll: true });
+    mapMenu
+      .querySelector("[role=menuitem]:not(:disabled)")
+      ?.focus({ preventScroll: true });
   }
   /** Place just added from the menu: its marker appears with a bounce and a wave (see .pt-num.pt-new). */
   function popNewPlace() {
@@ -8218,7 +8890,8 @@
   /** Add to places: the menu becomes a field with the name (the coordinates, already selected), the folder (if
    *  there is at least one; the open one is preselected) and Aggiungi. */
   function askPlaceName(ll) {
-    const esc = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+    const esc = (t) =>
+      t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
     // folder: compact select of our own (looks like the model one). Not a <select>: on phones tapping it closes the
     // keyboard and opens the system picker, and the menu jumps; here the name field keeps the focus
     const opts = [{ id: "", name: "Nessuna" }, ...folders];
@@ -8228,7 +8901,10 @@
         `<button type="button" class="fsel-btn" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="map-menu-folder-l"></button>` +
         `<div class="fsel-list" role="listbox" aria-labelledby="map-menu-folder-l" hidden>` +
         opts
-          .map((f) => `<div role="option" data-folder="${f.id}" aria-selected="false">${f.id ? FOLDER_ICON : '<span class="fsel-none"></span>'}<span>${esc(f.name)}</span></div>`)
+          .map(
+            (f) =>
+              `<div role="option" data-folder="${f.id}" aria-selected="false">${f.id ? FOLDER_ICON : '<span class="fsel-none"></span>'}<span>${esc(f.name)}</span></div>`,
+          )
           .join("") +
         `</div></div>`
       : "";
@@ -8250,7 +8926,11 @@
         const f = opts.find((o) => o.id === (folder || ""));
         btn.innerHTML = `${f.id ? FOLDER_ICON : ""}<span class="fsel-text"></span>`;
         btn.querySelector(".fsel-text").textContent = f.name;
-        list.querySelectorAll("[data-folder]").forEach((o) => o.setAttribute("aria-selected", String(o.dataset.folder === f.id)));
+        list
+          .querySelectorAll("[data-folder]")
+          .forEach((o) =>
+            o.setAttribute("aria-selected", String(o.dataset.folder === f.id)),
+          );
       };
       const toggle = (open) => {
         list.hidden = !open;
@@ -8259,10 +8939,14 @@
         // below the button; above if it does not fit in the visible part (keyboard open)
         const vv = window.visualViewport;
         const bottom = (vv ? vv.offsetTop + vv.height : innerHeight) - 8;
-        list.classList.toggle("up", btn.getBoundingClientRect().bottom + 4 + list.offsetHeight > bottom);
+        list.classList.toggle(
+          "up",
+          btn.getBoundingClientRect().bottom + 4 + list.offsetHeight > bottom,
+        );
       };
       // pointerdown without default: the focus stays in the name field (keyboard open, menu still)
-      for (const el of [btn, list]) el.addEventListener("pointerdown", (e) => e.preventDefault());
+      for (const el of [btn, list])
+        el.addEventListener("pointerdown", (e) => e.preventDefault());
       btn.addEventListener("click", () => toggle(list.hidden));
       // closes with a tap elsewhere in the menu (name field, buttons) and with Esc
       // on the form, rebuilt at each opening: no listeners piling up on the menu
@@ -8322,7 +9006,11 @@
       shareUi.btn.pin = { latlng: ll, text };
       shareUi.btn.click();
     } else if (act === "chart")
-      openChart({ name: coordText(ll), lat: +ll.lat.toFixed(4), lon: +ll.lng.toFixed(4) });
+      openChart({
+        name: coordText(ll),
+        lat: +ll.lat.toFixed(4),
+        lon: +ll.lng.toFixed(4),
+      });
   });
   // desktop: right click (with Mapbox it is forwarded by connectMapbox); with touch the long press here
   // below is used, so Android (which also sends contextmenu) and iOS (which does not) behave the same
@@ -8336,7 +9024,9 @@
   let press = null;
   const onMapSurface = (t) =>
     !!t.closest?.("#map, .wm-native-map") &&
-    !t.closest(".leaflet-control, .mapboxgl-ctrl, .leaflet-marker-icon, .pt-pop");
+    !t.closest(
+      ".leaflet-control, .mapboxgl-ctrl, .leaflet-marker-icon, .pt-pop",
+    );
   document.addEventListener(
     "touchstart",
     (e) => {
@@ -8351,7 +9041,9 @@
         timer: setTimeout(() => {
           const cr = map.getContainer().getBoundingClientRect();
           navigator.vibrate?.(10);
-          openMapMenu(map.containerPointToLatLng([press.x - cr.left, press.y - cr.top]));
+          openMapMenu(
+            map.containerPointToLatLng([press.x - cr.left, press.y - cr.top]),
+          );
           press = null;
         }, LONG_PRESS_MS),
       };
@@ -8363,7 +9055,9 @@
     (e) => {
       if (!press) return;
       const t = e.touches[0];
-      if (Math.hypot(t.clientX - press.x, t.clientY - press.y) > LONG_PRESS_SLOP) {
+      if (
+        Math.hypot(t.clientX - press.x, t.clientY - press.y) > LONG_PRESS_SLOP
+      ) {
         clearTimeout(press.timer);
         press = null;
       }
@@ -8386,7 +9080,10 @@
     (e) => {
       if (!menuLL || mapMenu.contains(e.target)) return;
       // on the place markers too: with the menu open no other popup
-      if (e.target.closest?.("#map, .wm-native-map") && !e.target.closest(".leaflet-control, .mapboxgl-ctrl")) {
+      if (
+        e.target.closest?.("#map, .wm-native-map") &&
+        !e.target.closest(".leaflet-control, .mapboxgl-ctrl")
+      ) {
         e.stopPropagation();
         e.preventDefault();
       }
@@ -8404,7 +9101,8 @@
   window.addEventListener("resize", markResize, true); // in capture: before Leaflet and Mapbox
   window.visualViewport?.addEventListener("resize", markResize);
   function closeMapMenuOnMove() {
-    if (Date.now() - resizedAt < 1000) placeMapMenu(true); // still if it stays visible
+    if (Date.now() - resizedAt < 1000)
+      placeMapMenu(true); // still if it stays visible
     else closeMapMenu();
   }
   map.on("movestart zoomstart", closeMapMenuOnMove); // with Mapbox also from connectMapbox, at the start of the gesture
@@ -8427,7 +9125,12 @@
       const frames = rangeFrames();
       if (!frames.length) return;
       const k = frames.indexOf(state.step);
-      const next = k < 0 ? (delta > 0 ? 0 : frames.length - 1) : (k + delta + frames.length) % frames.length;
+      const next =
+        k < 0
+          ? delta > 0
+            ? 0
+            : frames.length - 1
+          : (k + delta + frames.length) % frames.length;
       setStepKeepingInterval(frames[next]);
       ui.step.value = s.indexOf(state.step);
       update();
@@ -8459,7 +9162,9 @@
       // accumulations: inside the fixed range; with Total the accumulation grows, with the chosen hours one image every so many hours
       const rangeStart = state.rangeFrom ?? 0;
       const rangeEnd = state.rangeTo ?? state.step;
-      const playbackRange = dualMode() ? rangeFrames(rangeStart, rangeEnd) : null;
+      const playbackRange = dualMode()
+        ? rangeFrames(rangeStart, rangeEnd)
+        : null;
       if (playbackRange && playbackRange.length < 2) return;
       if (playbackRange) {
         playbackSelection = {
@@ -8479,7 +9184,11 @@
           if (!slider.element.clientWidth) continue;
           slider.progressAnimation = slider.progress.animate(
             slider.progressBounds.map((left) => ({ left })),
-            { duration: (playbackRange.length - 1) * 650, easing: "linear", fill: "forwards" },
+            {
+              duration: (playbackRange.length - 1) * 650,
+              easing: "linear",
+              fill: "forwards",
+            },
           );
         }
       }
@@ -8492,13 +9201,18 @@
         let i = s.indexOf(state.step);
         if (playbackRange) {
           const rangeIndex = playbackRange.indexOf(state.step);
-          if (!playbackSelection || rangeIndex < 0 || rangeIndex === playbackRange.length - 1) {
+          if (
+            !playbackSelection ||
+            rangeIndex < 0 ||
+            rangeIndex === playbackRange.length - 1
+          ) {
             togglePlay(false);
             return;
           }
           state.step = playbackRange[rangeIndex + 1];
           playbackSelection.step = state.step;
-          playbackSelection.progress = (rangeIndex + 1) / (playbackRange.length - 1);
+          playbackSelection.progress =
+            (rangeIndex + 1) / (playbackRange.length - 1);
           syncMode();
           i = s.indexOf(state.step);
         } else {
@@ -8512,7 +9226,8 @@
         }
         ui.step.value = i;
         update();
-        if (playbackRange && state.step === playbackRange.at(-1)) togglePlay(false);
+        if (playbackRange && state.step === playbackRange.at(-1))
+          togglePlay(false);
       }, 650);
     } else if (!on && playTimer) {
       clearInterval(playTimer);
@@ -8619,7 +9334,8 @@
   let lastLocalVar = null;
   function leaveSynoptic() {
     const local = (id) => meta.variables.find((v) => v.id === id && !v.area);
-    const v = local(lastLocalVar) || local("tp") || meta.variables.find((x) => !x.area);
+    const v =
+      local(lastLocalVar) || local("tp") || meta.variables.find((x) => !x.area);
     if (!v) return;
     ui.varSel.value = v.id;
     ui.varSel.dispatchEvent(new Event("change"));
@@ -8697,8 +9413,10 @@
     const below = d.open && d.scrollHeight - d.scrollTop - d.clientHeight > 2;
     const above = d.open && d.scrollTop > 2;
     // classes only when they change: each change restyles the section (shadow, fade)
-    if (d.classList.contains("more-below") !== below) d.classList.toggle("more-below", below);
-    if (d.classList.contains("more-above") !== above) d.classList.toggle("more-above", above);
+    if (d.classList.contains("more-below") !== below)
+      d.classList.toggle("more-below", below);
+    if (d.classList.contains("more-above") !== above)
+      d.classList.toggle("more-above", above);
   }
   const fadeRo = new ResizeObserver((entries) => {
     for (const e of entries) {
@@ -8729,7 +9447,9 @@
     d.querySelector("summary").addEventListener("click", (e) => {
       e.preventDefault();
       const open = !wantsOpen(d);
-      const others = open ? SECTIONS.filter((o) => o !== d && wantsOpen(o)) : [];
+      const others = open
+        ? SECTIONS.filter((o) => o !== d && wantsOpen(o))
+        : [];
       animateSections([...others.map((o) => [o, false]), [d, open]]);
     });
   }
@@ -8817,7 +9537,11 @@
       })
       .replace(",", "");
     el.textContent = `Aggiornamento ${when}`;
-    el.title = d.toLocaleString("it-IT", { timeZone: "Europe/Rome", dateStyle: "full", timeStyle: "short" });
+    el.title = d.toLocaleString("it-IT", {
+      timeZone: "Europe/Rome",
+      dateStyle: "full",
+      timeStyle: "short",
+    });
     el.dateTime = publishedAt;
     $("updated-row").hidden = false;
   }
@@ -8841,7 +9565,10 @@
     // phone in portrait: at minimum zoom the screen holds the whole height of the area and Italy ended up low, near the
     // bottom bar; half a level closer, the view can go further south and Italy rises
     const phone = mobileMq.matches;
-    const c = L.latLng(startView.getCenter().lat - (phone ? 7 : 3), startView.getCenter().lng);
+    const c = L.latLng(
+      startView.getCenter().lat - (phone ? 7 : 3),
+      startView.getCenter().lng,
+    );
     map.setView(c, map.getMinZoom() + (phone ? 0.5 : 0), { animate: false });
     map.panInsideBounds(areaBox, { animate: false });
   }
@@ -8854,7 +9581,8 @@
     // area change (500 hPa chart and back): the other area's colours and lines go away right now, otherwise in the new
     // view they would appear for a moment before the right map (on first opening there is nothing yet)
     if (areaKey) clearOverlay();
-    if (areaKey && typeof renderSoundings === "function") queueMicrotask(renderSoundings); // no stations at 500 hPa
+    if (areaKey && typeof renderSoundings === "function")
+      queueMicrotask(renderSoundings); // no stations at 500 hPa
     areaKey = key;
     const syn = synoptic();
     document.body.classList.toggle("synoptic-mode", syn);
@@ -8890,7 +9618,9 @@
   // ---------- phone in landscape: only the full-screen map (no places or taps) and at the bottom « ‹ on the
   // left, › » on the right and the date in the middle to move in time (like the arrows: one step, one interval with
   // 3/6/12/24h, one step in the period with Total).
-  const landscapeMq = window.matchMedia("(orientation: landscape) and (pointer: coarse) and (max-height: 520px)");
+  const landscapeMq = window.matchMedia(
+    "(orientation: landscape) and (pointer: coarse) and (max-height: 520px)",
+  );
   const lvNav = document.createElement("div");
   lvNav.className = "lv-nav";
   const icon = (paths) =>
@@ -8908,7 +9638,9 @@
   /** First or last stop (in the period with Total, over the run otherwise), like the arrows. */
   function goEdge(last) {
     const avail = availableSteps();
-    const frames = dualMode() ? rangeFrames() : slideSteps().filter((x) => avail.has(x));
+    const frames = dualMode()
+      ? rangeFrames()
+      : slideSteps().filter((x) => avail.has(x));
     const target = last ? frames.at(-1) : frames[0];
     if (target == null) return;
     setStepKeepingInterval(target);
@@ -8950,7 +9682,10 @@
         map.invalidateSize({ pan: false });
         updateMinZoom();
         if (synoptic()) synopticView();
-        else map.setView(areaBox.getCenter(), map.getMinZoom(), { animate: false });
+        else
+          map.setView(areaBox.getCenter(), map.getMinZoom(), {
+            animate: false,
+          });
       }, 300);
     }
   }
@@ -8959,7 +9694,8 @@
   // ---------- Home Screen app: there is no browser bar, so no reload and no "pull down to
   // refresh". A button next to the panel's one reloads the page (new runs and steps).
   const standalone =
-    window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true;
+    window.matchMedia?.("(display-mode: standalone)").matches ||
+    navigator.standalone === true;
   if (standalone) {
     ui.appReload.hidden = false;
     ui.appReload.addEventListener("click", () => location.reload());
@@ -8993,13 +9729,17 @@
             }, 250)
           : null;
       try {
-        const fresh = await fetch(STATIC ? "data/meta.json" : "api/meta", { cache: "no-store" }).then((r) => r.json());
+        const fresh = await fetch(STATIC ? "data/meta.json" : "api/meta", {
+          cache: "no-store",
+        }).then((r) => r.json());
         if (fresh.version && meta.version && fresh.version !== meta.version) {
           // new app: its code is needed (the address keeps the view). First the same start screen the reload
           // shows, so you go straight from the map to it, without the map showing up again in between
           clearTimeout(timer);
           document.body.insertAdjacentHTML("beforeend", STARTUP_HTML);
-          document.querySelector(".startup-loader .startup-payoff").textContent = "Aggiorno l'app";
+          document.querySelector(
+            ".startup-loader .startup-payoff",
+          ).textContent = "Aggiorno l'app";
           overlay.hidden = true;
           // the reloaded page says the same on its start screen (index.html): one screen across the reload
           try {
@@ -9007,7 +9747,9 @@
           } catch {
             /* not available: the reloaded page says "Carico i modelli" */
           }
-          await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+          await new Promise((r) =>
+            requestAnimationFrame(() => requestAnimationFrame(r)),
+          );
           location.reload();
           return;
         }
@@ -9021,7 +9763,9 @@
       clearTimeout(timer);
       // at least a moment on screen, then it fades: no flash
       if (shownAt) {
-        await new Promise((r) => setTimeout(r, Math.max(0, 600 - (Date.now() - shownAt))));
+        await new Promise((r) =>
+          setTimeout(r, Math.max(0, 600 - (Date.now() - shownAt))),
+        );
         overlay.classList.add("leaving");
         await new Promise((r) => setTimeout(r, 250));
         overlay.hidden = true;
@@ -9035,7 +9779,8 @@
   // personal data: neither the IP address (sendDefaultPii: false) nor the part of the address after #, which contains
   // coordinates and place names; no performance tracing or session recording.
   const SENTRY_SRC = "https://browser.sentry-cdn.com/11.12.0/bundle.min.js"; // errors only (no tracing or replay)
-  const SENTRY_SRI = "sha384-fpjRzLWxkdRneAxDGo5pt5gKsjCWYV5ksPD+S1lx80QHBhs6Oe58hf8sKUKubCES";
+  const SENTRY_SRI =
+    "sha384-fpjRzLWxkdRneAxDGo5pt5gKsjCWYV5ksPD+S1lx80QHBhs6Oe58hf8sKUKubCES";
   function setupSentry(dsn) {
     if (!dsn) return;
     const noHash = (u) => (typeof u === "string" ? u.split("#")[0] : u);
@@ -9053,10 +9798,15 @@
         initialScope: { user: { ip_address: null } },
         tracesSampleRate: 0,
         // browser noise, not app errors
-        ignoreErrors: ["ResizeObserver loop", "AbortError", "The operation was aborted"],
+        ignoreErrors: [
+          "ResizeObserver loop",
+          "AbortError",
+          "The operation was aborted",
+        ],
         beforeSend(event) {
           if (event.request?.url) event.request.url = noHash(event.request.url);
-          if (event.request?.headers?.Referer) delete event.request.headers.Referer;
+          if (event.request?.headers?.Referer)
+            delete event.request.headers.Referer;
           return event;
         },
         beforeBreadcrumb(b) {
