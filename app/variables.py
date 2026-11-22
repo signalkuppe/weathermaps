@@ -703,6 +703,18 @@ for _lvl in ("10", "700"):
         register(_wind_component(_c, _lvl))
 
 # menu entries for the wind: speed in colour from the two components, arrows for the direction
+# ECMWF IFS 0.1° and AIFS: same files and parameter names as the IFS 0.25°, and they have all of its fields. The
+# 0.1° without the synoptic chart: on Europe and the Atlantic the finer grid would only make the files heavier.
+for _var in REGISTRY.values():
+    if "ecmwf" in _var.selectors:
+        for _model in ("aifs",) if _var.area else ("ecmwf-hres", "aifs"):
+            _var.selectors[_model] = _var.selectors["ecmwf"]
+            _var.convert[_model] = _var.convert["ecmwf"]
+# ...but the AIFS gives precipitation and snow already in kg m-2 (mm), the IFS in metres
+REGISTRY["tp"].convert["aifs"] = _identity
+REGISTRY["sf"].convert["aifs"] = _mm_to_snow_cm
+
+
 VECTORS = [
     {"id": "wind10", "label": "Vento 10 m", "u": "u10", "v": "v10"},
     {"id": "wind700", "label": "Vento 700 hPa", "u": "u700", "v": "v700"},

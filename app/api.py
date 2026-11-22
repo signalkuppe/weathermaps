@@ -14,7 +14,7 @@ from . import fetcher
 from . import mean as mean_mod
 from . import ensemble
 from . import series as series_mod
-from .fetcher import MODELS, steps_for
+from .fetcher import MODELS, model_steps, steps_for
 from .sources import parse_run_id
 from .store import Store
 
@@ -196,7 +196,9 @@ def field(
     except FileNotFoundError:
         raise HTTPException(404, "Dato non (ancora) disponibile") from None
 
-    p = prev_step(step)
+    # previous step of the model: for the AIFS (every 6 hours) the one 6 hours earlier
+    own = model_steps(model)
+    p = ([0] + own)[own.index(step)] if step in own else prev_step(step)
     if mode == "interval" and prev is not None:
         # 6, 12, 24-hour accumulations: difference with an earlier step (0 = since the start of the run)
         if prev != 0 and prev not in STEPS or prev >= step:

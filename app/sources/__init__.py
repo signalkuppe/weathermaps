@@ -25,6 +25,8 @@ class ModelInfo:
     max_step: int
     description: str = ""  # text for the info icon next to the model selector
     country: str = ""  # code of the agency (us, eu, it, de, ch) for the flag in the selector
+    short: str = ""  # short name (legends, lists of models); empty = the first word of the label
+    steps: tuple[int, ...] | None = None  # steps of the model, if fewer than config.STEPS (e.g. every 6 hours)
 
     def candidate_runs(self, now: datetime | None = None, count: int = 3) -> list[datetime]:
         """Latest `count` runs plausibly published, newest first."""
@@ -46,6 +48,8 @@ class ModelInfo:
             "max_step": self.max_step,
             "description": self.description,
             "country": self.country,
+            **({"short": self.short} if self.short else {}),
+            **({"steps": list(self.steps)} if self.steps else {}),
         }
 
 

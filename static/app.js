@@ -1016,8 +1016,10 @@
     );
     return h < 48 ? `${h}h fa` : `${Math.round(h / 24)} giorni fa`;
   };
-  const shortLabel = (id) =>
-    (meta.models.find((m) => m.id === id)?.label || id).split(" ")[0];
+  const shortLabel = (id) => {
+    const m = meta.models.find((x) => x.id === id);
+    return m?.short || (m?.label || id).split(" ")[0]; // the three ECMWF: "ECMWF (0.25)", "(0.1)", "(AIFS)"
+  };
   const modelLabel = () =>
     meta.models.find((m) => m.id === state.model)?.label || state.model;
   const runDate = (rid) =>
@@ -1103,7 +1105,7 @@
     const target = s - hours;
     if (target <= 0) return 0;
     let best = 0;
-    for (const x of meta.steps) if (x <= target && x > best) best = x;
+    for (const x of steps()) if (x <= target && x > best) best = x; // AIFS: every 6 hours
     return best;
   }
   /** Start of the accumulation shown at hour `s`: the start of the range (Total) or the last chosen hours, never before
@@ -1274,11 +1276,12 @@
   // "Precipitazione in 24h" (it is the period mean weighted by precipitation, see contourFieldAt)
   const contourName = () =>
     `${variable().contours.label}${weightedContour() ? ` in ${intervalHours()}h` : ""}`;
-  // steps of the chosen model: the slider stops at the model's range (e.g. ICON-CH2 at +120h)
+  // steps of the chosen model: the slider stops at the model's range (e.g. ICON-CH2 at +120h); a model may have
+  // its own, fewer steps (AIFS every 6 hours)
   const steps = () => {
-    const max =
-      meta.models.find((m) => m.id === state.model)?.max_step ?? Infinity;
-    return meta.steps.filter((s) => s <= max);
+    const m = meta.models.find((x) => x.id === state.model);
+    const max = m?.max_step ?? Infinity;
+    return (m?.steps || meta.steps).filter((s) => s <= max);
   };
   function rangePlaybackSteps(allSteps, available, from, to) {
     return allSteps.filter(
@@ -1747,7 +1750,12 @@
     ui.step.max = s.length - 1;
     if (!s.includes(state.step)) {
       const avail = [...availableSteps()];
-      state.step = avail.includes(24) ? 24 : (avail[0] ?? s[0]);
+      const near = avail
+        .filter((x) => s.includes(x) && x <= state.step)
+        .reduce((a, x) => Math.max(a, x), -1);
+      // a model with fewer steps (AIFS every 6 hours): the nearest earlier step, not back to +24h
+      state.step =
+        near > 0 ? near : avail.includes(24) ? 24 : (avail[0] ?? s[0]);
     }
     if (rangeMode()) {
       // range: on opening (or if no longer valid, e.g. different range) the whole available run
@@ -2648,6 +2656,8 @@
     // with an extra layer: the model's colours, contours and arrows disappear (it would be unreadable), legend and top
     // bar switch to the layer; the model stays selected and comes back when it is removed
     document.body.classList.toggle("radar-mode", !!cfg);
+    // any extra layer (radar, satellite, soundings, ensemble): on mobile no model next to the name (style.css)
+    document.body.classList.toggle("extra-mode", state.extra !== "none");
     if (glImgs.has("wm-model")) glPut("wm-model", { visible: !cfg && !snd && !ens }); // the model colours disappear in Mapbox too
     $("extra-name").textContent = cfg?.name || "";
     if (cfg) togglePlay(false);
@@ -3541,6 +3551,7 @@
         `<b class="badge-d">${modelLabel()}</b><span class="badge-run badge-d">${what === "nessun dato" ? "nessun dato" : "grandezza non disponibile"}</span>` +
         `<span class="badge-m badge-m-time"><b>${what}</b></span>` +
         `<span class="badge-m badge-m-model">${shortLabel(state.model)}</span>`;
+      $("head-model").textContent = shortLabel(state.model);
       return;
     }
     const runText = `<strong>${state.run.slice(8, 10)}z</strong> ${state.run.slice(6, 8)}/${state.run.slice(4, 6)}`;
@@ -3568,6 +3579,8 @@
       `<span class="badge-valid badge-d">${panelTime}</span>` +
       `<span class="badge-m badge-m-time"><b>${mobileTime}</b>${mobileRange}</span>` +
       `<span class="badge-m badge-m-model">${shortLabel(state.model)} ${cycle(state.run)}</span>`;
+    // mobile: model and run next to the name in the panel head (in the bar they no longer fit next to the dates)
+    $("head-model").textContent = `${shortLabel(state.model)} ${cycle(state.run)}`;
     const mStep = $("m-step"); // bar slider on mobile, aligned with the panel's
     mStep.max = slideSteps().length - 1;
     mStep.value = slideSteps().indexOf(s);
@@ -7357,6 +7370,8 @@
   const MULTI_COLORS = {
     gfs: "#51cf66",
     ecmwf: "#20c997",
+    "ecmwf-hres": "#0ca678",
+    aifs: "#66d9e8",
     "icon-d2": "#fab005",
     "icon-2i": "#fd7e14",
     "icon-ch1": "#f06595",
@@ -9902,8 +9917,7 @@
       meta = m;
       // version from the git tags (empty if there are no tags)
       if (meta.version) {
-        $("app-version").textContent = meta.version;
-        $("app-version").hidden = false;
+        $("updated-version").textContent = meta.version; // at the end of the last row of the panel
       }
       bases.topo.options.apikey = meta.thunderforest_key || "";
       if (map.hasLayer(bases.topo)) bases.topo.redraw();

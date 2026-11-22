@@ -10,6 +10,9 @@ so the median is built per valid time from a common time T0:
   available models, then the intervals are summed. Total and Interval stay consistent even when
   a short-range model (ICON-CH1, ICON-D2...) drops out of the median;
 - instantaneous fields (temperature, freezing level): median of the values at that time.
+- models with fewer steps (AIFS, every 6 hours): the accumulated total in a missing step is interpolated between
+  the two around it (half of the 6 hours to the 3-hour step), so they enter every interval; instantaneous fields only
+  at their own steps.
 
 The median is not dragged by a single model far from the others; with only two
 models it equals the mean.
@@ -129,13 +132,31 @@ def _build(store: Store) -> dict:
         offset = {m: int((t0 - parse_run_id(r)).total_seconds() // 3600) for m, r in chosen.items()}
         cache: dict[tuple[str, int], np.ndarray] = {}
 
+        def around(m: str, step: int) -> tuple[int, int] | None:
+            """Steps of the member around a missing accumulated step (gap of at most 6 hours), or None."""
+            before = max((x for x in have[m] if x < step), default=0)
+            after = min((x for x in have[m] if x > step), default=None)
+            if step <= 0 or after is None or after - before > 6:
+                return None
+            return before, after
+
+        def has(m: str, step: int) -> bool:
+            if step in have[m]:
+                return True
+            return var.kind == "accum" and around(m, step) is not None
+
         def member(m: str, step: int) -> np.ndarray:
             if step == 0:
                 return np.zeros((len(vlats), len(vlons)), dtype=np.float32)
             key = (m, step)
             if key not in cache:
-                vals, grid = store.load(m, chosen[m], var.id, step)
-                cache[key] = bilinear(vals, grid, vlats, vlons)
+                if step in have[m]:
+                    vals, grid = store.load(m, chosen[m], var.id, step)
+                    cache[key] = bilinear(vals, grid, vlats, vlons)
+                else:  # accumulated total between the two steps around it (see has)
+                    a, b = around(m, step)
+                    w = (step - a) / (b - a)
+                    cache[key] = (member(m, a) * (1 - w) + member(m, b) * w).astype(np.float32)
             return cache[key]
 
         cum = np.zeros((len(vlats), len(vlons)), dtype=np.float32)
@@ -147,7 +168,7 @@ def _build(store: Store) -> dict:
             for m in chosen:
                 if var.kind == "accum":
                     a, b = offset[m] + last, offset[m] + s
-                    if b in have[m] and (a == 0 or a in have[m]):
+                    if has(m, b) and (a == 0 or has(m, a)):
                         vals.append(np.maximum(member(m, b) - member(m, a), 0))
                         used.append(m)
                 else:

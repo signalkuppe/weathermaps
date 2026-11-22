@@ -8,7 +8,7 @@ import httpx
 
 from ..config import BBox
 from ..grid import Field, crop, decode_grib, select
-from ..variables import Variable
+from ..variables import GribSelector, Variable
 from . import ModelInfo, NotAvailable
 
 MODEL = ModelInfo(
@@ -16,13 +16,14 @@ MODEL = ModelInfo(
     label="ECMWF IFS 0.25°",
     resolution=0.25,
     cycles=(0, 12),  # the 06/18 runs stop at 144h
-    delay_hours=6,  # the 0.25° comes out a couple of hours before the 0.1° (and more regularly)
+    delay_hours=6,  # the 0.25° comes out two hours before the 0.1° (see ecmwf_hres)
     max_step=360,
     country="eu",
+    short="ECMWF (0.25)",
     description=(
         "Modello globale del Centro Europeo (ECMWF), il riferimento per il medio termine. "
         "Dati aperti a 0,25° (circa 25 km), corse delle 00 e 12 UTC, qui fino a +192h. "
-        "Stessa risoluzione di GFS: i rilievi alpini sono molto semplificati."
+        "Esce circa due ore prima della stessa corsa a 0,1°. I rilievi alpini sono molto semplificati."
     ),
 )
 
@@ -30,16 +31,12 @@ ROOT = "https://data.ecmwf.int/forecasts"
 
 
 def base_url(run: datetime, step: int) -> str:
-    """At 0.25° surface and pressure levels are in the same file (levtype tells the index lines apart).
-
-    The 0.25° is used rather than the 0.1° because it comes out earlier and more regularly (sometimes the 0.1° of a
-    run is missing altogether).
-    """
+    """At 0.25° surface and pressure levels are in the same file (levtype tells the index lines apart)."""
     return f"{ROOT}/{run:%Y%m%d}/{run.hour:02d}z/ifs/0p25/oper/{run:%Y%m%d%H}0000-{step}h-oper-fc"
 
 
-def find_in_index(index_text: str, variable: Variable, step: int) -> tuple[int, int]:
-    sel = variable.selectors["ecmwf"]
+def find_in_index(index_text: str, variable: Variable, step: int, sel: GribSelector | None = None) -> tuple[int, int]:
+    sel = sel or variable.selectors["ecmwf"]
     for line in index_text.splitlines():
         line = line.strip()
         if not line:
@@ -57,19 +54,23 @@ def find_in_index(index_text: str, variable: Variable, step: int) -> tuple[int, 
     raise LookupError(f"{sel.param} non trovato nell'indice per step {step}")
 
 
-def fetch(client: httpx.Client, run: datetime, step: int, variable: Variable, bbox: BBox) -> Field:
-    base = base_url(run, step)
+def fetch_record(client: httpx.Client, base: str, label: str, variable: Variable, step: int, sel: GribSelector,
+                 bbox: BBox) -> Field:
+    """Downloads one message by its index line (shared by the ECMWF open data: IFS 0.25° and 0.1°, AIFS)."""
     idx = client.get(base + ".index")
     if idx.status_code == 404:
-        raise NotAvailable(f"ECMWF {run:%Y%m%d%H} +{step}h non disponibile")
+        raise NotAvailable(f"{label} +{step}h non disponibile")
     idx.raise_for_status()
-    offset, length = find_in_index(idx.text, variable, step)
+    offset, length = find_in_index(idx.text, variable, step, sel)
     resp = client.get(base + ".grib2", headers={"Range": f"bytes={offset}-{offset + length - 1}"})
     if resp.status_code == 404:
-        raise NotAvailable(f"ECMWF {run:%Y%m%d%H} +{step}h grib non disponibile")
+        raise NotAvailable(f"{label} +{step}h grib non disponibile")
     resp.raise_for_status()
     if resp.status_code != 206 or not resp.content.startswith(b"GRIB"):
         raise ValueError(f"Risposta inattesa dal server ECMWF: {resp.status_code}")
-    fields = decode_grib(resp.content)
-    field = select(fields, variable.selectors["ecmwf"])
-    return crop(field, bbox)
+    return crop(select(decode_grib(resp.content), sel), bbox)
+
+
+def fetch(client: httpx.Client, run: datetime, step: int, variable: Variable, bbox: BBox) -> Field:
+    return fetch_record(client, base_url(run, step), f"ECMWF {run:%Y%m%d%H}", variable, step,
+                        variable.selectors["ecmwf"], bbox)

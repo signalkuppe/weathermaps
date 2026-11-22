@@ -227,12 +227,6 @@ body.share-wide .wm-native-map {
   flex: none;
   display: block;
 }
-.app-version {
-  margin-left: 4px;
-  font-size: 11px;
-  font-weight: 400;
-  color: var(--muted);
-} /* same baseline as the name: the digits sit at lowercase height */
 /* last row of the panel: clock in the column of the section triangles (9px + 7px), text aligned with the titles */
 .updated-row {
   display: flex;
@@ -4436,4 +4430,31 @@ body.ens-mode .badge {
 .snd-ix {
   color: var(--fg);
   font-weight: 700;
+}
+
+/* version at the end of the last row of the panel; on mobile model and run in the panel head, where they fit better
+   than in the bottom bar next to the dates (e.g. "ECMWF (AIFS) 00Z") */
+.updated-version {
+  margin-left: auto;
+}
+.head-model {
+  display: none;
+}
+@media (max-width: 600px),
+  (orientation: portrait) and (pointer: coarse) and (max-width: 1100px) {
+  .badge-m.badge-m-model {
+    display: none;
+  }
+  .head-model {
+    display: inline;
+    margin-left: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  /* extra layers: the map is not the model's */
+  body.extra-mode .head-model {
+    display: none;
+  }
 }

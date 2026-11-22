@@ -14,7 +14,9 @@ The app's interface is in Italian; the code, comments and documentation are in E
 | Model                  | Source                              | Resolution       | Range       | Runs          |
 | ---------------------- | ----------------------------------- | ---------------- | ----------- | ------------- |
 | GFS                    | NOAA/NCEP                           | 0.25°            | +192h       | 00/06/12/18   |
-| ECMWF IFS              | ECMWF Open Data                     | 0.25°            | +192h       | 00/12         |
+| ECMWF IFS 0.25°        | ECMWF Open Data                     | 0.25°            | +192h       | 00/12         |
+| ECMWF IFS 0.1°         | ECMWF Open Data                     | 0.1° (~9 km)     | +192h       | 00/12         |
+| ECMWF AIFS             | ECMWF Open Data (machine learning)  | 0.25°            | +192h, 6h   | 00/06/12/18   |
 | ICON-2I                | ItaliaMeteo (MeteoHub)              | 2.2 km           | +72h        | 00/12         |
 | WRF                    | ItaliaMeteo, CIMA, LaMMA (MeteoHub) | 1.5 km           | +72h        | 00/12         |
 | ICON-D2                | DWD Open Data                       | 2.2 km           | +48h        | every 3 hours |
@@ -28,12 +30,18 @@ Fields available per model:
 | Model          | Precipitation | T 850 hPa | T and wet bulb 2 m | Snow                          | Freezing level           |
 | -------------- | ------------- | --------- | ------------------ | ----------------------------- | ------------------------ |
 | GFS            | ✓             | ✓         | ✓                  | — (snowfall is not published) | ✓                        |
-| ECMWF          | ✓             | ✓         | ✓                  | ✓                             | — (not in the open data) |
+| ECMWF (all 3)  | ✓             | ✓         | ✓                  | ✓                             | — (not in the open data) |
 | ICON-2I        | ✓             | ✓         | ✓                  | ✓                             | ✓                        |
 | WRF            | ✓             | ✓         | T only             | —                             | —                        |
 | ICON-D2        | ✓             | ✓         | ✓                  | ✓                             | ✓                        |
 | AROME          | ✓             | —         | —                  | ✓                             | —                        |
 | ICON-CH2 / CH1 | ✓             | —         | ✓                  | ✓                             | ✓                        |
+
+The three ECMWF entries are separate models and all three enter the median. The IFS 0.1° is the same run as the
+0.25°, published about two hours later; it has no synoptic chart (that stays at 0.25°). The AIFS has a step every 6
+hours: in the median its accumulated total is interpolated at the 3-hour steps, so it enters every interval. The
+AIFS gives precipitation and snow already in mm (kg m⁻²), the IFS in metres of water. In legends and lists the three
+are shortened to "ECMWF (0.25)", "ECMWF (0.1)" and "ECMWF (AIFS)".
 
 **Snow** is in cm of fresh snow: the models give the water equivalent (mm), converted with the standard 10:1 ratio
 (1 mm of water = 1 cm of snow). It is an estimate: wet snow accumulates less, powder snow more. In the ICON models it
@@ -101,7 +109,8 @@ step the page shows which models are in the median.
   `scripts/make_borders.py --water`). Without Mapbox the Natural Earth 1:10m outlines in the same file are used,
   regenerated with `scripts/make_borders.py` if `BBOX` changes.
 - **Controls:** model, time (slider, ←/→ arrows, space = play), adjustable opacity, sharp cells without
-  interpolation. On mobile there is a bottom bar with time, ‹ › ▶, model and compact legend.
+  interpolation. On mobile there is a bottom bar with time, ‹ › ▶ and compact legend; model and run are in the panel
+  head, next to the name.
 - **Legend:** horizontal (title with units, colour bar with thresholds), bottom right on desktop and in the bar on
   mobile.
 - **Value under the cursor** (desktop), with the freezing level in the combined entry and, on the T850 map, the
@@ -114,7 +123,7 @@ step the page shows which models are in the median.
   adds the place, chart model, run and range: the link reopens it directly, even without the place among the
   favourites. Back returns to the map and Forward reopens the chart; changing the model updates the same history
   entry. If the shared run is no longer available, the latest complete one is used.
-- **Version** next to the app name, from the git tags.
+- **Version** at the end of the last row of the panel, after the update time, from the git tags.
 
 ## Running locally
 
@@ -143,7 +152,7 @@ Tests: `pytest` (Python, including the parts that run the page's code in node) a
 | `SCHEDULER_INTERVAL_MIN` | `10`                     | Update frequency                                                                                                                                                                                                     |
 | `MAPBOX_TOKEN`           | —                        | Public [Mapbox](https://account.mapbox.com) token (`pk.…`) for the Outdoors and Base basemaps: it ends up in the page, so restrict it to the site's domains in the Mapbox dashboard (static site: repository secret) |
 | `THUNDERFOREST_KEY`      | —                        | [Thunderforest](https://manage.thunderforest.com) key for the fallback basemap without Mapbox (static site: repository secret)                                                                                       |
-| `APP_VERSION`            | from git tags            | Version shown next to the name: normally `git describe` (`v1.2.0` on the tag, `v1.2.0+3` three commits later); set it where there is no `.git`, for example in the Docker image. Without tags nothing is shown       |
+| `APP_VERSION`            | from git tags            | Version shown in the last row of the panel: normally `git describe` (`v1.2.0` on the tag, `v1.2.0+3` three commits later); set it where there is no `.git`, for example in the Docker image. Without tags nothing is shown       |
 
 ## Favourite places
 

@@ -14,7 +14,7 @@ from . import variables
 from .config import STEPS, BBox
 from .grid import Field, halve, lambert_to_earth
 from . import mean
-from .sources import NotAvailable, ecmwf, gfs, icon_2i, icon_d2, make_client, run_id
+from .sources import NotAvailable, aifs, ecmwf, ecmwf_hres, gfs, icon_2i, icon_d2, make_client, run_id
 from .sources.meteohub import wrf  # MOLOCH (meteohub.moloch) is ready but excluded for now: download too slow
 from .sources.arome import arome
 from .sources.meteoswiss import icon_ch1, icon_ch2
@@ -22,12 +22,12 @@ from .store import Store
 
 log = logging.getLogger("weathermaps.fetcher")
 
-SOURCES = {src.MODEL.id: src for src in (gfs, ecmwf, icon_2i, wrf, icon_d2, arome, icon_ch2, icon_ch1)}
+SOURCES = {src.MODEL.id: src for src in (gfs, ecmwf, ecmwf_hres, aifs, icon_2i, wrf, icon_d2, arome, icon_ch2, icon_ch1)}
 # models shown: the sources plus the median (computed, not downloaded)
 MODELS = {**{m.MODEL.id: m.MODEL for m in SOURCES.values()}, mean.MODEL.id: mean.MODEL}
 
 # pause between requests so as not to stress the public servers
-REQUEST_PAUSE = {"gfs": 0.4, "ecmwf": 0.1, "icon-ch2": 0.1, "icon-ch1": 0.1, "icon-d2": 0.1, "icon-2i": 0.1, "wrf": 0.1, "arome": 0.1}
+REQUEST_PAUSE = {"gfs": 0.4, "ecmwf": 0.1, "ecmwf-hres": 0.1, "aifs": 0.1, "icon-ch2": 0.1, "icon-ch1": 0.1, "icon-d2": 0.1, "icon-2i": 0.1, "wrf": 0.1, "arome": 0.1}
 RETRIES = 3
 
 _locks = {m: threading.Lock() for m in SOURCES}
@@ -54,9 +54,15 @@ def request_refresh(model_id: str, store: Store) -> tuple[bool, str]:
     return True, "started"
 
 
+def model_steps(model_id: str) -> list[int]:
+    """Steps of the model: the shared ones up to its range, or its own (e.g. AIFS every 6 hours)."""
+    model = MODELS[model_id]
+    return [s for s in (model.steps or STEPS) if s <= model.max_step]
+
+
 def steps_for(var: variables.Variable, model_id: str) -> list[int]:
-    max_step = MODELS[model_id].max_step
-    return [s for s in (var.steps or STEPS) if s <= max_step]
+    own = model_steps(model_id)
+    return [s for s in var.steps if s in own] if var.steps else own
 
 
 def _convert(var: variables.Variable, model_id: str, field: Field) -> Field:

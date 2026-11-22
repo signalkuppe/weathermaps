@@ -37,7 +37,7 @@ def test_meta(client):
     m = client.get("/api/meta").json()
     assert m["bbox"] == {"lat_min": 42, "lat_max": 49, "lon_min": 4, "lon_max": 17}
     assert m["steps"][:3] == [3, 6, 9] and m["steps"][-1] == 192 and len(m["steps"]) == 56
-    assert {x["id"] for x in m["models"]} == {"gfs", "ecmwf", "icon-2i", "wrf", "icon-d2", "arome", "icon-ch2", "icon-ch1", "mean"}
+    assert {x["id"] for x in m["models"]} == {"gfs", "ecmwf", "ecmwf-hres", "aifs", "icon-2i", "wrf", "icon-d2", "arome", "icon-ch2", "icon-ch1", "mean"}
     assert "mean" in next(v for v in m["variables"] if v["id"] == "tp")["models"]
     assert next(x for x in m["models"] if x["id"] == "icon-ch2")["max_step"] == 120
     tp = next(v for v in m["variables"] if v["id"] == "tp")
@@ -463,7 +463,7 @@ def test_synoptic_chart_own_area_combined_entry(client):
     syn = vs["z500_msl"]
     assert syn["field"] == "z500" and syn["contour_field"] == "msl"
     assert syn["area"] == {"lat_min": 25, "lat_max": 72, "lon_min": -70, "lon_max": 64}
-    assert syn["models"] == ["ecmwf", "gfs", "mean"]
+    assert syn["models"] == ["aifs", "ecmwf", "gfs", "mean"]
     assert vs["t850"]["area"] is None and "mean" in vs["t850"]["models"]
     z, p = variables.get("z500"), variables.get("msl")
     assert z.convert["gfs"](5520.0) == pytest.approx(552) and p.convert["ecmwf"](101500.0) == pytest.approx(1015)

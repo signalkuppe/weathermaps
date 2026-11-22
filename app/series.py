@@ -30,9 +30,9 @@ from .store import Store
 SCALE = {"tp": 10, "sf": 10, "t850": 10, "hzero": 0.1, "u10": 1, "v10": 1}  # sf: snow (cm), colours the precipitation bars
 GRID_KEYS = ("lat0", "lon0", "dlat", "dlon", "ny", "nx")
 NATIVE = ("tp", "sf")  # in the map cell; the others on the regular grid
-DSTEP = 0.1  # regular grid of the global models (GFS, ECMWF at 0.25°): interpolated
+DSTEP = 0.1  # regular grid of the global models (GFS, ECMWF IFS and AIFS; the 0.1° too): interpolated
 FINE_DSTEP = 0.05  # high resolution: nearest cell (mountain peaks are kept)
-COARSE = {"gfs", "ecmwf"}
+COARSE = {"gfs", "ecmwf", "ecmwf-hres", "aifs"}
 TILE = 2.0  # side of the regular-grid tiles, degrees
 
 
