@@ -608,6 +608,17 @@
       ></span>
     </div>
     <div id="badge" class="badge">
+      <!-- mobile: the legend is folded away; tap or swipe up on this handle to show it (see setupLegendHandle) -->
+      <button
+        id="legend-handle"
+        class="legend-handle"
+        type="button"
+        aria-label="Mostra la legenda"
+        aria-controls="legend"
+        aria-expanded="false"
+      >
+        <span></span>
+      </button>
       <!-- Lucide icons (ISC): chevrons-left, chevron-left, chevron-right, play / pause -->
       <button
         id="m-first"
@@ -688,14 +699,6 @@
           value="0"
           aria-label="Immagine radar"
         />
-      </div>
-      <div id="satellite-mode-row" class="satellite-mode" hidden>
-        <div
-          id="satellite-mode"
-          class="seg"
-          role="group"
-          aria-label="Canale satellitare"
-        ></div>
       </div>
       <button
         id="m-next"
@@ -1185,15 +1188,6 @@
         <div id="chart-warn" class="chart-warn" role="note" hidden></div>
       </header>
       <div id="chart-body" class="chart-body"></div>
-      <!-- pinned time (click, tap or dragging the finger on the chart): values and actions, always visible at the bottom -->
-      <div id="chart-readout" class="chart-readout" hidden>
-        <div class="chart-readout-values"></div>
-        <div class="chart-readout-links">
-          <button type="button" data-act="download">Scarica</button>
-          <button type="button" data-act="share">Condividi</button>
-          <button type="button" data-act="remove">Rimuovi</button>
-        </div>
-      </div>
     </dialog>
     <div id="legend" class="legend"></div>
     <div id="probe" class="probe" hidden></div>

@@ -117,7 +117,6 @@
     borders: "regions",
     bordersOpacity: 1,
     extra: "none",
-    satProduct: "ir",
   }; // defaults: Outdoors, colours at 70%, borders down to regions at full contrast, smooth cells
   // "static": site published on GitHub Pages (pre-generated JSON files, no server)
   const STATIC = document.documentElement.dataset.mode === "static";
@@ -139,11 +138,61 @@
     seq: 0,
     timer: null,
   };
-  let menuLL = null; // point of the open map menu (right click or long press), see openMapMenu
-  let probeLL = null; // point tapped on mobile: the value tooltip stays there (see "point tooltip")
+  let menuLL = null; // point of the open map menu (right click, or tap on touch devices), see openMapMenu
   let playTimer = null;
   let playbackSelection = null;
-  const cache = new Map();
+  /** Downloaded fields and the ones derived from them (accumulations, wind speed, weighted lines), most recently used
+   *  last. Kept within a budget of grid cells: an ICON-CH1 field has ~650k cells, ~8 MB in memory between the value
+   *  list and its Float32Array, and without a limit browsing steps, variables and models for a while grew the page by
+   *  hundreds of MB (on iPhone Safari then drops the WebGL context or reloads the page). Evicted fields come back from
+   *  the browser's HTTP cache; their colour images stay (fieldImage is keyed by the cache key, see cacheKeys). */
+  const FIELD_BUDGET = IOS ? 6e6 : 16e6; // cells
+  const cacheKeys = new WeakMap(); // resolved field -> its cache key
+  const cellsOf = (f) => {
+    if (!f || typeof f !== "object") return 0;
+    let n = (f.values?.length || 0) + (f.u?.length || 0) + (f.v?.length || 0);
+    for (const x of Object.values(f.extra || {})) n += cellsOf(x);
+    return n;
+  };
+  class FieldCache extends Map {
+    sizes = new Map();
+    get(k) {
+      const v = super.get(k);
+      if (v !== undefined) {
+        super.delete(k);
+        super.set(k, v);
+      }
+      return v;
+    }
+    set(k, v) {
+      super.delete(k);
+      super.set(k, v);
+      this.sizes.delete(k);
+      Promise.resolve(v)
+        .then((f) => {
+          if (super.get(k) !== v) return;
+          if (f && typeof f === "object") cacheKeys.set(f, k);
+          this.sizes.set(k, cellsOf(f));
+          this.trim();
+        })
+        .catch(() => {});
+      return this;
+    }
+    delete(k) {
+      this.sizes.delete(k);
+      return super.delete(k);
+    }
+    trim() {
+      let total = 0;
+      for (const n of this.sizes.values()) total += n;
+      for (const k of this.keys()) {
+        if (total <= FIELD_BUDGET || this.size <= 8) break; // the last few always stay (current step and neighbours)
+        total -= this.sizes.get(k) || 0;
+        this.delete(k);
+      }
+    }
+  }
+  const cache = new FieldCache();
 
   const intervalSliders = ["interval-step", "m-interval-step"].map((id) => {
     const element = $(id);
@@ -693,10 +742,11 @@
   const SAT_LAND = "#4b5f2f";
   const SAT_SEA = "#2b5797";
   const SAT_KEEP = /admin|country-label|settlement-major-label|state-label/;
+  const satOn = () => state.extra === "sat" || state.extra === "vis"; // either Meteosat channel
   function glSatBase() {
     const m = glMap();
     if (!m || !glStyleReady) return;
-    const on = state.extra === "sat";
+    const on = satOn();
     if (on && !m.__satHidden) {
       m.__satHidden = new Set();
       m.__satPaint = [];
@@ -756,12 +806,36 @@
       fadeDuration: 0, // no label fade: fewer frames to draw after each move
       language: "it",
     };
+    // iOS: fast pinch in/out loads tiles (and the DEM of the relief) of many zoom levels at once; at 3× pixel density
+    // the GPU memory peaks, the screen flickers and Safari can drop the WebGL context, freezing the map.
+    // At 2× the difference is hardly visible and every framebuffer and tile texture takes less than half the memory.
+    if (IOS) {
+      options.pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+      options.maxTileCacheSize = 80;
+    }
     try {
       glBase = new mapboxgl.Map(options);
     } catch {
       container.remove();
       return;
     }
+    // WebGL context lost (GPU memory pressure, mostly iOS): Mapbox redraws everything if the browser gives the
+    // context back; if it does not, the map stays frozen, so the page is reloaded (the view is in the URL hash).
+    let glLostTimer = null;
+    glBase.on("webglcontextlost", () => {
+      clearTimeout(glLostTimer);
+      glLostTimer = setTimeout(() => {
+        if (!document.hidden) location.reload();
+      }, 2500);
+    });
+    glBase.on("webglcontextrestored", () => {
+      clearTimeout(glLostTimer);
+      glLostTimer = null;
+    });
+    document.addEventListener("visibilitychange", () => {
+      // lost while in the background: reload when the page comes back, if it was not restored meanwhile
+      if (!document.hidden && glLostTimer) location.reload();
+    });
     map.getContainer().classList.add("wm-native");
     map.attributionControl.addAttribution(MAPBOX_ATTR);
     connectMapbox(glBase);
@@ -861,6 +935,60 @@
   }
   placeLegend();
   mobileMq.addEventListener("change", placeLegend);
+
+  // mobile: the legend inside the box is folded; the handle at the top centre shows it (tap or swipe up) and hides it
+  // again (tap or swipe down)
+  function setupLegendHandle() {
+    const handle = $("legend-handle");
+    const setOpen = (open) => {
+      ui.badge.classList.toggle("legend-open", open);
+      handle.setAttribute("aria-expanded", String(open));
+      handle.setAttribute(
+        "aria-label",
+        open ? "Nascondi la legenda" : "Mostra la legenda",
+      );
+    };
+    let swipe = null,
+      swiped = false;
+    handle.addEventListener("click", () => {
+      if (swiped) {
+        swiped = false; // the click that ends a swipe on the handle
+        return;
+      }
+      setOpen(!ui.badge.classList.contains("legend-open"));
+    });
+    handle.addEventListener("pointerdown", (e) => {
+      swipe = { id: e.pointerId, y: e.clientY };
+      handle.setPointerCapture?.(e.pointerId); // the finger can leave the small handle while swiping
+    });
+    handle.addEventListener("pointerup", (e) => {
+      if (!swipe || swipe.id !== e.pointerId) return;
+      const dy = e.clientY - swipe.y;
+      swipe = null;
+      if (Math.abs(dy) < 16) return; // a tap: the click toggles
+      setOpen(dy < 0);
+      swiped = true;
+      setTimeout(() => (swiped = false), 400); // no click after a swipe ending outside the handle
+    });
+    handle.addEventListener("pointercancel", () => {
+      swipe = null;
+    });
+    // the Mapbox logo sits just above the box with the legend folded, and stays there when the legend opens (the box
+    // grows over it for a moment); it follows only the other height changes (radar bar, panel)
+    if (window.ResizeObserver)
+      new ResizeObserver(() => {
+        const h = mobileMq.matches
+          ? ui.badge.offsetHeight -
+            (ui.badge.contains(ui.legend) ? ui.legend.offsetHeight : 0)
+          : 0;
+        if (h)
+          document.documentElement.style.setProperty(
+            "--logo-bottom",
+            `${h + 16}px`,
+          );
+      }).observe(ui.badge);
+  }
+  setupLegendHandle();
 
   // ---------- util
   const fmtRun = (rid) => {
@@ -1173,7 +1301,6 @@
     document.body.classList.toggle("no-data", !!title); // and only the main menu is on top (see style.css)
     if (title) {
       ui.probe.hidden = true;
-      probeLL = null;
     }
     // panel closed (often on mobile): it reopens, otherwise only a silent grey map would remain
     if (title && ui.panel.classList.contains("collapsed")) ui.collapse.click();
@@ -1206,11 +1333,10 @@
       if (typeof d.crisp === "boolean") state.crisp = d.crisp;
       if (typeof d.iso === "boolean") state.iso = d.iso;
       if (current && BORDER_NAMES[d.borders]) state.borders = d.borders;
-      if (d.extra === "radar" || d.extra === "sat" || d.extra === "snd")
-        state.extra = d.extra;
+      if (["radar", "sat", "vis", "snd", "ens"].includes(d.extra))
+        state.extra =
+          d.extra === "sat" && d.satProduct === "vis" ? "vis" : d.extra; // visible was once a channel of "sat"
       else if (d.radar === true) state.extra = "radar"; // setting saved by the first version of the radar
-      if (d.satProduct === "ir" || d.satProduct === "vis")
-        state.satProduct = d.satProduct;
       if (current && Number.isFinite(d.bordersOpacity))
         state.bordersOpacity = Math.min(1, Math.max(0.1, d.bordersOpacity));
     } catch {
@@ -1235,7 +1361,6 @@
           borders: state.borders,
           bordersOpacity: state.bordersOpacity,
           extra: state.extra,
-          satProduct: state.satProduct,
         }),
       );
     } catch {
@@ -1661,12 +1786,12 @@
   }
 
   function renderLegend() {
-    ui.legend.hidden = state.extra === "sat" && state.satProduct === "vis";
+    ui.legend.hidden = state.extra === "vis"; // natural colours: nothing to explain
+    if (state.extra === "vis") {
+      ui.legend.innerHTML = "";
+      return;
+    }
     if (state.extra === "sat") {
-      if (state.satProduct === "vis") {
-        ui.legend.innerHTML = "";
-        return;
-      }
       // satellite: colours of the clouds by height (infrared), from the lowest to the thunderstorm tops
       ui.legend.innerHTML =
         `<h2><span class="lg-label">Nubi da satellite </span>(infrarosso)</h2><ol class="lg-continuous">` +
@@ -1919,7 +2044,13 @@
             fieldImage(f, true);
         })
         .catch(() => {});
-      if (cv) contourFieldAt(s[j]).catch(() => {});
+      // the lines too (worker), so during the animation they are ready like the colours
+      const cfg = variable().contours;
+      const lines = (f) => {
+        if (f && cfg && isoNow()) contourLinesOf(f, cfg, true);
+      };
+      if (cv) contourFieldAt(s[j]).then(lines).catch(() => {});
+      else if (cfg) mainField(s[j]).then(lines).catch(() => {});
       if (variable().arrows) arrowsFieldAt(s[j]).catch(() => {});
     }
   }
@@ -2026,6 +2157,48 @@
     [40, "#e5382b"],
     [60, "#9a25d6"],
   ];
+  const RADAR_RGB = RADAR_CLASSES.map(([, c]) =>
+    [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16)),
+  );
+  /** Radar image -> intensity class of every other pixel (0 = no rain, k = RADAR_CLASSES[k - 1]): about 2 km, under
+   *  1 MB per image. Only this stays in memory, not the pixels (13 full images would weigh ~140 MB on the phone). */
+  function radarGrid(d, W, H, sw, ne) {
+    const w = Math.ceil(W / 2),
+      h = Math.ceil(H / 2),
+      out = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const i = (2 * y * W + 2 * x) * 4;
+        if (d[i + 3] < 250) continue;
+        let best = 0,
+          bestD = 3 * 40 * 40; // our own colours (SLD): anything far from all of them is not rain
+        RADAR_RGB.forEach(([r, g, b], k) => {
+          const dist = (d[i] - r) ** 2 + (d[i + 1] - g) ** 2 + (d[i + 2] - b) ** 2;
+          if (dist < bestD) {
+            bestD = dist;
+            best = k + 1;
+          }
+        });
+        out[y * w + x] = best;
+      }
+    return { data: out, w, h, sw, ne };
+  }
+  /** Class (1…n, 0 = dry, null = outside the image) of a grid at a point. */
+  function radarClassAt(grid, lat, lon) {
+    if (!grid) return null;
+    const p = L.CRS.EPSG3857.project(L.latLng(lat, lon));
+    const x = Math.floor(((p.x - grid.sw.x) / (grid.ne.x - grid.sw.x)) * grid.w),
+      y = Math.floor(((grid.ne.y - p.y) / (grid.ne.y - grid.sw.y)) * grid.h);
+    if (x < 0 || y < 0 || x >= grid.w || y >= grid.h) return null;
+    return grid.data[y * grid.w + x];
+  }
+  const fmtMm = (x) => x.toLocaleString("it-IT");
+  /** "4–6 mm/h", "> 60 mm/h" for class k (1…n). */
+  function radarClassText(k) {
+    const [t] = RADAR_CLASSES[k - 1],
+      next = RADAR_CLASSES[k]?.[0];
+    return next == null ? `> ${fmtMm(t)} mm/h` : `${fmtMm(t)}–${fmtMm(next)} mm/h`;
+  }
   const radarSld = (layer) =>
     `<StyledLayerDescriptor version="1.0.0" xmlns="http://www.opengis.net/sld"><NamedLayer><Name>${layer}</Name>` +
     `<UserStyle><FeatureTypeStyle><Rule><RasterSymbolizer><ColorMap type="intervals">` +
@@ -2070,6 +2243,7 @@
     // national radar mosaic (Protezione Civile) published by ItaliaMeteo on MeteoHub: intensity in mm/h every 5 minutes
     radar: {
       name: "Radar",
+      loading: "il radar",
       wms: "https://maps.mistralportal.it/wms",
       layer: "meteohub:radar-sri",
       stepMin: 5,
@@ -2084,6 +2258,7 @@
       clean(d) {
         for (let i = 3; i < d.length; i += 4) if (d[i] < 250) d[i] = 0;
       }, // blurred edges: removed
+      grid: radarGrid, // intensity class at the places (renderRadarPoints)
       /** Latest image: tried backwards in 5-minute steps with a 1-pixel image (for a time that does not exist
        *  yet the service answers with an XML error instead of a PNG). */
       async latest() {
@@ -2115,7 +2290,8 @@
     // third-generation Meteosat (EUMETSAT): 10.5 µm infrared every 10 minutes, day and night. The lighter, the colder
     // the cloud (high or thick): brightness becomes transparency, white clouds and clear ground invisible
     sat: {
-      name: "Satellite",
+      name: "Infrarosso",
+      loading: "il satellite",
       wms: "https://view.eumetsat.int/geoserver/wms",
       layer: "mtg_fd:ir105_hrfi",
       stepMin: 10,
@@ -2152,13 +2328,16 @@
       },
     },
   };
-  const SAT_VISIBLE = {
+  // the same Meteosat in natural colours (only where the Sun lights the ground): its own tile, no legend
+  EXTRAS.vis = {
     ...EXTRAS.sat,
     name: "Visibile",
     layer: "mtg_fd:rgb_truecolour",
     shareTitle: "Satellite visibile · EUMETSAT Meteosat",
     shareSub: "Colori naturali",
     clean: null,
+    // opaque colours (the area is inside the Earth's disc): JPEG, ~250 kB per image instead of ~4 MB as PNG
+    format: "image/jpeg",
   };
   map.createPane("radar");
   map.getPane("radar").style.zIndex = 405; // above the model colours, below borders, arrows and contours
@@ -2173,6 +2352,31 @@
     const sw = L.CRS.EPSG3857.project(L.latLng(b.lat_min, b.lon_min)),
       ne = L.CRS.EPSG3857.project(L.latLng(b.lat_max, b.lon_max));
     const h = Math.round((W * (ne.y - sw.y)) / (ne.x - sw.x));
+    const url = wmsUrl(cfg.wms, {
+      request: "GetMap",
+      layers: cfg.layer,
+      crs: "EPSG:3857",
+      bbox: [sw.x, sw.y, ne.x, ne.y].join(","),
+      width: W,
+      height: h,
+      format: cfg.format || "image/png",
+      transparent: "true",
+      time,
+      ...(cfg.sld
+        ? { sld_body: radarSld(cfg.layer), interpolations: "bilinear" }
+        : {}),
+    });
+    // nothing to clean or read (visible satellite): the downloaded file as it is, without decoding it and encoding
+    // it again as PNG on the page (seconds of main thread for 13 large images on phones)
+    if (!cfg.clean && !cfg.grid)
+      return fetch(url)
+        .then((r) =>
+          r.ok && (r.headers.get("content-type") || "").startsWith("image/")
+            ? r.blob()
+            : null,
+        )
+        .then((blob) => (blob ? { url: URL.createObjectURL(blob), grid: null } : null))
+        .catch(() => null);
     return new Promise((resolve) => {
       const img = new Image();
       img.crossOrigin = "anonymous"; // to clean up the pixels and for the shared image
@@ -2180,39 +2384,25 @@
         const c = document.createElement("canvas");
         c.width = W;
         c.height = h;
-        const ctx = c.getContext("2d");
+        const ctx = c.getContext("2d", { willReadFrequently: true }); // pixels read back: canvas kept in memory, not on the GPU
         ctx.drawImage(img, 0, 0);
         const px = ctx.getImageData(0, 0, c.width, c.height);
         cfg.clean?.(px.data);
         ctx.putImageData(px, 0, 0);
+        const grid = cfg.grid?.(px.data, W, h, sw, ne) || null;
         c.toBlob(
-          (blob) => resolve(blob ? URL.createObjectURL(blob) : null),
+          (blob) =>
+            resolve(blob ? { url: URL.createObjectURL(blob), grid } : null),
           "image/png",
         );
       };
       img.onerror = () => resolve(null); // missing image: that time stays empty
-      img.src = wmsUrl(cfg.wms, {
-        request: "GetMap",
-        layers: cfg.layer,
-        crs: "EPSG:3857",
-        bbox: [sw.x, sw.y, ne.x, ne.y].join(","),
-        width: W,
-        height: h,
-        format: "image/png",
-        transparent: "true",
-        time,
-        ...(cfg.sld
-          ? { sld_body: radarSld(cfg.layer), interpolations: "bilinear" }
-          : {}),
-      });
+      img.src = url;
     });
   }
   // animation: the last `frames` images, one layer per image loaded right away; switching from one to the next changes
   // only the opacity, so the animation does not flicker while the tiles arrive
-  const extraCfg = () =>
-    state.extra === "sat" && state.satProduct === "vis"
-      ? SAT_VISIBLE
-      : EXTRAS[state.extra];
+  const extraCfg = () => EXTRAS[state.extra];
   const fmtRadarTime = (t) =>
     new Date(t).toLocaleTimeString("it-IT", {
       timeZone: "Europe/Rome",
@@ -2254,9 +2444,7 @@
       enter(ui.badge, "badge-enter");
       if (!ui.badge.contains(ui.legend)) enter(ui.legend, "legend-enter"); // on mobile the legend is inside the bar
     }
-    $("radar-loader-name").textContent = extraCfg()
-      ? `il ${extraCfg().name.toLowerCase()}`
-      : ""; // "Carico il radar"
+    $("radar-loader-name").textContent = extraCfg()?.loading || ""; // "Carico il radar"
     $("radar-loader-count").textContent = radarFrames.length
       ? `${ready} di ${radarFrames.length} immagini`
       : "in attesa…";
@@ -2297,6 +2485,7 @@
       `${(100 * radarIdx) / (+$("radar-slider").max || 1)}%`,
     );
     $("radar-badge-time").textContent = f ? fmtRadarTime(f.time) : "—";
+    renderRadarPoints();
     if (document.body.classList.contains("landscape-view")) renderLandscapeNav();
   }
   function stopRadarPlay() {
@@ -2368,12 +2557,14 @@
     // requests from the most recent (the most useful, and the animation stops there): the server handles few at a time
     for (const f of [...radarFrames].reverse()) {
       if (keep.has(f.time)) continue;
-      extraImage(cfg, f.time).then((url) => {
+      extraImage(cfg, f.time).then((image) => {
+        const url = image?.url || null;
         if (!radarFrames.includes(f)) {
           if (url) URL.revokeObjectURL(url);
           return;
         } // layer already changed
         f.url = url;
+        f.grid = image?.grid || null;
         if (url && glBase)
           f.layer = glFrameLayer(`wm-x-${f.time}`, url, bounds); // inside Mapbox, below borders and names
         else if (url)
@@ -2384,6 +2575,7 @@
           }).addTo(map);
         f.op = 0;
         f.ready = true;
+        if (f === radarFrames[radarIdx]) renderRadarPoints();
         updateRadarLoading();
       });
     }
@@ -2404,9 +2596,21 @@
   const EXTRA_NAMES = {
     none: "Nessuno",
     radar: "Radar",
-    sat: "Satellite",
+    sat: "Infrarosso",
+    vis: "Visibile",
     snd: "Radiosondaggi",
+    ens: "Ensemble",
   };
+  const hasEnsemble = () => !!meta && meta.models.some((m) => meta.ensemble?.[m.id]);
+  /** Ensemble mode: the chosen model's spaghetti if it has one, otherwise the first model with an ensemble. */
+  const ensembleModel = () =>
+    meta.ensemble?.[state.model]
+      ? state.model
+      : meta.models.find((m) => meta.ensemble?.[m.id])?.id;
+  function openEnsemble(p) {
+    const model = ensembleModel();
+    if (model) openChart(p, { ensemble: true, model });
+  }
   function setExtra(name, save = true) {
     const previous = state.extra;
     clearInterval(radarTimer);
@@ -2417,9 +2621,12 @@
     }
     radarFrames = [];
     radarIdx = -1;
-    // radar, satellite and soundings only on the normal map
+    // radar, satellite, soundings and ensemble only on the normal map
     state.extra =
-      (EXTRAS[name] || name === "snd") && !synoptic() ? name : "none";
+      (EXTRAS[name] || name === "snd" || (name === "ens" && hasEnsemble())) &&
+      !synoptic()
+        ? name
+        : "none";
     if ((previous === "none") !== (state.extra === "none")) {
       glBase?.stop();
       map.stop();
@@ -2429,14 +2636,19 @@
     // soundings: the model colours go away as with the radar, map and stations remain (see renderSoundings)
     const snd = state.extra === "snd";
     document.body.classList.toggle("snd-mode", snd);
+    // ensemble: as with the soundings the model colours go away; places and any point of the map open the spaghetti
+    const ens = state.extra === "ens";
+    document.body.classList.toggle("ens-mode", ens);
+    if (ens && previous !== "ens" && save)
+      toast("Tocca una località o un punto della mappa per vedere l'ensemble");
     renderSoundings();
     glSatBase(); // satellite: green and blue map under the clouds
     // and in Settings only the note: basemap, borders and model colours are not the chosen ones here
-    document.body.classList.toggle("sat-mode", state.extra === "sat");
+    document.body.classList.toggle("sat-mode", satOn());
     // with an extra layer: the model's colours, contours and arrows disappear (it would be unreadable), legend and top
     // bar switch to the layer; the model stays selected and comes back when it is removed
     document.body.classList.toggle("radar-mode", !!cfg);
-    if (glImgs.has("wm-model")) glPut("wm-model", { visible: !cfg && !snd }); // the model colours disappear in Mapbox too
+    if (glImgs.has("wm-model")) glPut("wm-model", { visible: !cfg && !snd && !ens }); // the model colours disappear in Mapbox too
     $("extra-name").textContent = cfg?.name || "";
     if (cfg) togglePlay(false);
     if (meta && state.var) {
@@ -2451,27 +2663,11 @@
       refreshRadar();
       radarTimer = setInterval(refreshRadar, cfg.stepMin * 60e3); // new image every 5 (radar) or 10 minutes (satellite)
     }
-    $("satellite-mode-row").hidden = state.extra !== "sat";
-    $("satellite-mode").replaceChildren(
-      ...[
-        ["ir", "Infrarosso"],
-        ["vis", "Visibile"],
-      ].map(([value, text]) => {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.textContent = text;
-        button.setAttribute("aria-pressed", String(value === state.satProduct));
-        button.addEventListener("click", () => {
-          if (state.satProduct === value) return;
-          state.satProduct = value;
-          setExtra("sat");
-        });
-        return button;
-      }),
-    );
     // tiles with a small picture of the layer (static/icons/extra) and its name
     $("extra-seg").replaceChildren(
-      ...Object.entries(EXTRA_NAMES).map(([k, text]) => {
+      ...Object.entries(EXTRA_NAMES)
+        .filter(([k]) => k !== "ens" || hasEnsemble())
+        .map(([k, text]) => {
         const b = document.createElement("button");
         b.type = "button";
         b.className = "extra-tile";
@@ -2483,7 +2679,7 @@
         img.loading = "lazy";
         const name = document.createElement("span");
         name.textContent = text;
-        // on phones the four tiles are in one row: a shorter name where the full one does not fit
+        // on phones three tiles per row: a shorter name where the full one does not fit
         if (k === "snd") name.dataset.short = "Sondaggi";
         b.append(img, name);
         b.setAttribute("aria-pressed", String(k === state.extra));
@@ -2807,7 +3003,9 @@
   function fieldImage(f, low = false) {
     const v = variable(),
       { nx, ny, lat0, lon0, dlat, dlon } = f.grid;
-    if (!fieldImageIds.has(f)) fieldImageIds.set(f, ++fieldIds);
+    // same field downloaded again after leaving the cache (FieldCache): same key, the image is not recomputed
+    if (!fieldImageIds.has(f))
+      fieldImageIds.set(f, cacheKeys.get(f) ?? `#${++fieldIds}`);
     const key = `${fieldImageIds.get(f)}|${state.var}|${crispNow() ? 1 : 0}`;
     const hit = imgCache.get(key);
     if (hit) {
@@ -2874,6 +3072,7 @@
   }
 
   let drawSeq = 0;
+  let linesDrawn = Promise.resolve(); // lines of the field shown, computed in the worker: the shared image waits for them
   function draw(f) {
     const { lat0, lon0, dlat, dlon, nx, ny } = f.grid;
     // cell edges
@@ -2906,7 +3105,7 @@
       }
       overlay?.getElement()?.classList.toggle("crisp", crisp);
     });
-    drawContours(variable().contour_field ? currentContour : f);
+    linesDrawn = drawContours(variable().contour_field ? currentContour : f);
     drawArrows();
     return painted;
   }
@@ -3054,204 +3253,111 @@
   const isoLabels = L.layerGroup().addTo(map);
   let isoData = []; // [{ level, bold, pts: [[lat, lon], ...] }]
 
-  /** Marching squares: for each level the segments in the cells, then joined into lines (open or closed). */
-  function contourLines(f, levels) {
-    const { lat0, lon0, dlat, dlon, nx, ny } = f.grid;
-    const v = f.values; // already smoothed (smoothField)
-    const out = [];
-    for (const lvl of levels) {
-      // values arrive rounded (0.1 °C): one exactly equal to the level would make stepped lines along
-      // the cells; the level is shifted by a hair so no value touches it
-      const L0 = lvl + 1e-4;
-      const pos = new Map(); // side id -> [lat, lon] of the crossing
-      const segA = [],
-        segB = [];
-      const cross = (id, ya, xa, va, yb, xb, vb) => {
-        if (!pos.has(id)) {
-          const t = (L0 - va) / (vb - va);
-          pos.set(id, [
-            lat0 + (ya + (yb - ya) * t) * dlat,
-            lon0 + (xa + (xb - xa) * t) * dlon,
-          ]);
-        }
-        return id;
-      };
-      for (let y = 0; y < ny - 1; y++) {
-        for (let x = 0; x < nx - 1; x++) {
-          const a = v[y * nx + x],
-            b = v[y * nx + x + 1],
-            c = v[(y + 1) * nx + x + 1],
-            d = v[(y + 1) * nx + x];
-          if (a == null || b == null || c == null || d == null) continue;
-          const sa = a >= L0,
-            sb = b >= L0,
-            sc = c >= L0,
-            sd = d >= L0;
-          if (sa === sb && sb === sc && sc === sd) continue;
-          // sides: 0 = a-b (bottom), 1 = b-c (right), 2 = d-c (top), 3 = a-d (left)
-          const e = [];
-          if (sa !== sb) e[0] = cross((y * nx + x) * 2, y, x, a, y, x + 1, b);
-          if (sb !== sc)
-            e[1] = cross(
-              (y * nx + x + 1) * 2 + 1,
-              y,
-              x + 1,
-              b,
-              y + 1,
-              x + 1,
-              c,
-            );
-          if (sd !== sc)
-            e[2] = cross(((y + 1) * nx + x) * 2, y + 1, x, d, y + 1, x + 1, c);
-          if (sa !== sd)
-            e[3] = cross((y * nx + x) * 2 + 1, y, x, a, y + 1, x, d);
-          const ids = e
-            .map((id, i) => [i, id])
-            .filter((z) => z[1] !== undefined);
-          if (ids.length === 2) {
-            segA.push(ids[0][1]);
-            segB.push(ids[1][1]);
-            continue;
-          }
-          // saddle: the value at the cell centre decides
-          const center = (a + b + c + d) / 4 >= L0;
-          if (center === sa) {
-            segA.push(e[0], e[2]);
-            segB.push(e[1], e[3]);
-          } else {
-            segA.push(e[0], e[1]);
-            segB.push(e[3], e[2]);
-          }
-        }
-      }
-      // joining the segments that share a side
-      const at = new Map();
-      const link = (id, k) => {
-        const l = at.get(id);
-        if (l) l.push(k);
-        else at.set(id, [k]);
-      };
-      for (let k = 0; k < segA.length; k++) {
-        link(segA[k], k);
-        link(segB[k], k);
-      }
-      const used = new Uint8Array(segA.length);
-      const walk = (start, k0) => {
-        const ids = [];
-        let id = start,
-          k = k0;
-        while (k !== undefined) {
-          used[k] = 1;
-          id = segA[k] === id ? segB[k] : segA[k];
-          ids.push(id);
-          k = (at.get(id) || []).find((j) => !used[j]);
-        }
-        return ids;
-      };
-      for (let k = 0; k < segA.length; k++) {
-        if (used[k]) continue;
-        used[k] = 1;
-        const fwd = (() => {
-          const n = (at.get(segB[k]) || []).find((j) => !used[j]);
-          return n === undefined ? [] : walk(segB[k], n);
-        })();
-        const back = (() => {
-          const n = (at.get(segA[k]) || []).find((j) => !used[j]);
-          return n === undefined ? [] : walk(segA[k], n);
-        })();
-        const ids = [...back.reverse(), segA[k], segB[k], ...fwd];
-        const closed = ids[0] === ids[ids.length - 1];
-        if (ids.length < (closed ? 12 : 4)) continue; // tiny fragments and rings: just noise
-        out.push({
-          level: lvl,
-          pts: smooth(
-            ids.map((id) => pos.get(id)),
-            closed,
-          ),
-        });
-      }
-    }
-    return out;
+  // ---------- line computation (marching squares, wmContours in static/render.js) in a worker of its own: with the
+  // 1-2 km grids it takes a few hundred ms per step, which on the page would stop slider, pinch and animation. One job
+  // at a time, the one to show first; the lines of the nearby steps are prepared in advance (prefetch).
+  let contourWorker = null;
+  try {
+    if (renderSrc && window.Worker) contourWorker = new Worker(renderSrc);
+  } catch {
+    /* no worker: computed in the page */
   }
-
-  /** Smoothed field for contour lines and their colours (computed once per field). On fine grids
-   *  (ICON 2 km) more passes, so the lines do not become many little rings; GFS (0.25°) stays as it is. */
-  function smoothField(f) {
-    if (!f._smooth) {
-      const { nx, ny, dlon } = f.grid;
-      f._smooth = {
-        ...f,
-        // synoptic chart: soft isobars like in the classic charts (at 0.25° otherwise no pass)
-        values: blurred(
-          f.values,
-          nx,
-          ny,
-          synoptic() ? 3 : Math.min(4, Math.round(0.1 / dlon)),
-        ),
-      };
-    }
-    return f._smooth;
+  const contourJobs = new Map(); // id -> { job, resolve, low }
+  let contourBusy = null,
+    contourSeq = 0;
+  function pumpContours() {
+    if (contourBusy != null || !contourJobs.size) return;
+    let pick = null;
+    for (const [id, j] of contourJobs)
+      if (pick == null || (contourJobs.get(pick).low && !j.low) || (j.low === contourJobs.get(pick).low && id > pick))
+        pick = id;
+    contourBusy = pick;
+    contourWorker.postMessage(contourJobs.get(pick).job);
   }
-
-  /** 3×3 moving average repeated `passes` times (only for the lines, the colours stay those of the field): on fine
-   *  grids (ICON 2 km) the isotherms follow every valley and become many little rings; this way they look like the classic charts. */
-  function blurred(vals, nx, ny, passes) {
-    let a = vals;
-    for (let it = 0; it < passes; it++) {
-      const b = new Array(a.length);
-      for (let y = 0; y < ny; y++) {
-        for (let x = 0; x < nx; x++) {
-          if (a[y * nx + x] == null) {
-            b[y * nx + x] = null;
-            continue;
-          }
-          let sum = 0,
-            n = 0;
-          for (let dy = -1; dy <= 1; dy++) {
-            const yy = y + dy;
-            if (yy < 0 || yy >= ny) continue;
-            for (let dx = -1; dx <= 1; dx++) {
-              const xx = x + dx;
-              if (xx < 0 || xx >= nx) continue;
-              const w = a[yy * nx + xx];
-              if (w != null) {
-                sum += w;
-                n++;
+  if (contourWorker) {
+    contourWorker.onmessage = (e) => {
+      const j = contourJobs.get(e.data.id);
+      contourJobs.delete(e.data.id);
+      contourBusy = null;
+      j?.resolve(e.data.lines || null);
+      pumpContours();
+    };
+    contourWorker.onerror = () => {
+      // worker unusable: the queued jobs move to the page
+      const jobs = [...contourJobs.values()];
+      contourJobs.clear();
+      contourBusy = null;
+      contourWorker = null;
+      for (const j of jobs) j.resolve(wmContours(j.job));
+    };
+  }
+  const contourData = new WeakMap(); // field -> Map(config -> Promise<lines>), freed with the field (FieldCache)
+  /** Lines of a field for a contour config: [{ level, bold, pts: [[lat, lon], ...], bounds }], null if dropped. */
+  function contourLinesOf(f, cfg, low = false) {
+    let byCfg = contourData.get(f);
+    if (!byCfg) contourData.set(f, (byCfg = new Map()));
+    const hit = byCfg.get(cfg);
+    if (hit) {
+      if (!low && contourJobs.has(hit.id)) {
+        // needed right now: before those prepared in advance
+        for (const j of contourJobs.values()) j.low = true;
+        contourJobs.get(hit.id).low = false;
+        pumpContours();
+      }
+      return hit;
+    }
+    const { nx, ny, lat0, lon0, dlat, dlon } = f.grid;
+    const job = {
+      kind: "contours",
+      id: ++contourSeq,
+      values: f32Of(f.values),
+      nx,
+      ny,
+      lat0,
+      lon0,
+      dlat,
+      dlon,
+      step: cfg.step,
+      // fine grids (ICON 2 km): more 3×3 mean passes, so the isotherms do not become many little rings; synoptic
+      // chart: soft isobars like in the classic charts (at 0.25° otherwise no pass)
+      passes: synoptic() ? 3 : Math.min(4, Math.round(0.1 / dlon)),
+    };
+    const pr = (
+      contourWorker
+        ? new Promise((resolve) => {
+            if (!low) for (const j of contourJobs.values()) j.low = true; // steps already passed no longer have priority
+            contourJobs.set(job.id, { job, resolve, low });
+            // scrubbing quickly: the old jobs prepared in advance are dropped instead of piling up
+            for (const [id, j] of contourJobs)
+              if (contourJobs.size > 4 && j.low && id !== contourBusy) {
+                contourJobs.delete(id);
+                j.resolve(null);
               }
-            }
-          }
-          b[y * nx + x] = sum / n;
-        }
+            pumpContours();
+          })
+        : Promise.resolve().then(() => wmContours(job))
+    ).then((lines) => {
+      if (!lines) {
+        if (byCfg.get(cfg) === pr) byCfg.delete(cfg); // asked again later: computed again
+        return null;
       }
-      a = b;
-    }
-    return a;
+      const bold = new Set(cfg.bold || []);
+      return lines.map(({ level, pts: flat }) => {
+        const pts = new Array(flat.length / 2);
+        for (let k = 0; k < pts.length; k++) pts[k] = [flat[2 * k], flat[2 * k + 1]];
+        return { level, pts, bold: bold.has(level), bounds: L.latLngBounds(pts) };
+      });
+    });
+    pr.id = job.id;
+    byCfg.set(cfg, pr);
+    return pr;
   }
 
-  /** Rounds the corners (Chaikin, two passes): coarse grids (GFS 0.25°) do not make stepped lines. */
-  function smooth(pts, closed) {
-    let p = pts;
-    for (let it = 0; it < 1 && p.length > 2; it++) {
-      // one pass: the lines stay on the colour edges
-      const q = closed ? [] : [p[0]];
-      const n = p.length - 1;
-      for (let i = 0; i < n; i++) {
-        const [a, b] = [p[i], p[i + 1]];
-        q.push(
-          [0.75 * a[0] + 0.25 * b[0], 0.75 * a[1] + 0.25 * b[1]],
-          [0.25 * a[0] + 0.75 * b[0], 0.25 * a[1] + 0.75 * b[1]],
-        );
-      }
-      if (closed) q.push(q[0]);
-      else q.push(p[n]);
-      p = q;
-    }
-    return p;
-  }
-
-  const contourCache = new Map();
+  const contourCache = new Map(); // field -> Map(config -> { data, layers }): the polylines of the last fields shown
   let drawnContourField = null,
     drawnContourConfig = null;
+  /** Lines of the field shown (null: none). The previous lines stay on the map until the new ones are ready (during
+   *  the animation they move from one step to the next without blinking off). Resolves when they are drawn. */
   function drawContours(f) {
     const cfg = variable()?.contours;
     ui.isoRow.hidden = !cfg;
@@ -3264,70 +3370,66 @@
       f === drawnContourField &&
       cfg === drawnContourConfig
     )
-      return;
+      return Promise.resolve();
     drawnContourField = isoNow() ? f : null;
     drawnContourConfig = cfg;
-    isoLines.clearLayers();
-    isoLabels.clearLayers();
-    isoData = [];
-    if (!f || !cfg || !isoNow()) return;
-    let cached = contourCache.get(f);
-    if (!cached) {
-      cached = new Map();
+    if (!f || !cfg || !isoNow()) {
+      showContours(null);
+      return Promise.resolve();
     }
+    const drawing = contourCache.get(f)?.get(cfg);
+    if (drawing) {
+      showContours(drawing);
+      return Promise.resolve();
+    }
+    return contourLinesOf(f, cfg).then((data) => {
+      if (drawnContourField !== f || drawnContourConfig !== cfg || !data) return; // meanwhile another field
+      showContours(contourDrawing(f, cfg, data));
+    });
+  }
+  /** Polylines of the lines of a field (two: thin and bold), kept for the last fields. */
+  function contourDrawing(f, cfg, data) {
+    let cached = contourCache.get(f);
+    if (!cached) cached = new Map();
     contourCache.delete(f);
     contourCache.set(f, cached);
     if (contourCache.size > 3)
       contourCache.delete(contourCache.keys().next().value);
-    let drawing = cached.get(cfg);
-    if (!drawing) {
-      let lo = Infinity,
-        hi = -Infinity;
-      for (const x of f.values)
-        if (x != null) {
-          if (x < lo) lo = x;
-          if (x > hi) hi = x;
-        }
-      if (!(hi > lo)) return;
-      const levels = [];
-      for (let l = Math.ceil(lo / cfg.step) * cfg.step; l <= hi; l += cfg.step)
-        levels.push(+l.toFixed(6));
-      const bold = new Set(cfg.bold || []);
-      const data = contourLines(smoothField(f), levels).map((line) => ({
-        ...line,
-        bold: bold.has(line.level),
-        bounds: L.latLngBounds(line.pts),
-      }));
-      const layers = [];
-      for (const isBold of [false, true]) {
-        const paths = data
-          .filter((line) => line.bold === isBold)
-          .map((line) => line.pts);
-        if (!paths.length) continue;
-        layers.push(
-          L.polyline(paths, {
-            renderer: isoRenderer,
-            interactive: false,
-            smoothFactor: 0.5,
-            // synoptic chart: white, thicker isobars above the solid colours, like on Meteociel
-            ...(synoptic()
-              ? { color: "#ffffff", opacity: 0.95 }
-              : { color: "#1f2328", opacity: isBold ? 0.85 : 0.55 }),
-          }),
-        );
-        // base thickness; the one drawn depends on screen and sharing (isoWeights)
-        layers.at(-1)._wmWeight = synoptic()
-          ? isBold
-            ? 4
-            : 3
-          : isBold
-            ? 2
-            : 0.9;
-      }
-      drawing = { data, layers };
-      cached.set(cfg, drawing);
+    const layers = [];
+    for (const isBold of [false, true]) {
+      const paths = data
+        .filter((line) => line.bold === isBold)
+        .map((line) => line.pts);
+      if (!paths.length) continue;
+      layers.push(
+        L.polyline(paths, {
+          renderer: isoRenderer,
+          interactive: false,
+          smoothFactor: 0.5,
+          // synoptic chart: white, thicker isobars above the solid colours, like on Meteociel
+          ...(synoptic()
+            ? { color: "#ffffff", opacity: 0.95 }
+            : { color: "#1f2328", opacity: isBold ? 0.85 : 0.55 }),
+        }),
+      );
+      // base thickness; the one drawn depends on screen and sharing (isoWeights)
+      layers.at(-1)._wmWeight = synoptic()
+        ? isBold
+          ? 4
+          : 3
+        : isBold
+          ? 2
+          : 0.9;
     }
-    isoData = drawing.data;
+    const drawing = { data, layers };
+    cached.set(cfg, drawing);
+    return drawing;
+  }
+  function showContours(drawing) {
+    isoLines.clearLayers();
+    isoLabels.clearLayers();
+    isoData = drawing?.data || [];
+    if (!drawing) return;
     for (const layer of drawing.layers) layer.addTo(isoLines);
     isoWeights();
     placeContourLabels();
@@ -3558,7 +3660,6 @@
       await draw(f);
       if (my !== seq) return;
       renderPoints();
-      refreshProbe();
       setStatus(""); // the median's models are already in the run row ("8 modelli")
       prefetch();
       if (hoverMq.matches && extras().length) loadExtras(); // for the tooltip (on touch only when opening a popup)
@@ -4418,6 +4519,25 @@
     if (!e.target.closest(".places-search, .place-results")) hideResults();
   });
 
+  /** Radar on: in the white label of each place the intensity of the image shown (class, "4–6 mm/h") instead of the
+   *  name, and the dot in the class colour; where it is not raining the name stays. Follows the slider and the animation. */
+  function renderRadarPoints() {
+    if (state.extra !== "radar" || pointMarkers.length !== places.length) return;
+    const grid = radarFrames[radarIdx]?.grid;
+    let changed = false;
+    places.forEach((p, i) => {
+      const el = pointMarkers[i].getElement();
+      if (!el) return;
+      const k = radarClassAt(grid, p.lat, p.lon);
+      const text = k ? radarClassText(k) : p.name;
+      const val = el.querySelector(".pt-val");
+      if (val.textContent === text) return;
+      changed = true;
+      val.textContent = text; // only the label changes: the place's dot stays white
+    });
+    if (changed) placePointLabels(); // longer or shorter labels: sides chosen again
+  }
+
   function renderPoints() {
     const pts = places;
     if (pointMarkers.length !== pts.length) return; // at startup before setupPoints: it draws them
@@ -4445,6 +4565,7 @@
       pointOrder = pts.map((_, i) => i);
       closePlacePop();
       placePointLabels();
+      renderRadarPoints();
       return;
     }
     const dec = variable().decimals;
@@ -4519,7 +4640,7 @@
   const POP_GAP = 16; // distance from the circle centre to the arrow tip
 
   // clicking a place always opens the same popup with the values (on the 500 hPa chart too); from there the time chart
-  // and, if the chosen model has the ensemble (GFS, ECMWF), the spaghetti
+  // and the model comparison (in the Ensemble layer a place opens the spaghetti instead)
   // phone in landscape: places and point menu are tapped as in portrait (to open the charts; if they
   // look bad you rotate the phone); no value tooltip on tap
   const landscapeView = () =>
@@ -4527,10 +4648,13 @@
   function openPlacePop(idx) {
     if (live.on) return;
     if (synoptic()) return; // on the 500 hPa chart places are not shown
+    if (state.extra === "ens") {
+      openEnsemble(places[idx]); // ensemble mode: straight to the spaghetti
+      return;
+    }
     if (state.extra !== "none") return; // with radar or satellite the model values popup is not needed
     popIdx = idx;
     ui.probe.hidden = true;
-    probeLL = null; // with the popup open no value tooltip
     renderPlacePop();
   }
   function closePlacePop() {
@@ -4624,14 +4748,11 @@
         )
         .join("") + // without a value the row is not there
       (foot ? `<div class="pt-pop-foot">${esc(foot)}</div>` : "") +
-      // side-by-side buttons: time chart and, if the model has the ensemble, the spaghetti
-      ((meta.series && state.run) || meta.ensemble?.[state.model]
+      // side-by-side buttons: time chart and model comparison (the spaghetti have their own Extra layer)
+      (meta.series
         ? '<div class="pt-pop-btns">' +
-          (meta.series && state.run
+          (state.run
             ? '<button type="button" class="pt-pop-chart" title="Grafico nel tempo">Grafico</button>'
-            : "") +
-          (meta.ensemble?.[state.model]
-            ? '<button type="button" class="pt-pop-chart pt-pop-ens" title="Spaghetti dell\'ensemble">Ens</button>'
             : "") +
           (meta.series
             ? '<button type="button" class="pt-pop-chart pt-pop-multi" title="Precipitazione e temperatura a 850 hPa di tutti i modelli">Multimodel</button>'
@@ -4644,13 +4765,8 @@
       .querySelector(".pt-pop-multi")
       ?.addEventListener("click", () => openChart(p, { multi: "tp" }));
     pop
-      .querySelector(".pt-pop-chart:not(.pt-pop-ens):not(.pt-pop-multi)")
+      .querySelector(".pt-pop-chart:not(.pt-pop-multi)")
       ?.addEventListener("click", () => openChart(p));
-    pop
-      .querySelector(".pt-pop-ens")
-      ?.addEventListener("click", () =>
-        openChart(p, { ensemble: true, model: state.model }),
-      );
     pop.hidden = false;
     markPoppedPoint();
     placePlacePop();
@@ -5030,7 +5146,7 @@
                 transparent_below: RADAR_CLASSES[0][0],
               },
             }
-          : state.satProduct === "vis"
+          : state.extra === "vis"
             ? {
                 units: "Colori naturali · zone illuminate dal Sole",
                 scale: { thresholds: [], colors: [] },
@@ -5509,7 +5625,7 @@
   /** Waits until Mapbox (or the tiles) has drawn the new view, at most 2 s, plus a couple of frames for
    *  Leaflet's lines and places. */
   function mapReady() {
-    return new Promise((resolve) => {
+    const base = new Promise((resolve) => {
       const done = () => {
         clearTimeout(t);
         requestAnimationFrame(() => requestAnimationFrame(resolve));
@@ -5525,6 +5641,14 @@
       if (!layer.isLoading?.()) done();
       else layer.once("load", done);
     });
+    // the contour lines too (worker), at most 3 s
+    return Promise.all([
+      base,
+      Promise.race([linesDrawn, new Promise((r) => setTimeout(r, 3000))]),
+    ]).then(
+      // the lines' canvas is redrawn in the next frame
+      () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+    );
   }
   async function takeSnap() {
     // thicker lines only in the capture: the canvas is redrawn in the next frame (while sharing over the live map they
@@ -5641,7 +5765,6 @@
     closeMapMenu();
     closePlacePop();
     ui.probe.hidden = true;
-    probeLL = null;
     shareRestore = { center: map.getCenter(), zoom: map.getZoom() };
     // minimum zoom and area bounds as on the map: the frame never shows map without data
     // lines a bit thicker, as in the image (see isoWeights)
@@ -5982,9 +6105,9 @@
   };
   let chartData = null;
   let chartContext = null;
-  let chartPin = null; // time (step) pinned with a click or a tap: it stays visible and goes into the shared image
+  let chartPin = null; // time (step) of the point card open with a click or a tap: it goes into the shared image
   let clearChartPin = () => {}; // set by drawChart: removes the pinned time (line, box and tooltip)
-  // Esc with a pinned time removes only that; without, it closes the chart as usual
+  // Esc with the point card open closes only that; without, it closes the chart as usual
   chartUi.dialog.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && chartPin != null) {
       e.preventDefault();
@@ -6344,7 +6467,6 @@
         '<div class="chart-empty">Carico il grafico…</div>';
       chartData = null;
       chartPin = null;
-      $("chart-readout").hidden = true;
       try {
         if (!run) throw new Error("nessuna corsa disponibile");
         const ens = await getEnsemble(
@@ -6395,7 +6517,6 @@
       '<div class="chart-empty">Carico il grafico…</div>';
     chartData = null;
     chartPin = null;
-    $("chart-readout").hidden = true;
     try {
       if (!run) throw new Error("nessuna corsa disponibile");
       const { lat, lon } = request.place;
@@ -6511,7 +6632,7 @@
       `.ch-info-text{font:11.5px system-ui,sans-serif;fill:${c.fg}}`,
       `.ch-day{stroke:${c.line};stroke-width:1;stroke-dasharray:3 3}`,
       `.ch-zero{stroke:${c.muted};stroke-width:1}text{font-variant-numeric:tabular-nums}`,
-      `.ch-pin{stroke:${c.fg};stroke-width:1.5;opacity:.75}.ch-pin-dot{stroke:${c.bg};stroke-width:2}`,
+      `.ch-pin{stroke:${c.fg};stroke-width:1.5;stroke-dasharray:4 4;opacity:.75}.ch-pin-dot{stroke:${c.bg};stroke-width:2}`,
       `.ch-pin-bar{stroke:${c.fg};stroke-width:1.5}`,
       `.ch-acc{stroke:${c.acc}}.ch-acc-area{fill:${c.acc};fill-opacity:.1}.ch-acc-tick{fill:${c.acc}}`,
       `.ch-ens-mean{stroke:${c.fg}}.ch-ens-op{stroke:${OFFICIAL}}.ch-ens-ctl{stroke:${c.fg}}.ch-ens-halo{stroke:${c.bg}}`,
@@ -6738,14 +6859,6 @@
   $("chart-share").addEventListener("click", (e) =>
     chartImage(e.currentTarget, true),
   );
-  $("chart-readout")
-    .querySelector(".chart-readout-links")
-    .addEventListener("click", (ev) => {
-      const btn = ev.target.closest("button[data-act]");
-      if (!btn) return;
-      if (btn.dataset.act === "remove") clearChartPin();
-      else chartImage(btn, btn.dataset.act === "share"); // same image as the buttons at the top, with the pinned time
-    });
   $("chart-download").addEventListener("click", (e) =>
     chartImage(e.currentTarget, false),
   );
@@ -7071,8 +7184,11 @@
     });
   }
 
-  /** Shared interactions of the single-panel "over time" charts (spaghetti, model comparison): hover tooltip,
-   *  time pinned with right click or long press (card with Condividi · Scarica · ✕). */
+  /** Point card of the charts: a click or a tap shows the values at that time (or level) in a light card with a ✕;
+   *  another click moves it, dragging moves it too. While it is open the shared image carries that time (chartPin).
+   *  With the mouse, without a card, hovering reads the values in the dark tooltip. */
+  const TIP_CLOSE = `<button type="button" class="chart-tip-close" data-act="remove" aria-label="Chiudi">✕</button>`;
+  const TIP_SLOP = 8; // px: beyond that a press is a drag
   /** Vertical position of a chart tooltip inside the visible part of the dialog: near the bottom it must not
    *  overflow, otherwise the dialog grows and the scrollbar appears. */
   function tipTop(tip, top) {
@@ -7134,25 +7250,20 @@
         if (Math.abs(steps[k] - h) < Math.abs(steps[i] - h)) i = k;
       return steps[i];
     };
-    // reading tooltip (dark) or pinned time card (light, with Condividi · Scarica · ✕)
+    // reading tooltip (dark, mouse hover) or point card (light, with ✕)
     const showAt = (st, clientX, clientY, pinned = false) => {
       cursor.setAttribute("x1", X(st));
       cursor.setAttribute("x2", X(st));
       cursor.setAttribute("visibility", pinned ? "hidden" : "visible");
       tip.classList.toggle("pinned", pinned);
       tip.innerHTML =
-        `<div class="t">${headOf(st)}</div>` +
-        rowsHtml(st) +
-        (pinned
-          ? `<div class="chart-tip-actions"><button type="button" data-act="share">Condividi</button>` +
-            `<button type="button" data-act="download">Scarica</button>` +
-            `<button type="button" data-act="remove" aria-label="Togli l'ora fissata">✕</button></div>`
-          : "");
+        `<div class="t"><span>${headOf(st)}</span>${pinned ? TIP_CLOSE : ""}</div>` +
+        rowsHtml(st);
       tip.hidden = false;
       const br = chartUi.body.getBoundingClientRect();
       const cx = clientX - br.left,
         w = tip.offsetWidth;
-      tip.style.left = `${Math.min(Math.max(cx + 14 + w > br.width ? cx - 14 - w : cx + 14, 4), br.width - w - 4)}px`;
+      tip.style.left = `${Math.max(4, Math.min(cx + 14 + w > br.width ? cx - 14 - w : cx + 14, br.width - w - 4))}px`;
       tip.style.top = tipTop(
         tip,
         clientY - br.top + chartUi.body.scrollTop - 20,
@@ -7169,7 +7280,7 @@
       pinLine.setAttribute("x1", X(chartPin));
       pinLine.setAttribute("x2", X(chartPin));
     };
-    // pinned time card at the top, next to its line
+    // point card at the top, next to its line
     const showPinTip = () => {
       const r = svgEl.getBoundingClientRect();
       showAt(
@@ -7190,75 +7301,54 @@
       hide();
     };
     tip.addEventListener("click", (ev) => {
-      const btn = ev.target.closest("button[data-act]");
-      if (!btn) return;
-      if (btn.dataset.act === "remove") unpin();
-      else chartImage(btn, btn.dataset.act === "share"); // same image as the buttons at the top, with the pinned time
+      if (ev.target.closest("[data-act=remove]")) unpin();
     });
-    // mouse: hovering reads the values, right click pins the time. Touch: sliding reads the values,
-    // a long press pins the time (then dragging moves it); sliding again removes it
-    const PRESS_MS = 450,
-      SLOP = 8;
-    let touch = null;
-    hit.addEventListener("contextmenu", (ev) => {
-      ev.preventDefault();
-      if (ev.pointerType === "touch" || touch) return; // with touch the long press takes care of it
-      pinAt(stepAt(ev.clientX));
-    });
-    hit.addEventListener("pointerdown", (ev) => {
-      if (ev.pointerType === "mouse") return;
-      const st = stepAt(ev.clientX);
-      if (touch) clearTimeout(touch.timer); // second finger: the first one's timer must not fire later
-      // the timer uses its own object: when it fires `touch` may already have been reset or replaced
-      const t = (touch = { x0: ev.clientX, moved: false, pinning: false });
-      t.timer = setTimeout(() => {
-        if (touch !== t) return;
-        t.pinning = true;
-        navigator.vibrate?.(10);
-        pinAt(st);
-      }, PRESS_MS);
-    });
-    hit.addEventListener("pointermove", (ev) => {
-      const st = stepAt(ev.clientX);
-      if (touch) {
-        if (!touch.moved && Math.abs(ev.clientX - touch.x0) <= SLOP) return;
-        touch.moved = true;
-        clearTimeout(touch.timer);
-        if (touch.pinning) {
-          if (st !== chartPin) pinAt(st);
-        } else {
-          if (chartPin != null) {
-            chartPin = null;
-            renderPin();
-          }
-          showAt(st, ev.clientX, ev.clientY);
-        }
-        return;
-      }
-      if (ev.pointerType !== "mouse" || chartPin != null) return; // with the time pinned its card stays
-      showAt(st, ev.clientX, ev.clientY);
-    });
-    const endTouch = (ev) => {
-      if (!touch) return;
-      clearTimeout(touch.timer);
-      const tap = ev.type === "pointerup" && !touch.moved && !touch.pinning;
-      if (tap && chartPin != null)
-        unpin(); // short tap with a pinned time: removes it
-      else if (tap && !tip.hidden)
-        hide(); // short tap with the tooltip open: closes it
-      else if (tap) showAt(stepAt(ev.clientX), ev.clientX, ev.clientY);
-      else if (ev.type === "pointercancel" && chartPin == null) hide();
-      touch = null;
-    };
-    hit.addEventListener("pointerup", endTouch);
-    hit.addEventListener("pointercancel", endTouch);
-    hit.addEventListener("pointerleave", (ev) => {
-      if (ev.pointerType === "mouse" && chartPin == null) hide();
+    mountPointCard(hit, {
+      stepAt,
+      pinAt,
+      read: (st, ev) => showAt(st, ev.clientX, ev.clientY),
+      hide,
     });
     closeTipOutside(tip, hide);
     clearChartPin = unpin;
-    renderPin(); // redraw (dialog resized): the pinned time stays
+    renderPin(); // redraw (dialog resized): the card stays
     if (pin != null) showPinTip();
+  }
+  /** Pointer handling of the point card (see TIP_CLOSE) on a chart's hit area: press (mouse) or tap (touch) opens
+   *  it at that time, dragging moves it (by touch only horizontally: vertically the page scrolls); with the mouse and
+   *  no card open, hovering reads the values. */
+  function mountPointCard(hit, { stepAt, pinAt, read, hide }) {
+    let press = null;
+    hit.addEventListener("pointerdown", (ev) => {
+      if (ev.button > 0) return; // right button: nothing
+      press = { x0: ev.clientX, moved: false, mouse: ev.pointerType === "mouse" };
+      if (press.mouse) {
+        hit.setPointerCapture?.(ev.pointerId);
+        pinAt(stepAt(ev.clientX));
+      }
+    });
+    hit.addEventListener("pointermove", (ev) => {
+      const st = stepAt(ev.clientX);
+      if (press) {
+        if (!press.moved && Math.abs(ev.clientX - press.x0) <= TIP_SLOP) return;
+        press.moved = true;
+        if (st !== chartPin) pinAt(st);
+        return;
+      }
+      if (ev.pointerType === "mouse" && chartPin == null) read(st, ev);
+    });
+    const end = (ev) => {
+      if (press && !press.mouse && !press.moved && ev.type === "pointerup")
+        pinAt(stepAt(ev.clientX)); // tap: the card there (on another point it moves)
+      press = null;
+    };
+    hit.addEventListener("pointerup", end);
+    hit.addEventListener("pointercancel", end); // the browser took the vertical scroll
+    hit.addEventListener("pointerleave", (ev) => {
+      if (ev.pointerType === "mouse" && !press && chartPin == null) hide();
+    });
+    // no browser menu or selection on a long press or a right click
+    hit.addEventListener("contextmenu", (ev) => ev.preventDefault());
   }
 
   // ---------- model comparison: accumulated precipitation or temperature at 850 hPa of all models and the
@@ -7288,7 +7378,6 @@
       '<div class="chart-empty">Carico il grafico…</div>';
     chartData = null;
     chartPin = null;
-    $("chart-readout").hidden = true;
     writeChartHash();
     const { lat, lon } = request.place;
     const models = meta.models; // the median too
@@ -7692,7 +7781,6 @@
       '<div class="chart-empty">Carico il grafico…</div>';
     chartData = null;
     chartPin = null;
-    $("chart-readout").hidden = true;
     writeChartHash();
     try {
       const snd = await getSounding(station, time);
@@ -7902,7 +7990,10 @@
       tip = chartUi.body.querySelector(".chart-tip"),
       cur = svgEl.querySelector("#snd-cursor"),
       hit = svgEl.querySelector("#snd-hit");
-    const show = (ev) => {
+    // reading tooltip (mouse hover) or level card (click or tap, with ✕), like the point card of the other charts
+    let pinned = false;
+    const show = (ev, pin = false) => {
+      pinned = pin;
       const r = svgEl.getBoundingClientRect();
       const y = (ev.clientY - r.top) * (H / r.height);
       const l = levels.reduce((a, b) =>
@@ -7911,6 +8002,7 @@
       cur.setAttribute("y1", Y(l[0]));
       cur.setAttribute("y2", Y(l[0]));
       cur.setAttribute("visibility", "visible");
+      tip.classList.toggle("pinned", pin);
       const f = (x, u, d = 1) =>
         x == null ? "—" : `${x.toFixed(d).replace("-", "−")} ${u}`;
       const dir =
@@ -7921,7 +8013,7 @@
               -10 * Math.cos((l[4] * Math.PI) / 180),
             ) || "";
       tip.innerHTML =
-        `<div class="t">${l[0]} hPa · ${f(l[1], "m", 0)}</div>` +
+        `<div class="t"><span>${l[0]} hPa · ${f(l[1], "m", 0)}</span>${pin ? TIP_CLOSE : ""}</div>` +
         `<div class="ens-vals" style="grid-template-columns:auto 1fr">` +
         `<span class="h" style="color:${TEMP_RED}">Temperatura</span><b>${f(l[2], "°C")}</b>` +
         `<span class="h" style="color:${DEW_GREEN}">Rugiada</span><b>${f(l[3], "°C")}</b>` +
@@ -7930,44 +8022,55 @@
       const br = chartUi.body.getBoundingClientRect();
       const cx = ev.clientX - br.left,
         w = tip.offsetWidth;
-      tip.style.left = `${Math.min(Math.max(cx + 14 + w > br.width ? cx - 14 - w : cx + 14, 4), br.width - w - 4)}px`;
+      tip.style.left = `${Math.max(4, Math.min(cx + 14 + w > br.width ? cx - 14 - w : cx + 14, br.width - w - 4))}px`;
       tip.style.top = tipTop(
         tip,
         ev.clientY - br.top + chartUi.body.scrollTop - 20,
       );
     };
-    // by touch: tapping reads the level, a short tap with the tooltip already open closes it
-    let press = null;
-    hit.addEventListener("pointermove", (ev) => {
-      if (press && Math.hypot(ev.clientX - press.x, ev.clientY - press.y) > 8)
-        press.moved = true;
-      show(ev);
-    });
-    hit.addEventListener("pointerdown", (ev) => {
-      press =
-        ev.pointerType === "mouse"
-          ? null
-          : { x: ev.clientX, y: ev.clientY, open: !tip.hidden, moved: false };
-      show(ev);
-    });
-    hit.addEventListener("pointerup", () => {
-      if (press?.open && !press.moved) {
-        tip.hidden = true;
-        cur.setAttribute("visibility", "hidden");
-      }
-      press = null;
-    });
-    closeTipOutside(tip, () => {
+    const close = () => {
+      pinned = false;
       tip.hidden = true;
       cur.setAttribute("visibility", "hidden");
+    };
+    tip.addEventListener("click", (ev) => {
+      if (ev.target.closest("[data-act=remove]")) close();
     });
+    // press (mouse) or tap (touch): the card at that level, another one moves it, dragging moves it (by touch
+    // vertically the page scrolls); with the mouse and no card, hovering reads the levels
+    let press = null;
+    hit.addEventListener("pointerdown", (ev) => {
+      if (ev.button > 0) return;
+      press = { x: ev.clientX, y: ev.clientY, moved: false, mouse: ev.pointerType === "mouse" };
+      if (press.mouse) {
+        hit.setPointerCapture?.(ev.pointerId);
+        show(ev, true);
+      }
+    });
+    hit.addEventListener("pointermove", (ev) => {
+      if (press) {
+        if (!press.moved && Math.hypot(ev.clientX - press.x, ev.clientY - press.y) <= TIP_SLOP) return;
+        press.moved = true;
+        show(ev, true);
+        return;
+      }
+      if (ev.pointerType === "mouse" && !pinned) show(ev);
+    });
+    const end = (ev) => {
+      if (press && !press.mouse && !press.moved && ev.type === "pointerup") show(ev, true);
+      press = null;
+    };
+    hit.addEventListener("pointerup", end);
+    hit.addEventListener("pointercancel", end);
     hit.addEventListener("pointerleave", (ev) => {
-      if (ev.pointerType === "mouse") {
+      if (ev.pointerType === "mouse" && !press && !pinned) {
         tip.hidden = true;
         cur.setAttribute("visibility", "hidden");
       }
     });
-    clearChartPin = () => {};
+    hit.addEventListener("contextmenu", (ev) => ev.preventDefault());
+    closeTipOutside(tip, close);
+    clearChartPin = close;
   }
 
   function drawChart(exportW, exportH) {
@@ -8484,7 +8587,7 @@
     svg.push(
       `<line class="ch-cursor" id="ch-cursor" x1="0" x2="0" y1="${HEAD + 2}" y2="${yBot}" visibility="hidden"/>`,
     );
-    // pinned time: line and dots on the curves; the values are in the bar at the bottom of the dialog (#chart-readout)
+    // time of the point card: line and dots on the curves (the values are in the card)
     svg.push(
       `<line class="ch-cursor pinned" id="ch-pinline" x1="0" x2="0" y1="${HEAD + 2}" y2="${yBot}" visibility="hidden"/><g id="ch-pindots"></g>`,
     );
@@ -8510,8 +8613,8 @@
       );
     };
     // time and values of all panels at a step: tooltip and pinned time bar
-    const timeHtml = (st) =>
-      `<div class="t">${fmtLocal(new Date(t0 + st * 3600e3))} · +${st}h</div>`;
+    const timeHtml = (st, close = "") =>
+      `<div class="t"><span>${fmtLocal(new Date(t0 + st * 3600e3))} · +${st}h</span>${close}</div>`;
     const rowsHtml = (st) =>
       panels
         .map((p) => {
@@ -8521,65 +8624,41 @@
           return `<div>${p.tip(d)} ${valueText(p, d, (x) => `<b>${x}</b>`, false)}</div>`;
         })
         .join("");
-    const touchUi = !hoverMq.matches; // phone and tablet: no bar at the bottom, values in the tooltip
-    // above: by touch the tooltip sits above the touched point, otherwise the finger covers it
-    // pinned: pinned time card (light, with the actions) instead of the dark reading tooltip
-    const showAt = (st, clientX, clientY, above = false, pinned = false) => {
+    // reading tooltip (dark, mouse hover) or point card (light, with ✕)
+    const showAt = (st, clientX, clientY, pinned = false) => {
       cursor.setAttribute("x1", X(st));
       cursor.setAttribute("x2", X(st));
       cursor.setAttribute("visibility", pinned ? "hidden" : "visible");
       tip.classList.toggle("pinned", pinned);
       tip.innerHTML =
-        timeHtml(st) +
-        rowsHtml(st) +
-        (pinned
-          ? `<div class="chart-tip-actions"><button type="button" data-act="share">Condividi</button>` +
-            `<button type="button" data-act="download">Scarica</button>` +
-            `<button type="button" data-act="remove" aria-label="Togli l'ora fissata">✕</button></div>`
-          : "");
+        timeHtml(st, pinned ? TIP_CLOSE : "") + rowsHtml(st);
       tip.hidden = false;
       const br = chartUi.body.getBoundingClientRect();
       const cx = clientX - br.left,
-        w = tip.offsetWidth,
-        h = tip.offsetHeight;
-      tip.style.left = above
-        ? `${Math.min(Math.max(cx - w / 2, 4), br.width - w - 4)}px`
-        : `${Math.min(Math.max(cx + 14 + w > br.width ? cx - 14 - w : cx + 14, 4), br.width - w - 4)}px`;
-      const y = clientY - br.top + chartUi.body.scrollTop;
-      tip.style.top = tipTop(tip, above ? y - h - 48 : y - 20);
+        w = tip.offsetWidth;
+      tip.style.left = `${Math.max(4, Math.min(cx + 14 + w > br.width ? cx - 14 - w : cx + 14, br.width - w - 4))}px`;
+      tip.style.top = tipTop(
+        tip,
+        clientY - br.top + chartUi.body.scrollTop - 20,
+      );
     };
     const hide = () => {
       tip.hidden = true;
       cursor.setAttribute("visibility", "hidden");
     };
-    // time pinned by touch: the tooltip stays on its line, at the top of the visible part
+    // point card at the top of the visible part, next to its line
     const showPinTip = () => {
       const r = svgEl.getBoundingClientRect();
       showAt(
         chartPin,
         r.left + (X(chartPin) / W) * r.width,
         chartUi.body.getBoundingClientRect().top + 4,
-        false,
         true,
       );
     };
-    const unpin = () => {
-      chartPin = null;
-      renderPin();
-      hide();
-    };
-    // card actions: same image as the buttons at the top, with the pinned time
-    tip.addEventListener("click", (ev) => {
-      const btn = ev.target.closest("button[data-act]");
-      if (!btn) return;
-      if (btn.dataset.act === "remove") unpin();
-      else chartImage(btn, btn.dataset.act === "share");
-    });
-    const readout = $("chart-readout");
     const renderPin = () => {
       const on = chartPin != null && steps.includes(chartPin);
       pinLine.setAttribute("visibility", on ? "visible" : "hidden");
-      readout.hidden = !on || touchUi;
       pinDots.innerHTML = "";
       if (!on) return;
       pinLine.setAttribute("x1", X(chartPin));
@@ -8592,147 +8671,79 @@
             : "";
         })
         .join("");
-      readout.querySelector(".chart-readout-values").innerHTML =
-        timeHtml(chartPin) + rowsHtml(chartPin);
     };
-    const hit = svgEl.querySelector("#ch-hit");
-    // mouse: hovering reads the values. A click pins the time (another on the same one removes it); dragging with
-    // the button pressed the pinned time follows the pointer.
-    // touch: sliding horizontally reads the values (vertically the page scrolls); a long press pins
-    // the time for the image to share; a short tap removes the pinned time or shows the values there
-    const PRESS_MS = 450,
-      SLOP = 8;
-    let drag = null;
-    hit.addEventListener("pointermove", (ev) => {
-      const st = stepAt(ev.clientX);
-      if (drag?.touch) {
-        if (!drag.moved && Math.abs(ev.clientX - drag.x0) <= SLOP) return;
-        drag.moved = true;
-        clearTimeout(drag.timer);
-        if (drag.pinning) {
-          // after the long press the finger moves the pinned time
-          if (st !== chartPin) {
-            chartPin = st;
-            renderPin();
-            showPinTip();
-          }
-        } else {
-          // dragging again removes the pinned time: back to reading the values
-          if (chartPin != null) {
-            chartPin = null;
-            renderPin();
-          }
-          showAt(st, ev.clientX, ev.clientY, true);
-        }
-        return;
-      }
-      if (drag) {
-        if (st !== chartPin) {
-          drag.moved = true;
-          chartPin = st;
-          renderPin();
-        }
-        return;
-      }
-      if (ev.pointerType !== "mouse") return;
-      if (st === chartPin)
-        hide(); // on the pinned time the values are already in the bar at the bottom
-      else showAt(st, ev.clientX, ev.clientY);
-    });
-    hit.addEventListener("pointerdown", (ev) => {
-      const st = stepAt(ev.clientX);
-      if (ev.pointerType !== "mouse" && touchUi) {
-        if (drag?.timer) clearTimeout(drag.timer); // second finger (see the meteogram)
-        const d = (drag = {
-          touch: true,
-          x0: ev.clientX,
-          moved: false,
-          pinning: false,
-        });
-        d.timer = setTimeout(() => {
-          if (drag !== d) return;
-          d.pinning = true;
-          chartPin = st;
-          renderPin();
-          showPinTip();
-          navigator.vibrate?.(10);
-        }, PRESS_MS);
-        return;
-      }
-      drag = { wasPinned: chartPin === st, moved: false };
-      hit.setPointerCapture?.(ev.pointerId);
-      if (!drag.wasPinned) {
-        chartPin = st;
-        renderPin();
-      }
-      hide();
-    });
-    const endDrag = (ev) => {
-      if (!drag) return;
-      if (drag.touch) {
-        clearTimeout(drag.timer);
-        const tap = ev.type === "pointerup" && !drag.moved && !drag.pinning;
-        if (tap && chartPin != null)
-          unpin(); // short tap with a pinned time: removes it
-        else if (tap && !tip.hidden)
-          hide(); // short tap with the tooltip open: closes it
-        else if (tap) showAt(stepAt(ev.clientX), ev.clientX, ev.clientY, true);
-        else if (chartPin != null) showPinTip();
-        else if (ev.type === "pointercancel") hide(); // the browser took the vertical scroll
-        drag = null;
-        return;
-      }
-      if (ev.type === "pointerup" && drag.wasPinned && !drag.moved) {
-        chartPin = null;
-        renderPin();
-      } // tap on the already pinned time
-      drag = null;
+    const pinAt = (st) => {
+      chartPin = st;
+      renderPin();
+      showPinTip();
     };
-    hit.addEventListener("pointerup", endDrag);
-    hit.addEventListener("pointercancel", endDrag); // the browser took the gesture (vertical scroll)
-    hit.addEventListener("pointerleave", (ev) => {
-      if (!drag && ev.pointerType === "mouse") hide(); // by touch it arrives after every tap: the tooltip stays
-    });
-    // no browser menu or selection on long press
-    hit.addEventListener("contextmenu", (ev) => {
-      if (touchUi) ev.preventDefault();
-    });
-    closeTipOutside(tip, hide, () => chartPin == null); // the short tap opens the card, but the time is not pinned
-    clearChartPin = () => {
+    const unpin = () => {
       chartPin = null;
       renderPin();
       hide();
     };
-    renderPin(); // redraw (dialog resized): the pinned time stays
-    if (touchUi && chartPin != null && steps.includes(chartPin)) showPinTip();
+    tip.addEventListener("click", (ev) => {
+      if (ev.target.closest("[data-act=remove]")) unpin();
+    });
+    mountPointCard(svgEl.querySelector("#ch-hit"), {
+      stepAt,
+      pinAt,
+      read: (st, ev) => showAt(st, ev.clientX, ev.clientY),
+      hide,
+    });
+    closeTipOutside(tip, hide);
+    clearChartPin = unpin;
+    renderPin(); // redraw (dialog resized): the card stays
+    if (chartPin != null && steps.includes(chartPin)) showPinTip();
   }
 
-  // ---------- point tooltip (native grid, nearest neighbour)
-  // With the mouse it follows the pointer. On touch devices it appears where you tap and stays anchored to that point
-  // of the map: moving or zooming the map it moves with it, and changing step shows the new value.
+  // ---------- point tooltip (native grid, nearest neighbour): with the mouse it follows the pointer. On touch devices
+  // there is none: a tap opens the point menu, which shows the same values
   map.on("mousemove", (e) => {
     if (hoverMq.matches) showProbe(e);
   });
-  map.on("click", (e) => {
-    if (hoverMq.matches || landscapeView()) return;
-    probeLL = e.latlng;
-    showProbe(e);
-  });
-  map.on("move zoom", () => {
-    if (probeLL && !hoverMq.matches)
-      showProbe({
-        latlng: probeLL,
-        containerPoint: map.latLngToContainerPoint(probeLL),
-      });
-  });
-  /** Tooltip of the tapped point, recomputed (new step, other field); nothing if there is none. */
-  function refreshProbe() {
-    if (probeLL && !hoverMq.matches)
-      showProbe({
-        latlng: probeLL,
-        containerPoint: map.latLngToContainerPoint(probeLL),
-      });
+  // Point menu: right click with the mouse (the values are already in the tooltip that follows the pointer, the left
+  // click stays free for the double click zoom); single tap on touch devices, right away (they have no double tap
+  // zoom, see applyLandscape: waiting to tell it apart slowed every tap down). Ensemble mode: click or tap opens the
+  // spaghetti of the point; with the mouse it waits a moment, so a double click zooms without opening it.
+  const DOUBLE_CLICK_MS = 280;
+  let pendingClick = null;
+  function cancelPendingClick() {
+    clearTimeout(pendingClick);
+    pendingClick = null;
   }
+  map.on("contextmenu", (e) => {
+    e.originalEvent?.preventDefault?.();
+    if (hoverMq.matches && state.extra !== "ens") openMapMenu(e.latlng);
+  });
+  function pointAction(ll) {
+    if (state.extra === "ens") {
+      if (live.on || menuLL) return;
+      openEnsemble({
+        name: coordText(ll),
+        lat: +ll.lat.toFixed(4),
+        lon: +ll.lng.toFixed(4),
+      });
+      return;
+    }
+    openMapMenu(ll); // values, share, add to places, chart, with the pulsing dot
+  }
+  map.on("click", (e) => {
+    if (!hoverMq.matches) {
+      pointAction(e.latlng); // touch
+      return;
+    }
+    if (state.extra !== "ens") return; // mouse: the menu is on the right click
+    if (pendingClick) {
+      cancelPendingClick(); // second click: double click, the map zooms
+      return;
+    }
+    const ll = e.latlng;
+    pendingClick = setTimeout(() => {
+      pendingClick = null;
+      pointAction(ll);
+    }, DOUBLE_CLICK_MS);
+  });
   function showProbe(e) {
     if (live.on) return; // sharing over the map: no tooltip in the image's way
     // over a place (or with its popup open there) the black popup is enough: one tooltip at a time
@@ -8820,7 +8831,7 @@
     ui.probe.hidden = true;
   });
 
-  // ---------- menu of a map point: right click (desktop) or long press (touch).
+  // ---------- menu of a map point: right click (mouse) or tap (touch) on the map.
   // Header with the value at the point and the coordinates; Condividi (image with marker and value),
   // Aggiungi alle località (name prefilled with the coordinates, editable right away), Grafico nel tempo.
   const mapMenu = document.createElement("div");
@@ -8922,7 +8933,6 @@
     if (live.on) return;
     if (synoptic()) return; // synoptic chart: no point menu
     closePlacePop();
-    probeLL = null;
     ui.probe.hidden = true;
     menuLL = ll;
     menuOpenedAt = Date.now();
@@ -9091,73 +9101,22 @@
         lon: +ll.lng.toFixed(4),
       });
   });
-  // desktop: right click (with Mapbox it is forwarded by connectMapbox); with touch the long press here
-  // below is used, so Android (which also sends contextmenu) and iOS (which does not) behave the same
-  map.on("contextmenu", (e) => {
-    e.originalEvent?.preventDefault?.();
-    if (!hoverMq.matches) return;
-    openMapMenu(e.latlng);
-  });
-  const LONG_PRESS_MS = 500,
-    LONG_PRESS_SLOP = 8; // px: beyond that it is a map drag
-  let press = null;
   const onMapSurface = (t) =>
     !!t.closest?.("#map, .wm-native-map") &&
     !t.closest(
       ".leaflet-control, .mapboxgl-ctrl, .leaflet-marker-icon, .pt-pop",
     );
-  document.addEventListener(
-    "touchstart",
-    (e) => {
-      clearTimeout(press?.timer);
-      press = null;
-      if (e.touches.length !== 1 || !onMapSurface(e.target)) return;
-      if (mobileMq.matches && !ui.panel.classList.contains("collapsed")) return;
-      const t = e.touches[0];
-      press = {
-        x: t.clientX,
-        y: t.clientY,
-        timer: setTimeout(() => {
-          const cr = map.getContainer().getBoundingClientRect();
-          navigator.vibrate?.(10);
-          openMapMenu(
-            map.containerPointToLatLng([press.x - cr.left, press.y - cr.top]),
-          );
-          press = null;
-        }, LONG_PRESS_MS),
-      };
-    },
-    { capture: true, passive: true },
-  );
-  document.addEventListener(
-    "touchmove",
-    (e) => {
-      if (!press) return;
-      const t = e.touches[0];
-      if (
-        Math.hypot(t.clientX - press.x, t.clientY - press.y) > LONG_PRESS_SLOP
-      ) {
-        clearTimeout(press.timer);
-        press = null;
-      }
-    },
-    { capture: true, passive: true },
-  );
-  for (const type of ["touchend", "touchcancel"])
-    document.addEventListener(
-      type,
-      () => {
-        clearTimeout(press?.timer);
-        press = null;
-      },
-      true,
-    );
-  // menu open: a click outside just closes it (no point value); the click that follows the long
-  // press must neither close it nor show the value
+  // menu open: a click outside just closes it (it does not open another menu there); the click that has just
+  // opened it does not close it. Touch: a tap on another point of the map moves the menu there (the tap goes on to the
+  // map, which opens the menu on the new point)
   document.addEventListener(
     "click",
     (e) => {
       if (!menuLL || mapMenu.contains(e.target)) return;
+      if (!hoverMq.matches && onMapSurface(e.target)) {
+        closeMapMenu();
+        return;
+      }
       // on the place markers too: with the menu open no other popup
       if (
         e.target.closest?.("#map, .wm-native-map") &&
@@ -9180,13 +9139,14 @@
   window.addEventListener("resize", markResize, true); // in capture: before Leaflet and Mapbox
   window.visualViewport?.addEventListener("resize", markResize);
   function closeMapMenuOnMove() {
+    cancelPendingClick(); // a click just before the gesture (double click to zoom) opens nothing
     if (Date.now() - resizedAt < 1000)
       placeMapMenu(true); // still if it stays visible
     else closeMapMenu();
   }
   map.on("movestart zoomstart", closeMapMenuOnMove); // with Mapbox also from connectMapbox, at the start of the gesture
   map.on("resize moveend", placeMapMenu);
-  // no browser menu on the map (long press on Android, right click without Mapbox)
+  // no browser menu on the map (right click, long press on Android): ours opens with the right click or a tap
   document.addEventListener("contextmenu", (e) => {
     if (onMapSurface(e.target)) e.preventDefault();
   });
@@ -9668,7 +9628,6 @@
     closeMapMenu(); // the menu entries change between the two areas
     closePlacePop(); // the area changes: the map moves and the popup would be left hanging in mid-air
     ui.probe.hidden = true;
-    probeLL = null;
     areaBox = toBounds(a);
     // first remove the Mapbox bounds: with the minimum zoom change it would bring Leaflet back to the old area
     glBase?.setMaxBounds(null);
@@ -9735,7 +9694,7 @@
     else goStep(+go);
   });
   function renderLandscapeNav() {
-    if (state.extra === "radar" || state.extra === "sat") {
+    if (extraCfg()) {
       const frame = radarFrames[radarIdx];
       lvNav.querySelector(".lv-time").textContent = frame
         ? fmtLocal(new Date(frame.time))
@@ -9755,9 +9714,10 @@
   function applyLandscape() {
     const on = landscapeMq.matches;
     document.body.classList.toggle("landscape-view", on);
-    // no double-tap zoom: tapping the buttons quickly zoomed the map and the area was lost
+    // no double-tap zoom: tapping the buttons quickly zoomed the map and the area was lost. Touch devices never have
+    // it (pinch to zoom): a tap opens the point menu right away, without waiting for a possible second tap
     const dbl = glBase ? glBase.doubleClickZoom : map.doubleClickZoom;
-    if (dbl) on ? dbl.disable() : dbl.enable();
+    if (dbl) on || !hoverMq.matches ? dbl.disable() : dbl.enable();
     if (on) {
       closeMapMenu();
       closePlacePop();
@@ -9765,7 +9725,6 @@
         radarAutoplay = true;
         updateRadarLoading();
       }
-      probeLL = null; // the tapped point's tooltip goes away too
       ui.probe.hidden = true;
       renderLandscapeNav();
       // always start from the whole view (minimum zoom), after the map has taken the new size

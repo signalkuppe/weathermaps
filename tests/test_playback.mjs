@@ -97,11 +97,14 @@ test("visible satellite preserves true colours and uses its own image times", as
       }),
     },
     URL: { createObjectURL: () => "blob:visible" },
+    radarGrid: () => null,
     wmsUrl: (base, params) => `${base}?${new URLSearchParams(params)}`,
     fetch: async (url) => {
       requests.push(url);
       return {
         ok: true,
+        headers: { get: () => "image/jpeg" },
+        blob: async () => ({}),
         text: async () =>
           '<Dimension name="time" default="2026-11-19T10:00:00Z" />',
       };
@@ -126,7 +129,7 @@ test("visible satellite preserves true colours and uses its own image times", as
   const infrared = context.config();
   assert.equal(infrared.layer, "mtg_fd:ir105_hrfi");
   assert.equal(typeof infrared.clean, "function");
-  state.satProduct = "vis";
+  state.extra = "vis";
   const visible = context.config();
   assert.equal(visible.layer, "mtg_fd:rgb_truecolour");
   assert.equal(visible.clean, null);
@@ -134,24 +137,26 @@ test("visible satellite preserves true colours and uses its own image times", as
   assert.equal(await visible.latest(), "2026-11-19T10:00:00.000Z");
   assert.match(requests.at(-1), /mtg_fd\/rgb_truecolour\/ows/);
   assert.equal(
-    await context.extraImage(visible, "2026-11-19T10:00:00Z"),
+    (await context.extraImage(visible, "2026-11-19T10:00:00Z")).url,
     "blob:visible",
   );
   assert.deepEqual(Array.from(pixels), [32, 96, 160, 255]);
   assert.match(requests.at(-1), /layers=mtg_fd%3Argb_truecolour/);
+  // downloaded as JPEG and used as it is (no canvas round trip)
+  assert.match(requests.at(-1), /format=image%2Fjpeg/);
   const shared = context.shareTexts();
   assert.match(shared.title, /Satellite visibile/);
   assert.match(shared.sub, /Colori naturali/);
   assert.equal(shared.v.scale.thresholds.length, 0);
   assert.equal(shared.v.scale.colors.length, 0);
-  state.satProduct = "ir";
+  state.extra = "sat";
   assert.equal(context.config(), infrared);
   state.extra = "radar";
   assert.equal(context.config().layer, "meteohub:radar-sri");
 });
 
 test("visible satellite has no legend and infrared restores its legend", () => {
-  const state = { extra: "sat", satProduct: "vis" };
+  const state = { extra: "vis" };
   const legend = { hidden: false, innerHTML: "previous legend" };
   const context = vm.createContext({
     state,
@@ -168,15 +173,15 @@ test("visible satellite has no legend and infrared restores its legend", () => {
   context.renderLegend();
   assert.equal(legend.hidden, true);
   assert.equal(legend.innerHTML, "");
-  state.satProduct = "ir";
+  state.extra = "sat";
   context.renderLegend();
   assert.equal(legend.hidden, false);
   assert.match(legend.innerHTML, /infrarosso/);
 });
 
-test("satellite channel preferences survive closing and reloading the satellite", () => {
+test("infrared and visible satellite are separate saved layers", () => {
   const saved = new Map();
-  const state = { extra: "sat", satProduct: "ir" };
+  const state = { extra: "none" };
   const context = vm.createContext({
     state,
     INTERVALS: [3, 6, 12, 24],
@@ -193,29 +198,32 @@ test("satellite channel preferences survive closing and reloading the satellite"
     ),
     context,
   );
-  for (const product of ["vis", "ir"]) {
-    state.extra = "sat";
-    state.satProduct = product;
+  for (const extra of ["sat", "vis"]) {
+    state.extra = extra;
     context.saveSettings();
     state.extra = "none";
-    context.saveSettings();
-    state.satProduct = "ir";
     context.loadSettings();
-    assert.equal(state.satProduct, product);
-    state.extra = "sat";
-    assert.equal(state.satProduct, product);
+    assert.equal(state.extra, extra);
   }
-  saved.set("weathermaps.settings.v1", JSON.stringify({ satProduct: "invalid" }));
-  state.satProduct = "ir";
-  context.loadSettings();
-  assert.equal(state.satProduct, "ir");
+  assert.doesNotMatch(saved.get("weathermaps.settings.v1"), /satProduct/);
+  // settings saved when visible was a channel of the satellite layer
+  for (const [satProduct, extra] of [["vis", "vis"], ["ir", "sat"]]) {
+    saved.set(
+      "weathermaps.settings.v1",
+      JSON.stringify({ extra: "sat", satProduct }),
+    );
+    state.extra = "none";
+    context.loadSettings();
+    assert.equal(state.extra, extra);
+  }
 });
 
 test("radar and satellite landscape dates follow the displayed image", () => {
-  for (const extra of ["radar", "sat"]) {
+  for (const extra of ["radar", "sat", "vis"]) {
     const time = { textContent: "forecast time" };
     const context = vm.createContext({
       state: { extra },
+      extraCfg: () => ({}),
       radarFrames: [
         { time: "2026-11-19T10:00:00Z" },
         { time: "2026-11-19T10:10:00Z" },
@@ -250,13 +258,13 @@ test("mobile landscape resumes extra-layer loops without duplicating playback", 
       document: { body: { classList: { toggle() {} } } },
       glBase: null,
       map: { doubleClickZoom: { disable() {}, enable() {} } },
+      hoverMq: { matches: false },
       closeMapMenu() {},
       closePlacePop() {},
       extraCfg: () => extra === "none" ? undefined : {},
       radarPlay: null,
       radarAutoplay: false,
       updateRadarLoading: () => updates++,
-      probeLL: {},
       ui: { probe: {} },
       renderLandscapeNav() {},
       setTimeout() {},
@@ -294,18 +302,118 @@ test("satellite controls and legends stay hidden while images load", () => {
   assert.doesNotMatch(css, /body\.landscape-view\.radar-mode \.radar-loader/);
 });
 
-test("satellite channels are selected from the shared desktop and mobile map bar", () => {
+test("infrared and visible satellite are separate layer tiles, with no channel switch in the bar", () => {
   const html = readFileSync(
     new URL("../static/index.html", import.meta.url),
     "utf8",
   );
-  const panel = html.slice(html.indexOf('id="extra"'), html.indexOf('id="credits"'));
-  assert.doesNotMatch(panel, /id="satellite-mode/);
+  assert.doesNotMatch(html, /satellite-mode/);
   const bar = html.slice(html.indexOf('id="badge"'), html.indexOf('id="share-dialog"'));
-  assert.match(bar, /id="satellite-mode-row" class="satellite-mode" hidden/);
-  assert.match(bar, /id="satellite-mode"[\s\S]*?aria-label="Canale satellitare"/);
   assert.match(bar, /id="radar-slider"/);
   assert.match(bar, /id="extra-close"/);
+  const names = source.slice(
+    source.indexOf("  const EXTRA_NAMES ="),
+    source.indexOf("  function setExtra("),
+  );
+  assert.match(names, /sat: "Infrarosso"/);
+  assert.match(names, /vis: "Visibile"/);
+  assert.ok(
+    readFileSync(new URL("../static/icons/extra/vis.jpg", import.meta.url))
+      .length > 0,
+  );
+  const css = readFileSync(
+    new URL("../static/style.css", import.meta.url),
+    "utf8",
+  );
+  assert.match(css, /\.panel \.extra-tiles\s*\{\s*grid-template-columns:\s*repeat\(3, 1fr\)/);
+});
+
+test("ensemble is its own extra layer: places and map points open the spaghetti", () => {
+  const opened = [];
+  const context = vm.createContext({
+    meta: {
+      models: [{ id: "icon" }, { id: "gfs" }, { id: "ecmwf" }],
+      ensemble: { gfs: { run: "2026112100" }, ecmwf: { run: "2026112100" } },
+    },
+    state: { model: "icon" },
+    openChart: (p, options) => opened.push({ p, ...options }),
+  });
+  vm.runInContext(
+    source.slice(
+      source.indexOf("  const EXTRA_NAMES ="),
+      source.indexOf("  function setExtra("),
+    ) + "\nglobalThis.hasEnsemble = hasEnsemble;",
+    context,
+  );
+  assert.equal(context.hasEnsemble(), true);
+  context.openEnsemble({ name: "Milano" });
+  assert.deepEqual(opened.at(-1), { p: { name: "Milano" }, ensemble: true, model: "gfs" });
+  context.state.model = "ecmwf";
+  context.openEnsemble({ name: "Roma" });
+  assert.equal(opened.at(-1).model, "ecmwf");
+  context.meta.ensemble = {};
+  assert.equal(context.hasEnsemble(), false);
+
+  const popup = source.slice(
+    source.indexOf("  function openPlacePop(idx)"),
+    source.indexOf("  /** Position: centred on the point"),
+  );
+  assert.doesNotMatch(popup, /pt-pop-ens/);
+  assert.match(popup, /state\.extra === "ens"[\s\S]*?openEnsemble\(places\[idx\]\)/);
+  // a tap (or click) on a map point in ensemble mode opens its spaghetti; touch: the point menu right away
+  const actionAt = source.indexOf("  function pointAction(ll)");
+  const pointAction = source.slice(actionAt, source.indexOf('  map.on("click"', actionAt));
+  assert.match(pointAction, /state\.extra === "ens"[\s\S]*openEnsemble\(/);
+  assert.match(source, /if \(!hoverMq\.matches\) \{\s*pointAction\(e\.latlng\);/);
+  const css = readFileSync(
+    new URL("../static/style.css", import.meta.url),
+    "utf8",
+  );
+  assert.match(css, /body\.ens-mode \.wm-overlay/);
+  assert.doesNotMatch(css, /body\.ens-mode \.pt\b/);
+  assert.ok(
+    readFileSync(new URL("../static/icons/extra/ens.jpg", import.meta.url))
+      .length > 0,
+  );
+});
+
+test("radar intensity at a place is read from the class colour of the image shown", () => {
+  const context = vm.createContext({
+    L: {
+      latLng: (lat, lon) => ({ lat, lon }),
+      CRS: { EPSG3857: { project: ({ lat, lon }) => ({ x: lon, y: lat }) } },
+    },
+  });
+  vm.runInContext(
+    source.slice(
+      source.indexOf("  const RADAR_CLASSES ="),
+      source.indexOf("  const radarSld ="),
+    ) + "\nObject.assign(globalThis, { RADAR_CLASSES, RADAR_RGB });",
+    context,
+  );
+  // 4×2 image over lon 0…4, lat 0…2: top row a 4–6 mm/h pixel (#80ff5a) then a slightly off one (compression),
+  // bottom row dry (transparent) and a colour that is not ours
+  const W = 4, H = 2;
+  const d = new Uint8ClampedArray(W * H * 4);
+  const put = (x, y, rgba) => d.set(rgba, (y * W + x) * 4);
+  put(0, 0, [0x80, 0xff, 0x5a, 255]);
+  put(2, 0, [0x9a + 3, 0x25 - 2, 0xd6, 255]);
+  put(0, 1, [0x80, 0xff, 0x5a, 0]);
+  put(2, 1, [0, 0, 0, 255]);
+  const grid = context.radarGrid(d, W, H, { x: 0, y: 0 }, { x: 4, y: 2 });
+  assert.equal(grid.w, 2);
+  assert.equal(grid.h, 1);
+  assert.equal(context.radarClassAt(grid, 1.5, 0.5), 4);
+  assert.equal(context.radarClassText(4), "4–6 mm/h");
+  assert.equal(context.radarClassAt(grid, 1.5, 2.5), 9);
+  assert.equal(context.radarClassText(9), "> 60 mm/h");
+  assert.equal(context.radarClassText(1), "0,2–1 mm/h");
+  assert.equal(context.radarClassAt(grid, 1.5, 9), null); // outside the image
+  assert.equal(context.radarClassAt(null, 1, 1), null);
+  const dry = new Uint8ClampedArray(W * H * 4);
+  dry.set([0, 0, 0, 255], 0); // not one of our colours
+  assert.equal(context.radarGrid(dry, W, H, { x: 0, y: 0 }, { x: 4, y: 2 }).data[0], 0);
+  assert.match(source, /renderRadarPoints\(\);\n/);
 });
 
 test("incoming run notice reports progress and hides manual refresh on static pages", () => {
@@ -412,7 +520,8 @@ test("switching between model maps and extra layers resets zoom to the current m
     state: { extra: "none", var: "tp" },
     EXTRAS: {
       radar: { name: "Radar", stepMin: 5 },
-      sat: { name: "Satellite", stepMin: 10 },
+      sat: { name: "Infrarosso", stepMin: 10 },
+      vis: { name: "Visibile", stepMin: 10 },
     },
     meta: null,
     radarTimer: null,
@@ -442,6 +551,7 @@ test("switching between model maps and extra layers resets zoom to the current m
     $: element,
     synoptic: () => false,
     extraCfg: () => layers.EXTRAS[layers.state.extra],
+    satOn: () => ["sat", "vis"].includes(layers.state.extra),
     clearInterval() {},
     setInterval: () => 1,
     stopRadarPlay() {},
@@ -464,7 +574,7 @@ test("switching between model maps and extra layers resets zoom to the current m
   assert.equal(zoom, 9);
   assert.equal(changes.length, 0);
 
-  for (const extra of ["radar", "sat", "snd"]) {
+  for (const extra of ["radar", "sat", "vis", "snd"]) {
     minimum += 0.5;
     zoom = minimum + 3;
     layers.setExtra(extra);
@@ -676,6 +786,7 @@ test("a single time position replaces panel controls with a notice and hides mob
     steps,
     availableSteps: () => new Set(steps()),
     slideSteps: () => context.rangeFrames(0, horizon),
+    extraCfg: () => undefined,
     rangeMode: () => state.cum !== "value",
     intervalHours: () => state.hours,
     fmtShown: () => "gio 19 nov, 01:00 → ven 20 nov, 01:00",

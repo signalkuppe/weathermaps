@@ -120,12 +120,165 @@
     return { W, H, pixels };
   }
 
-  root.wmRenderPixels = wmRenderPixels;
+  /** Contour lines (isotherms, freezing level, isobars) by marching squares. Job: { kind: "contours", values: Float32Array
+   *  (NaN = missing), nx, ny, lat0, lon0, dlat, dlon, passes (3×3 mean passes first: on fine grids the lines would
+   *  follow every valley), step (one level every `step`) }. Returns [{ level, pts: Float64Array [lat, lon, ...] }]. */
+  function wmContours(job) {
+    const { nx, ny, lat0, lon0, dlat, dlon, step } = job;
+    let lo = Infinity, hi = -Infinity;
+    for (const x of job.values) if (x === x) { if (x < lo) lo = x; if (x > hi) hi = x; }
+    const out = [];
+    if (!(hi > lo)) return out;
+    const levels = [];
+    for (let l = Math.ceil(lo / step) * step; l <= hi; l += step) levels.push(+l.toFixed(6));
+    const v = job.passes > 0 ? blur(job.values, nx, ny, job.passes) : job.values;
+    // points closer than 1/20 of a cell to the line are dropped (a third remain on the 1 km grids): the page builds
+    // and draws far fewer, with no visible difference
+    const tol = 0.05 * Math.min(dlat, dlon);
+    for (const lvl of levels) {
+      // values arrive rounded (0.1 °C): one exactly equal to the level would make stepped lines along the cells;
+      // the level is shifted by a hair so no value touches it
+      const L0 = lvl + 1e-4;
+      const pos = new Map(); // side id -> [lat, lon] of the crossing
+      const segA = [], segB = [];
+      const cross = (id, ya, xa, va, yb, xb, vb) => {
+        if (!pos.has(id)) {
+          const t = (L0 - va) / (vb - va);
+          pos.set(id, [lat0 + (ya + (yb - ya) * t) * dlat, lon0 + (xa + (xb - xa) * t) * dlon]);
+        }
+        return id;
+      };
+      for (let y = 0; y < ny - 1; y++) {
+        for (let x = 0; x < nx - 1; x++) {
+          const a = v[y * nx + x], b = v[y * nx + x + 1], c = v[(y + 1) * nx + x + 1], d = v[(y + 1) * nx + x];
+          if (a !== a || b !== b || c !== c || d !== d) continue; // a missing corner
+          const sa = a >= L0, sb = b >= L0, sc = c >= L0, sd = d >= L0;
+          if (sa === sb && sb === sc && sc === sd) continue;
+          // sides: 0 = a-b (bottom), 1 = b-c (right), 2 = d-c (top), 3 = a-d (left)
+          const e = [];
+          if (sa !== sb) e[0] = cross((y * nx + x) * 2, y, x, a, y, x + 1, b);
+          if (sb !== sc) e[1] = cross((y * nx + x + 1) * 2 + 1, y, x + 1, b, y + 1, x + 1, c);
+          if (sd !== sc) e[2] = cross(((y + 1) * nx + x) * 2, y + 1, x, d, y + 1, x + 1, c);
+          if (sa !== sd) e[3] = cross((y * nx + x) * 2 + 1, y, x, a, y + 1, x, d);
+          const ids = [];
+          for (let i = 0; i < 4; i++) if (e[i] !== undefined) ids.push(e[i]);
+          if (ids.length === 2) {
+            segA.push(ids[0]);
+            segB.push(ids[1]);
+            continue;
+          }
+          // saddle: the value at the cell centre decides
+          const center = (a + b + c + d) / 4 >= L0;
+          if (center === sa) {
+            segA.push(e[0], e[2]);
+            segB.push(e[1], e[3]);
+          } else {
+            segA.push(e[0], e[1]);
+            segB.push(e[3], e[2]);
+          }
+        }
+      }
+      // joining the segments that share a side
+      const at = new Map();
+      const link = (id, k) => {
+        const l = at.get(id);
+        if (l) l.push(k);
+        else at.set(id, [k]);
+      };
+      for (let k = 0; k < segA.length; k++) {
+        link(segA[k], k);
+        link(segB[k], k);
+      }
+      const used = new Uint8Array(segA.length);
+      const next = (id) => (at.get(id) || []).find((j) => !used[j]);
+      const walk = (start, k0) => {
+        const ids = [];
+        let id = start, k = k0;
+        while (k !== undefined) {
+          used[k] = 1;
+          id = segA[k] === id ? segB[k] : segA[k];
+          ids.push(id);
+          k = next(id);
+        }
+        return ids;
+      };
+      for (let k = 0; k < segA.length; k++) {
+        if (used[k]) continue;
+        used[k] = 1;
+        const nf = next(segB[k]);
+        const fwd = nf === undefined ? [] : walk(segB[k], nf);
+        const nb = next(segA[k]);
+        const back = nb === undefined ? [] : walk(segA[k], nb);
+        const ids = [...back.reverse(), segA[k], segB[k], ...fwd];
+        const closed = ids[0] === ids[ids.length - 1];
+        if (ids.length < (closed ? 12 : 4)) continue; // tiny fragments and rings: just noise
+        out.push({ level: lvl, pts: simplify(chaikin(ids.map((id) => pos.get(id)), closed), tol) });
+      }
+    }
+    return out;
+  }
 
-  // as a worker: one job at a time, answered with the PNG (or with the error)
+  /** Rounds the corners (Chaikin, one pass: the lines stay on the colour edges), flat [lat, lon, ...]. */
+  function chaikin(p, closed) {
+    const n = p.length - 1;
+    if (n < 2) return Float64Array.from(p.flat());
+    const q = new Float64Array(2 * (closed ? 2 * n + 1 : 2 * n + 2));
+    let o = 0;
+    const put = (lat, lon) => { q[o++] = lat; q[o++] = lon; };
+    if (!closed) put(p[0][0], p[0][1]);
+    for (let i = 0; i < n; i++) {
+      const a = p[i], b = p[i + 1];
+      put(0.75 * a[0] + 0.25 * b[0], 0.75 * a[1] + 0.25 * b[1]);
+      put(0.25 * a[0] + 0.75 * b[0], 0.25 * a[1] + 0.75 * b[1]);
+    }
+    if (closed) put(q[0], q[1]);
+    else put(p[n][0], p[n][1]);
+    return q;
+  }
+
+  /** Douglas-Peucker on a flat [lat, lon, ...] line: keeps the points farther than `tol` degrees from the
+   *  simplified line (ends always kept, so closed rings stay closed). */
+  function simplify(p, tol) {
+    const n = p.length / 2;
+    if (n < 3 || !(tol > 0)) return p;
+    const keep = new Uint8Array(n);
+    keep[0] = keep[n - 1] = 1;
+    const stack = [0, n - 1], t2 = tol * tol;
+    while (stack.length) {
+      const b = stack.pop(), a = stack.pop();
+      const ax = p[2 * a], ay = p[2 * a + 1], dx = p[2 * b] - ax, dy = p[2 * b + 1] - ay, len = dx * dx + dy * dy;
+      let md = -1, mi = -1;
+      for (let i = a + 1; i < b; i++) {
+        const px = p[2 * i] - ax, py = p[2 * i + 1] - ay;
+        const t = len === 0 ? 0 : Math.max(0, Math.min(1, (px * dx + py * dy) / len));
+        const qx = px - t * dx, qy = py - t * dy, d = qx * qx + qy * qy;
+        if (d > md) { md = d; mi = i; }
+      }
+      if (md > t2) stack.push(a, mi, mi, b), (keep[mi] = 1);
+    }
+    let m = 0;
+    for (let i = 0; i < n; i++) m += keep[i];
+    const out = new Float64Array(2 * m);
+    for (let i = 0, o = 0; i < n; i++) if (keep[i]) { out[o++] = p[2 * i]; out[o++] = p[2 * i + 1]; }
+    return out;
+  }
+
+  root.wmRenderPixels = wmRenderPixels;
+  root.wmContours = wmContours;
+
+  // as a worker: one job at a time, answered with the PNG or the lines (or with the error)
   if (typeof document === "undefined" && typeof root.postMessage === "function") {
     root.onmessage = async (e) => {
       const job = e.data;
+      if (job.kind === "contours") {
+        try {
+          const lines = wmContours(job);
+          root.postMessage({ id: job.id, lines }, lines.map((l) => l.pts.buffer));
+        } catch (err) {
+          root.postMessage({ id: job.id, error: String(err && err.message || err) });
+        }
+        return;
+      }
       try {
         const { W, H, pixels } = wmRenderPixels(job);
         const canvas = new OffscreenCanvas(W, H);

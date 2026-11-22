@@ -1486,34 +1486,9 @@ body.radar-mode .badge .extra-close {
   display: flex;
   margin-left: 6px;
 } /* .share-btn: same look as sharing */
-body.radar-mode .badge > :not(.badge-radar):not(.share-btn):not(.legend):not(.satellite-mode) {
+body.radar-mode .badge > :not(.badge-radar):not(.share-btn):not(.legend):not(.legend-handle) {
   display: none;
 } /* .extra-close is .share-btn */
-.satellite-mode {
-  display: flex;
-  flex: none;
-  margin-left: 10px;
-  pointer-events: auto;
-}
-.satellite-mode .seg {
-  flex: 1;
-}
-.satellite-mode button {
-  min-height: 32px;
-  padding-inline: 10px;
-}
-body.sat-mode .badge {
-  max-width: calc(100% - 388px);
-  flex-wrap: wrap;
-}
-body.sat-mode .badge-radar {
-  flex: 1 1 200px;
-  min-width: 0;
-}
-body.sat-mode .badge-radar input[type="range"] {
-  flex: 1;
-  min-width: 0;
-}
 body.radar-mode .badge-radar {
   display: flex;
   align-items: center;
@@ -1765,6 +1740,9 @@ body.radar-mode .badge-radar .badge-btn {
 .attrib .leaflet-attribution-flag {
   display: inline !important;
   vertical-align: baseline;
+}
+.legend-handle {
+  display: none; /* desktop: the legend is always visible, bottom right */
 }
 .legend {
   position: absolute;
@@ -2629,8 +2607,14 @@ body.radar-mode .badge-radar .badge-btn {
   }
   /* extra layers: the four tiles in one row, small square pictures (2×2 needed scrolling); ".panel" to win over the
      base rules further down */
+  /* time shown, play and step slider only in the bar at the bottom (within thumb reach, over the map): not repeated
+     in the panel */
+  .panel .time,
+  .panel .stepper {
+    display: none;
+  }
   .panel .extra-tiles {
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: 6px;
   }
   .panel .extra-tile {
@@ -2652,7 +2636,7 @@ body.radar-mode .badge-radar .badge-btn {
     font-size: 11px;
   }
   .panel .extra-tile img {
-    aspect-ratio: 1;
+    aspect-ratio: 16 / 10; /* low pictures: the whole section fits without scrolling the panel */
   }
   /* iOS Safari zooms the page if a field's text is under 16px: search, rename and menus at 16px */
   .places-search input,
@@ -2676,8 +2660,7 @@ body.radar-mode .badge-radar .badge-btn {
   }
   /* a single box at the bottom: image time + model/run, below it the compact legend */
   /* row: ‹ time › ▶ … model run; below, full width, the legend */
-  .badge,
-  body.sat-mode .badge {
+  .badge {
     top: auto;
     /* above the Home indicator in the app, but close to the edge: the reserved space (34px) is more than needed */
     bottom: max(8px, calc(env(safe-area-inset-bottom) - 12px));
@@ -2696,11 +2679,6 @@ body.radar-mode .badge-radar .badge-btn {
   .badge-text {
     display: contents;
     line-height: inherit;
-  }
-  .satellite-mode {
-    order: 6;
-    flex: 1 0 calc(100% - 8px);
-    margin: 4px 0 4px 8px;
   }
   .badge-d {
     display: none;
@@ -2806,15 +2784,6 @@ body.radar-mode .badge-radar .badge-btn {
   body:not(.range-mode) .badge .interval-step {
     display: none;
   }
-  /* with the panel open its slider is already there: at the bottom only with the panel closed. It appears and
-     disappears sliding, with the bar growing and shrinking along */
-  body:has(#panel:not(.collapsed)) .m-step {
-    height: 0;
-    margin: 0 0 0 8px;
-    opacity: 0;
-    transform: translateY(6px);
-    pointer-events: none;
-  }
   .share-btn {
     order: 5;
     width: 34px;
@@ -2824,22 +2793,19 @@ body.radar-mode .badge-radar .badge-btn {
   body.radar-mode .badge .extra-close {
     margin-left: 4px;
   }
-  /* panel open: time, play and slider are already in the panel; only the legend stays at the bottom. The
-     controls row closes sliding down (like the slider) and the bar shrinks along */
+  /* opening the panel changes nothing in the box: controls, handle and legend stay as they are */
   .badge {
     transition: padding-top 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
   .badge > .badge-btn,
   .badge > .share-btn,
   .badge-m,
-  .badge-radar {
+  .badge-radar,
+  .legend-handle {
     transition:
       height 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
       opacity 0.2s ease,
       transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
-  }
-  body:has(#panel:not(.collapsed)) .badge {
-    padding-top: 8px;
   }
   @media (prefers-reduced-motion: reduce) {
     .badge,
@@ -2850,21 +2816,153 @@ body.radar-mode .badge-radar .badge-btn {
       transition: none;
     }
   }
-  body:has(#panel:not(.collapsed)) .badge > .badge-btn,
-  body:has(#panel:not(.collapsed)) .badge > .share-btn,
-  body:has(#panel:not(.collapsed)) .badge-m,
-  body:has(#panel:not(.collapsed)) .badge-radar {
-    height: 0;
-    opacity: 0;
-    overflow: hidden;
-    transform: translateY(6px);
-    pointer-events: none;
-  }
   .badge .legend {
     order: 7;
     flex-basis: 100%;
     padding: 10px 0 10px 8px;
     flex-wrap: wrap;
+  }
+  /* the legend stays folded until it is asked for with the handle at the top centre of the box (tap or swipe up);
+     it unfolds with the box growing along (max-height and padding animated, not display) */
+  .badge .legend {
+    max-height: 120px;
+    overflow: hidden;
+    transition:
+      max-height 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
+      padding 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
+      opacity 0.2s ease;
+  }
+  .badge:not(.legend-open) .legend {
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    opacity: 0;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .badge .legend {
+      transition: none;
+    }
+  }
+  .legend-handle {
+    display: flex;
+    order: -1;
+    flex-basis: 100%;
+    justify-content: center;
+    align-items: center;
+    height: 18px;
+    margin: 0 0 -4px 8px;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: pointer;
+    touch-action: none; /* the swipe is ours, not a page scroll */
+    -webkit-tap-highlight-color: transparent;
+  }
+  .legend-handle span {
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--muted);
+    opacity: 0.55;
+  }
+  /* nothing to show (visible satellite): no handle */
+  .badge:has(> .legend[hidden]) .legend-handle,
+  .badge:has(> .legend:empty) .legend-handle {
+    display: none;
+  }
+  /* compact bar (model maps, radar and satellite): a round play button on the left, as tall as the two rows on its
+     right (time, model and share above — layer name, time, share and close with radar/satellite — the slider below);
+     handle on top, legend at the bottom across the full width */
+  .badge {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    grid-template-rows: auto 28px 28px auto; /* handle, time row, slider row, legend */
+    align-items: center;
+    padding: 0 10px 12px 8px;
+  }
+  .badge > .legend-handle,
+  .badge > .legend {
+    grid-column: 1 / -1;
+  }
+  .badge > .legend-handle {
+    grid-row: 1;
+    margin: 0 0 -6px;
+  }
+  .badge > .legend {
+    grid-row: 4;
+    padding-left: 0;
+  }
+  body:not(.radar-mode) #m-play,
+  body.radar-mode .badge-radar #radar-play {
+    grid-column: 1;
+    grid-row: 2 / span 2;
+    width: 48px; /* a bit smaller than the two rows (2 × 28px), centred on them */
+    height: 48px;
+    translate: 0 3px; /* a little lower: lines up better with the slider knob */
+    margin-right: 12px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+  }
+  body:not(.radar-mode) #m-play svg,
+  body.radar-mode .badge-radar #radar-play svg {
+    width: 20px;
+    height: 20px;
+  }
+  body:not(.radar-mode) .badge-m-time {
+    grid-column: 2;
+    grid-row: 2;
+    height: 28px;
+    padding-left: 0;
+    align-self: end;
+    translate: 0 2px; /* a touch closer to the slider */
+  }
+  body:not(.radar-mode) .badge-m-model {
+    grid-column: 3;
+    grid-row: 2;
+    max-width: 40vw;
+    translate: 0 2px;
+  }
+  body:not(.radar-mode) .badge > #share {
+    grid-column: 4;
+    grid-row: 2;
+    height: 28px;
+  }
+  body:not(.radar-mode) .badge .m-step {
+    grid-column: 2 / -1;
+    grid-row: 3;
+    width: 100%;
+    margin: 0;
+    height: 28px;
+  }
+  /* radar and satellite: the bar's own box dissolves, its play, text and slider go into the same grid */
+  body.radar-mode .badge .badge-radar {
+    display: contents;
+  }
+  body.radar-mode .badge-radar-text {
+    grid-column: 2;
+    grid-row: 2;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    translate: 0 2px;
+  }
+  body.radar-mode .badge > #share {
+    grid-column: 3;
+    grid-row: 2;
+    height: 28px;
+  }
+  body.radar-mode .badge > .extra-close {
+    grid-column: 4;
+    grid-row: 2;
+    height: 28px;
+  }
+  body.radar-mode .badge-radar #radar-slider {
+    grid-column: 2 / -1;
+    grid-row: 3;
+    width: 100%;
+    height: 28px;
   }
   /* compact legend above the run label: unit on the left, colour bar with the thresholds below */
   .legend {
@@ -3191,21 +3289,13 @@ body.radar-mode .badge-radar .badge-btn {
   stroke-width: 1;
   stroke-dasharray: 3 3;
 }
+/* reading line and line of the point card: the same, dashed */
 .chart-body .ch-cursor {
   stroke: var(--fg);
   stroke-width: 1;
+  stroke-dasharray: 3 3;
   opacity: 0.6;
 }
-.chart-body .ch-cursor.pinned {
-  stroke: var(--accent);
-  stroke-width: 2;
-  opacity: 1;
-}
-@media (hover: none) {
-  .chart-body .ch-cursor:not(.pinned) {
-    stroke-dasharray: 3 3;
-  }
-} /* time pinned with a click or a tap */
 .chart-body .ch-zero {
   stroke: var(--muted);
   stroke-width: 1;
@@ -3223,7 +3313,11 @@ body.radar-mode .badge-radar .badge-btn {
     sans-serif;
   font-variant-numeric: tabular-nums;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
-  white-space: nowrap;
+  /* on one line at its natural width; wider than the chart (phone, long precipitation row): it wraps instead of
+     going off the left edge */
+  width: max-content;
+  max-width: calc(100% - 8px);
+  overflow-wrap: break-word;
 }
 .chart-tip b {
   font-weight: 650;
@@ -3243,109 +3337,38 @@ body.radar-mode .badge-radar .badge-btn {
 .chart-tip .ens-vals b {
   justify-self: end; /* right-aligned: units under each other, also with negative values */
 }
+/* point card (click or tap): the same dark tooltip, but it takes the clicks (its ✕) */
 .chart-tip.pinned {
   pointer-events: auto;
-  padding: 8px 10px 6px;
-  background: var(--panel);
-  color: var(--fg);
-  border: 1.5px solid var(--accent);
-  box-shadow: var(--shadow);
 }
-.chart-tip.pinned .t {
-  color: var(--accent);
-  font-weight: 650;
-}
-.chart-tip-actions {
+/* ✕ of the point card, at the right of the time */
+.chart-tip .t {
   display: flex;
   align-items: center;
-  gap: 2px;
-  margin: 6px -4px 0;
-  padding-top: 4px;
-  border-top: 1px solid var(--line);
+  justify-content: space-between;
+  gap: 10px;
 }
-.chart-tip-actions button {
-  height: 30px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 5px;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-.chart-tip-actions [data-act="remove"] {
-  margin-left: auto;
-  color: var(--muted);
-}
-.chart-tip-actions button:disabled {
-  opacity: 0.5;
-  cursor: progress;
-}
-/* pinned time: bar at the bottom of the chart dialog, always visible; values on the left (in several columns if there is
-   room), actions on the right */
-.chart-readout {
+.chart-tip-close {
   flex: none;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 4px 12px;
-  align-items: start;
-  padding-top: 10px;
-  margin-right: 14px;
-  border-top: 1px solid var(--line);
-  color: var(--fg);
-  font-size: 12px;
-  line-height: 1.5;
-  font-variant-numeric: tabular-nums;
-}
-.chart-readout-values {
-  display: flex;
-  flex-wrap: wrap;
-  column-gap: 22px;
-} /* side by side where there is room */
-.chart-readout-values .t {
-  flex-basis: 100%;
-  color: var(--muted);
-  margin-bottom: 2px;
-}
-@media (max-width: 600px) {
-  .chart-readout-values {
-    flex-direction: column;
-  }
-} /* phone: one per row */
-.chart-readout-values b {
-  font-weight: 650;
-}
-.chart-readout-links {
-  display: flex;
-}
-@media (max-width: 600px) {
-  .chart-readout-links {
-    display: grid;
-    justify-items: end;
-  }
-} /* phone: one below the other */
-.chart-readout-links button {
-  padding: 3px 6px;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin: -5px -6px -5px 0;
+  padding: 0;
   border: 0;
-  border-radius: 5px;
+  border-radius: 6px;
   background: none;
+  color: rgba(255, 255, 255, 0.7);
   font: inherit;
-  font-weight: 600;
-  color: var(--accent);
+  font-size: 13px;
   cursor: pointer;
 }
 @media (hover: hover) {
-  .chart-readout-links button:hover {
-    background: var(--accent-tint);
+  .chart-tip-close:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
   }
-}
-.chart-readout-links button[data-act="remove"] {
-  color: var(--muted);
-}
-.chart-readout-links button:disabled {
-  opacity: 0.5;
-  cursor: progress;
 }
 .chart-body .ch-pin-dot {
   stroke: var(--bg);
@@ -3510,13 +3533,9 @@ body.no-data .wm-native-map canvas {
     opacity: 0;
     pointer-events: none;
   }
-  body.radar-mode .wm-mapbox-logo {
-    margin-bottom: calc(
-      104px + max(0px, env(safe-area-inset-bottom) - 12px)
-    ) !important;
-  } /* radar and satellite: the bar does not change */
-  /* soundings: no bar or legend at the bottom, the logo stays fixed in the corner */
-  body.snd-mode .wm-mapbox-logo {
+  /* soundings and ensemble: no bar or legend at the bottom, the logo stays fixed in the corner */
+  body.snd-mode .wm-mapbox-logo,
+  body.ens-mode .wm-mapbox-logo {
     margin-bottom: calc(
       8px + max(0px, env(safe-area-inset-bottom) - 12px)
     ) !important;
@@ -4319,6 +4338,16 @@ body.snd-mode .legend,
 body.snd-mode .badge {
   display: none !important;
 }
+/* ensemble mode (Extra layers): as with the soundings the model layers and the top bar go away, but the places stay
+   (with their name): tapping one, or any point of the map, opens the spaghetti */
+body.ens-mode .wm-overlay,
+body.ens-mode .leaflet-contours-pane,
+body.ens-mode .leaflet-contourLabels-pane,
+body.ens-mode .leaflet-arrows-pane,
+body.ens-mode .legend,
+body.ens-mode .badge {
+  display: none !important;
+}
 .snd-missing .snd-dot {
   background: var(--warn-title); /* same orange as the notices */
   color: #1d2330;
@@ -4337,6 +4366,7 @@ body.snd-mode .badge {
 }
 .extra-tile {
   display: grid;
+  align-content: start; /* a name on two lines makes the row taller: the pictures stay aligned at the top */
   gap: 5px;
   padding: 4px 4px 6px;
   border: 1px solid var(--line);
