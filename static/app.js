@@ -6658,12 +6658,13 @@
         ? chartUi.details.textContent // already says "Ensemble GFS/ECMWF" or "Modelli a confronto"
         : `${meta.models.find((entry) => entry.id === model)?.label || model} · ${chartUi.details.textContent}`;
     // 4:5 portrait image (2160 × 2700 px): full format on Instagram, whole in chats; the panels stretch.
-    // Drawn on 600 × 750 points scaled up 3.6 times: texts and lines in proportion as in the page on the phone
-    // (on 1080 points, shrunk on screen, everything looked tiny)
-    const OW = 600,
-      OH = 750,
+    // Drawn on 720 × 900 points scaled up 3 times: texts a bit smaller than in the page on the phone and taller
+    // panels, so the axes get the same steps as on screen (on 600 × 750 the texts looked big and the steps doubled;
+    // on 1080 points, shrunk on screen, everything looked tiny)
+    const OW = 720,
+      OH = 900,
       M = 28,
-      K = 3.6,
+      K = 3,
       FOOT = 30; // sizes, margin, scale, space for "Realizzato da" at the bottom
     const EW = OW - 2 * M + CHART_R; // SVG width (on the right its inner margin replaces M)
     const TOP = M + 78; // title, subtitle and space before the charts
@@ -8244,6 +8245,7 @@
         data: points(V.t850),
         dec: 1,
         zero: true,
+        grid: 1, // a line every degree, or every 2, 4... with wide ranges
         tip: () => "T 850 hPa",
       });
     // freezing level: the model gives no value where it is below the ground (the whole column below 0 °C, e.g. on high
@@ -8268,6 +8270,7 @@
         data,
         info,
         dec: 0,
+        grid: 250, // a line every 250 m, or every 500, 1000... with wide ranges
         span: 1000, // at least 1000 m on the axis: a few values (freezing level mostly below the ground) do not look broken
         tip: () => "Zero termico",
       });
@@ -8379,6 +8382,19 @@
         }
       }
       if (p.min != null && p.kind === "line") lo = Math.max(0, lo);
+      if (p.grid) {
+        // one line (with its number) every `grid` units (1 °C, 250 m), or every 2, 4, 8... times that when the
+        // range is wide: the smallest step that keeps the lines at least 12 px apart in the panel
+        if (vals.every((y) => y >= 0)) lo = Math.max(0, lo); // no negative heights below the curve
+        // the ends stay on the values (with their margin): lines and numbers only inside
+        let step = p.grid;
+        while ((step * p.h) / Math.max(hi - lo, step) < 12) step *= 2;
+        const ticks = [];
+        for (let t = Math.ceil(lo / step) * step; t <= hi + 1e-9; t += step)
+          ticks.push(t);
+        p.scale = { ticks, lo, hi };
+        continue;
+      }
       const ticks = niceTicks(lo, hi);
       p.scale = {
         ticks,
@@ -9767,8 +9783,10 @@
     ui.appReload.addEventListener("click", () => location.reload());
     // when reopening the app iOS shows the page kept in memory, with the runs of that time. Instead of reloading it
     // all (splash screen again), the map stays blurred under "Controllo gli aggiornamenti": new runs and steps are
-    // loaded in place; only a new version of the app reloads the page. Not if a dialog is open (sharing, chart):
-    // coming back from the app the image was shared to, what you were doing would be lost.
+    // loaded in place; only a new version of the app reloads the page. Not if a dialog is open (sharing, place
+    // name...): coming back from the app the image was shared to, what you were doing would be lost. The chart is
+    // the exception for the version only: it is in the address (place, model, run, time) and the reloaded page
+    // opens it again as it was; its runs are not refreshed underneath.
     let hiddenAt = 0;
     let resuming = false;
     document.addEventListener("visibilitychange", () => {
@@ -9778,9 +9796,13 @@
       }
       const away = hiddenAt ? Date.now() - hiddenAt : 0;
       hiddenAt = 0;
-      if (away > 0 && !document.querySelector("dialog[open]")) resumeApp(away);
+      if (away <= 0) return;
+      const open = [...document.querySelectorAll("dialog[open]")];
+      if (!open.length) resumeApp(away);
+      else if (open.length === 1 && open[0] === chartUi.dialog)
+        resumeApp(away, true);
     });
-    async function resumeApp(away) {
+    async function resumeApp(away, versionOnly = false) {
       if (resuming || !meta) return;
       resuming = true;
       const overlay = $("resume-overlay");
@@ -9788,7 +9810,7 @@
       // the check takes more than a moment: with a new version found right away you go straight to its screen
       let shownAt = 0;
       const timer =
-        away > 15e3
+        away > 15e3 && !versionOnly
           ? setTimeout(() => {
               overlay.hidden = false;
               shownAt = Date.now();
@@ -9819,10 +9841,12 @@
           location.reload();
           return;
         }
-        await refreshRuns();
-        const changed = setupRuns(); // switches by itself to the new run when it is complete
-        if (changed) setupSteps();
-        if (changed || !current) await update();
+        if (!versionOnly) {
+          await refreshRuns();
+          const changed = setupRuns(); // switches by itself to the new run when it is complete
+          if (changed) setupSteps();
+          if (changed || !current) await update();
+        }
       } catch {
         /* offline: the map stays as it was, the 2-minute check retries */
       }
