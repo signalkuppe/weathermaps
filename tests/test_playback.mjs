@@ -1,3 +1,4 @@
+import { gzipSync } from "node:zlib";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -856,24 +857,39 @@ test("static ensemble samples the official run on its native grid", async () => 
   const context = vm.createContext({
     STATIC: true,
     URLSearchParams,
+    TextDecoder,
+    Response,
+    Blob,
+    DecompressionStream,
+    Uint8Array,
     meta: { ensemble: { gfs: info } },
     fetch: async (url) => {
       requests.push(url);
       const official = url.includes("/op/");
+      // the static site stores the points gzip-compressed (scripts/build_static.py)
+      const gz = gzipSync(JSON.stringify(official ? native : coarse));
       return {
         ok: !official || officialStatus === 200,
-        json: async () => structuredClone(official ? native : coarse),
+        arrayBuffer: async () =>
+          gz.buffer.slice(gz.byteOffset, gz.byteOffset + gz.byteLength),
+        json: async () => ({}), // server API (STATIC false): plain JSON
       };
     },
   });
   vm.runInContext(
     source.slice(
-      source.indexOf("  async function getEnsemble("),
-      source.indexOf("  function writeChartHash("),
-    ),
+      source.indexOf("  async function gunzip("),
+      source.indexOf("  /** Static site: field in compact format"),
+    ) +
+      source.slice(
+        source.indexOf("  async function getEnsemble("),
+        source.indexOf("  function writeChartHash("),
+      ),
     context,
   );
-  const point = await context.getEnsemble("gfs", 45.65, 9.85);
+  // parsed inside the sandbox (other realm): compared as plain data
+  const plain = (x) => JSON.parse(JSON.stringify(x));
+  const point = plain(await context.getEnsemble("gfs", 45.65, 9.85));
   assert.deepEqual(point.tp, coarse.tp);
   assert.deepEqual(point.op, native);
   assert.deepEqual(requests.sort(), [
@@ -888,7 +904,7 @@ test("static ensemble samples the official run on its native grid", async () => 
   delete info.op_grid;
   requests.length = 0;
   assert.deepEqual(
-    (await context.getEnsemble("gfs", 45.65, 9.85)).op,
+    plain((await context.getEnsemble("gfs", 45.65, 9.85)).op),
     coarse.op,
   );
   assert.equal(requests.length, 1);

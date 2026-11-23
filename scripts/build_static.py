@@ -29,6 +29,7 @@ Usage:  python scripts/build_static.py [OUT_DIR]   (default: ./public)
 from __future__ import annotations
 
 import hashlib
+import gzip
 import json
 import shutil
 import subprocess
@@ -71,9 +72,27 @@ def build_javascript(out_path: Path) -> None:
     )
 
 
+# Data files are stored gzip-compressed: GitHub Pages compresses on the wire but counts the stored size against its
+# 1 GB, and compressed the site weighs about a quarter. The page recognises the gzip header and decompresses them
+# (gunzip in static/app.js); meta.json and runs.json stay plain (small, and read by the update check).
+GZIP_LEVEL = 6  # 9 gains ~1% more and takes much longer on ~900 MB
+
+
+def _gzip(data: bytes) -> bytes:
+    return gzip.compress(data, compresslevel=GZIP_LEVEL, mtime=0)  # mtime=0: same content, same bytes
+
+
 def write_bin(path: Path, obj) -> int:
     path.parent.mkdir(parents=True, exist_ok=True)
-    data = packed.pack(obj)
+    data = _gzip(packed.pack(obj))
+    path.write_bytes(data)
+    return len(data)
+
+
+def write_json_gz(path: Path, obj) -> int:
+    """JSON data file, compressed (ensemble points): the page reads it with gunzip, like the .bin files."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = _gzip(json.dumps(obj, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
     path.write_bytes(data)
     return len(data)
 
@@ -183,10 +202,10 @@ def main(out_dir: Path) -> int:
         # GFS and ECMWF ensemble spaghetti: one file per point of their grid (see app/ensemble.py)
         nens = 0
         for model, iy, ix, body in ensemble.all_points(store):
-            size += write_json(out_dir / "data" / "ensemble" / model / body["run"] / f"{iy}_{ix}.json", body)
+            size += write_json_gz(out_dir / "data" / "ensemble" / model / body["run"] / f"{iy}_{ix}.json", body)
             nens += 1
         for model, rid, iy, ix, body in ensemble.all_operational_points(store):
-            size += write_json(out_dir / "data" / "ensemble" / model / rid / "op" / f"{iy}_{ix}.json", body)
+            size += write_json_gz(out_dir / "data" / "ensemble" / model / rid / "op" / f"{iy}_{ix}.json", body)
         # observed soundings: station index and one file per launch (see app/soundings.py)
         size += write_json(out_dir / "data" / "soundings" / "index.json", soundings.index(store))
         for st in soundings.index(store):

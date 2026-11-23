@@ -210,7 +210,11 @@ data from cache, downloads missing steps (`scripts/fetch_once.py`), generates th
 (`scripts/build_static.py`) and publishes it on GitHub Pages. Only complete runs are published as maps.
 
 Fields are published in a compact format (`.bin`, values as 16-bit integers, `app/packed.py`): about a third of the
-JSON, to stay well below GitHub Pages' 1 GB limit.
+JSON. The data files (fields, meteogram tiles and ensemble points) are also stored gzip-compressed: GitHub Pages
+compresses on the wire but counts the stored size against its 1 GB limit, and compressed the site weighs about a
+quarter (about 205 MB instead of 920 MB with all models). The page recognises the gzip header and decompresses them
+with `DecompressionStream` (Safari/iOS 16.4+, Chrome 80+, Firefox 113+); plain files are still read. `meta.json` and
+`runs.json` stay plain.
 On the static site Interval mode is computed in the browser. The incoming-run notice is informational: there is
 no manual download button. New data become available after the hourly publication.
 

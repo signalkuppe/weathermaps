@@ -33,12 +33,15 @@ const fetch = async (url) => {
   }
 };
 
-const ctx = vm.createContext({ TextDecoder, F32: new WeakMap(), STATIC: true, runs, fetch });
+const ctx = vm.createContext({
+  TextDecoder, F32: new WeakMap(), STATIC: true, runs, fetch,
+  Response, Blob, DecompressionStream, Uint8Array, // gunzip: the site's files are compressed
+});
 vm.runInContext(
-  slice("  function unpackField(buf) {", "  function getIntervalStatic(") +
+  slice("  async function gunzip(buf) {", "  function getIntervalStatic(") +
     slice("  function valueAt(f, lat, lon) {", "  function loadPlaces() {") +
     slice("  async function getSeries(", "  let climFile = null;") +
-    "\nglobalThis.api = { unpackField, valueAt, getSeries };",
+    "\nglobalThis.api = { gunzip, unpackField, valueAt, getSeries };",
   ctx,
 );
 
@@ -50,7 +53,9 @@ for (const q of req.queries) {
   } catch (e) {
     series = { error: String(e.message || e) };
   }
-  const map = q.field ? ctx.api.valueAt(ctx.api.unpackField(bufOf(join(req.site, q.field))), q.lat, q.lon) : null;
+  const map = q.field
+    ? ctx.api.valueAt(ctx.api.unpackField(await ctx.api.gunzip(bufOf(join(req.site, q.field)))), q.lat, q.lon)
+    : null;
   out.push({ series, map });
 }
 process.stdout.write(JSON.stringify(out));

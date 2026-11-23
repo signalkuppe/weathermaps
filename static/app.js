@@ -1940,12 +1940,25 @@
               ),
               { status: r.status },
             );
-          return STATIC ? unpackField(await r.arrayBuffer()) : r.json();
+          return STATIC ? unpackField(await gunzip(await r.arrayBuffer())) : r.json();
         });
       cache.set(url, pr);
       pr.catch(() => cache.delete(url));
     }
     return cache.get(url);
+  }
+
+  /** Static site: the data files are stored gzip-compressed (scripts/build_static.py), to stay well under the 1 GB of
+   *  GitHub Pages. Recognised by the gzip header (1f 8b 08): older plain files (or a server that already removed the
+   *  compression) pass through unchanged. DecompressionStream: Safari/iOS 16.4+, Chrome 80+, Firefox 113+. */
+  async function gunzip(buf) {
+    const b = new Uint8Array(buf);
+    if (!(b[0] === 0x1f && b[1] === 0x8b && b[2] === 8)) return buf;
+    if (typeof DecompressionStream === "undefined")
+      throw new Error("browser troppo vecchio per leggere i dati: aggiorna il browser");
+    return new Response(
+      new Blob([b]).stream().pipeThrough(new DecompressionStream("gzip")),
+    ).arrayBuffer();
   }
 
   /** Static site: field in compact format (see app/packed.py). JSON header with the value lists replaced
@@ -6163,7 +6176,7 @@
         );
         if (r.status === 404) return; // tile entirely outside the domain: it does not exist
         if (!r.ok) throw new Error("serie non disponibile per questo punto");
-        const t = unpackField(await r.arrayBuffer());
+        const t = unpackField(await gunzip(await r.arrayBuffer()));
         const cell = (iy - ty * g.block) * t.nx + (ix - tx * g.block);
         for (const [k, v] of Object.entries(t.vars)) {
           const n = v.steps.length;
@@ -6247,14 +6260,17 @@
       return `${iy}_${ix}.json`;
     };
     const base = `data/ensemble/${model}/${run}`;
+    // compressed JSON (see gunzip)
+    const readJson = async (r) =>
+      JSON.parse(new TextDecoder().decode(await gunzip(await r.arrayBuffer())));
     const official = opGrid
       ? fetch(`${base}/op/${pointFile(opGrid)}`)
-          .then((r) => (r.ok ? r.json() : null))
+          .then((r) => (r.ok ? readJson(r) : null))
           .catch(() => null)
       : null;
     const r = await fetch(`${base}/${pointFile(grid)}`);
     if (!r.ok) throw new Error("ensemble non disponibile per questo punto");
-    const data = await r.json();
+    const data = await readJson(r);
     if (opGrid) data.op = await official;
     return data;
   }

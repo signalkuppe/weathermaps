@@ -6,6 +6,7 @@
 - the series read by the real page (getSeries, unpackField and valueAt from app.js, in node) give the same values
   as the API and, for precipitation and snow, the same number as the map tooltip.
 """
+import gzip
 import json
 import re
 import shutil
@@ -96,12 +97,12 @@ def test_fields_match_api(site):
     d = site["out"] / "data" / "field" / "gfs"
     assert sorted(int(p.stem) for p in (d / "tp" / RUN).glob("*.bin")) == steps
     assert not (d / "u10").exists() and (d / "wind10" / RUN / "24.bin").exists()  # wind: u and v in one file
-    wind = packed.unpack((d / "wind10" / RUN / "24.bin").read_bytes())
+    wind = packed.unpack(gzip.decompress((d / "wind10" / RUN / "24.bin").read_bytes()))
     assert len(wind["u"]) == len(wind["v"]) == 29 * 53
     with TestClient(create_app(store=site["store"], start_scheduler=False)) as c:
         for step in (3, 24, steps[-1]):
             api = c.get("/api/field", params={"model": "gfs", "run": RUN, "var": "tp", "step": step}).json()
-            assert packed.unpack((d / "tp" / RUN / f"{step}.bin").read_bytes())["values"] == api["values"]
+            assert packed.unpack(gzip.decompress((d / "tp" / RUN / f"{step}.bin").read_bytes()))["values"] == api["values"]
 
 
 def test_soundings_and_summary(site):
@@ -120,7 +121,8 @@ def test_series_read_by_the_page(site, tmp_path):
     """The page's getSeries: same values as the API at every point (tile edges, missing cells, outside the
     domain) and, for precipitation, the same number as the map tooltip at the same step."""
     tiles = list((site["out"] / "data" / "series" / "gfs" / RUN).rglob("*.bin"))
-    kinds = {k for p in tiles for k in re.findall(rb'"\$([qz])"', p.read_bytes()[:20000])}
+    assert all(p.read_bytes()[:3] == b"\x1f\x8b\x08" for p in tiles)  # stored compressed
+    kinds = {k for p in tiles for k in re.findall(rb'"\$([qz])"', gzip.decompress(p.read_bytes())[:20000])}
     assert kinds == {b"q", b"z"}, "tiles with both value forms are needed"
     step = 120
     pts = [

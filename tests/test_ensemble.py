@@ -1,4 +1,5 @@
 """GFS and ECMWF ensembles (place spaghetti plots on the synoptic chart): indexes, storage, points for the page."""
+import gzip
 import json
 from pathlib import Path
 
@@ -152,7 +153,7 @@ def test_operational_run_on_its_own_grid(tmp_path: Path):
         patch.setattr(build_static, "Store", lambda: store)
         patch.setattr(build_static, "build_page", lambda _: None)
         assert build_static.main(output) == 0
-    exported = json.loads((output / "data" / "ensemble" / "gfs" / RUN / "op" / "3_3.json").read_text())
+    exported = json.loads(gzip.decompress((output / "data" / "ensemble" / "gfs" / RUN / "op" / "3_3.json").read_bytes()))  # stored compressed
     assert exported == point["op"]
     assert json.loads((output / "data" / "meta.json").read_text())["ensemble"]["gfs"]["op_grid"] == op_grid
     with TestClient(create_app(store=store, start_scheduler=False)) as client:
