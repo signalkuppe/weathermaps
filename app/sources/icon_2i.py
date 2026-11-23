@@ -1,6 +1,7 @@
 """ItaliaMeteo ICON-2I (2.2 km) from MeteoHub, "single variable" service (no authentication).
 
 For each run and variable there is a single file with all hourly steps (0..72h), ~85 MB.
+The rapid update cycle (ICON-2I RUC: a run every 3 hours, up to +24h) is published the same way in another folder.
 Instead of downloading all of it, the length of each GRIB message is read with small
 byte-range requests, then only the messages of the needed steps are downloaded.
 """
@@ -34,14 +35,15 @@ MODEL = ModelInfo(
 )
 
 ROOT = "https://meteohub.agenziaitaliameteo.it/nwp/ICON-2I_SURFACE_PRESSURE_LEVELS"
+PREFIX = "ICON_2I_SURFACE_PRESSURE_LEVELS"
 
 # offset and length of the messages per file (filled on the first request for each file)
 _offsets: dict[str, list[tuple[int, int]]] = {}
 
 
-def url(run: datetime, variable: Variable) -> str:
-    sel = variable.selectors["icon-2i"]
-    return f"{ROOT}/{run:%Y%m%d%H}/{sel.param}/ICON_2I_SURFACE_PRESSURE_LEVELS_{run:%Y%m%d%H}_{sel.levtype}-{sel.levelist}.grib"
+def url(run: datetime, variable: Variable, root: str = ROOT, prefix: str = PREFIX, model_id: str = "icon-2i") -> str:
+    sel = variable.selectors[model_id]
+    return f"{root}/{run:%Y%m%d%H}/{sel.param}/{prefix}_{run:%Y%m%d%H}_{sel.levtype}-{sel.levelist}.grib"
 
 
 def _range(client: httpx.Client, file_url: str, start: int, end: int) -> bytes:
@@ -77,9 +79,10 @@ def message_offsets(client: httpx.Client, file_url: str) -> list[tuple[int, int]
     return out
 
 
-def fetch(client: httpx.Client, run: datetime, step: int, variable: Variable, bbox: BBox) -> Field:
-    sel = variable.selectors["icon-2i"]
-    file_url = url(run, variable)
+def fetch(client: httpx.Client, run: datetime, step: int, variable: Variable, bbox: BBox,
+          root: str = ROOT, prefix: str = PREFIX, model_id: str = "icon-2i") -> Field:
+    sel = variable.selectors[model_id]
+    file_url = url(run, variable, root, prefix, model_id)
     offsets = message_offsets(client, file_url)
     wanted = f"0-{step}" if sel.step_range_prefix == "0-" else str(step)
     # steps are hourly from 0: normally the right message is at index `step`
@@ -92,3 +95,35 @@ def fetch(client: httpx.Client, run: datetime, step: int, variable: Variable, bb
         if fields and fields[0].step_range == wanted:
             return crop(select(fields, sel), bbox)
     raise NotAvailable(f"ICON-2I {run:%Y%m%d%H} +{step}h non trovato nel file")
+
+
+class _Ruc:
+    """ICON-2I RUC: the same model restarted every 3 hours with the latest observations, up to +24h. Same files as
+    ICON-2I in another folder; out ~1h15 after the start (some runs are skipped)."""
+
+    MODEL = ModelInfo(
+        id="icon-2i-ruc",
+        label="ICON-2I RUC 2 km",
+        short="ICON-2I RUC",
+        resolution=0.025,
+        cycles=(0, 3, 6, 9, 12, 15, 18, 21),
+        delay_hours=1.0,
+        max_step=24,
+        country="it",
+        description=(
+            "ICON-2I in aggiornamento rapido (Rapid Update Cycle) di ItaliaMeteo e ARPAE-SIMC: lo stesso modello a "
+            "2,2 km sull'Italia, ripartito ogni 3 ore con le osservazioni più recenti, fino a +24h. "
+            "La previsione più fresca per le prossime ore su tutta Italia."
+        ),
+    )
+    ROOT = "https://meteohub.agenziaitaliameteo.it/nwp/ICON_2I_RUC"
+    PREFIX = "ICON_2I_RUC"
+
+    def url(self, run: datetime, variable: Variable) -> str:
+        return url(run, variable, self.ROOT, self.PREFIX, self.MODEL.id)
+
+    def fetch(self, client: httpx.Client, run: datetime, step: int, variable: Variable, bbox: BBox) -> Field:
+        return fetch(client, run, step, variable, bbox, self.ROOT, self.PREFIX, self.MODEL.id)
+
+
+ruc = _Ruc()

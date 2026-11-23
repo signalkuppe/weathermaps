@@ -11,7 +11,7 @@ from app.grid import Field
 from app.variables import COMBOS, REGISTRY, VECTORS, menu, rh_from_q
 
 K = 273.15
-MODELS = {"gfs", "ecmwf", "ecmwf-hres", "aifs", "icon-2i", "icon-d2", "wrf", "moloch"}
+MODELS = {"gfs", "ecmwf", "ecmwf-hres", "aifs", "icon-2i", "icon-2i-ruc", "icon-d2", "wrf", "moloch"}
 
 
 def test_rh_from_specific_humidity():

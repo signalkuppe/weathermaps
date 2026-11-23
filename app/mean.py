@@ -85,6 +85,10 @@ def build_mean(store: Store | None = None) -> dict:
         _lock.release()
 
 
+# ICON-2I RUC is a newer run of ICON-2I: in the median it would count the same model twice
+EXCLUDED = {"icon-2i-ruc"}
+
+
 def _build(store: Store) -> dict:
     from .fetcher import latest_complete  # local import: avoids the cycle fetcher -> mean -> fetcher
 
@@ -98,7 +102,7 @@ def _build(store: Store) -> dict:
     # only the latest complete run of each model is kept: that is the one entering the median.
     # A single start time T0 for all fields (the most recent, rounded to 6 hours), so the median has a single
     # run; models started after T0 join from their first steps (negative offset).
-    all_models = {m for var in variables.REGISTRY.values() for m in var.selectors}
+    all_models = {m for var in variables.REGISTRY.values() for m in var.selectors} - EXCLUDED
     latest = {m: r for m in all_models if (r := latest_complete(store, m))}
     if not latest:
         return summary

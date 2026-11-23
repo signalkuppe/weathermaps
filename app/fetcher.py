@@ -22,12 +22,12 @@ from .store import Store
 
 log = logging.getLogger("weathermaps.fetcher")
 
-SOURCES = {src.MODEL.id: src for src in (gfs, ecmwf, ecmwf_hres, aifs, icon_2i, wrf, moloch, icon_d2, arome, icon_ch2, icon_ch1)}
+SOURCES = {src.MODEL.id: src for src in (gfs, ecmwf, ecmwf_hres, aifs, icon_2i, icon_2i.ruc, wrf, moloch, icon_d2, arome, icon_ch2, icon_ch1)}
 # models shown: the sources plus the median (computed, not downloaded)
 MODELS = {**{m.MODEL.id: m.MODEL for m in SOURCES.values()}, mean.MODEL.id: mean.MODEL}
 
 # pause between requests so as not to stress the public servers
-REQUEST_PAUSE = {"gfs": 0.4, "ecmwf": 0.1, "ecmwf-hres": 0.1, "aifs": 0.1, "icon-ch2": 0.1, "icon-ch1": 0.1, "icon-d2": 0.1, "icon-2i": 0.1, "wrf": 0.1, "moloch": 0.1, "arome": 0.1}
+REQUEST_PAUSE = {"gfs": 0.4, "ecmwf": 0.1, "ecmwf-hres": 0.1, "aifs": 0.1, "icon-ch2": 0.1, "icon-ch1": 0.1, "icon-d2": 0.1, "icon-2i": 0.1, "icon-2i-ruc": 0.1, "wrf": 0.1, "moloch": 0.1, "arome": 0.1}
 RETRIES = 3
 
 _locks = {m: threading.Lock() for m in SOURCES}

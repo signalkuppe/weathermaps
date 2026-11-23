@@ -7434,6 +7434,7 @@
     aifs: "#66d9e8",
     "icon-d2": "#fab005",
     "icon-2i": "#fd7e14",
+    "icon-2i-ruc": "#ffc078",
     "icon-ch1": "#f06595",
     "icon-ch2": "#cc5de8",
     arome: "#4dabf7",

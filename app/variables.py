@@ -544,6 +544,24 @@ register(
 )
 
 
+# Snowfall limit (ICON-2I RUC only, which has no freezing level): height where precipitation turns from rain to snow,
+# from the wet-bulb temperature; missing where there is no transition (all above or below)
+register(
+    Variable(
+        id="snowlmt",
+        label="Quota neve",
+        units="m",
+        kind="instant",
+        selectors={"icon-2i-ruc": GribSelector(param="SNOWLMT", levtype="isothermZero", levelist="0")},
+        convert={"icon-2i-ruc": _hzero_m},
+        scale=HZERO_SCALE,
+        decimals=0,
+        rank="asc",  # ranking: lowest snowfall limit first
+        contours={"label": "Isolinee", "step": 250, "bold": [1000, 2000, 3000, 4000]},
+    )
+)
+
+
 # Wind: the two components (eastward `u` and northward `v`, in km/h) are downloaded as hidden fields; the page
 # derives speed (colours) and direction (arrows) from them. At half resolution to stay within the GitHub Pages limit.
 # The model median is taken component by component, so opposite directions cancel out.
@@ -772,6 +790,11 @@ for _var in REGISTRY.values():
         for _model in ("aifs",) if _var.area else ("ecmwf-hres", "aifs"):
             _var.selectors[_model] = _var.selectors["ecmwf"]
             _var.convert[_model] = _var.convert["ecmwf"]
+# ICON-2I RUC: same files and names as ICON-2I, without the freezing level (not published)
+for _var in REGISTRY.values():
+    if "icon-2i" in _var.selectors and _var.id != "hzero":
+        _var.selectors["icon-2i-ruc"] = _var.selectors["icon-2i"]
+        _var.convert["icon-2i-ruc"] = _var.convert["icon-2i"]
 # ...but the AIFS gives precipitation and snow already in kg m-2 (mm), the IFS in metres
 REGISTRY["tp"].convert["aifs"] = _identity
 REGISTRY["sf"].convert["aifs"] = _mm_to_snow_cm

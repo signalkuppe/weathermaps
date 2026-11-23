@@ -18,6 +18,7 @@ The app's interface is in Italian; the code, comments and documentation are in E
 | ECMWF IFS 0.1°         | ECMWF Open Data                     | 0.1° (~9 km)     | +192h       | 00/12         |
 | ECMWF AIFS             | ECMWF Open Data (machine learning)  | 0.25°            | +192h, 6h   | 00/06/12/18   |
 | ICON-2I                | ItaliaMeteo (MeteoHub)              | 2.2 km           | +72h        | 00/12         |
+| ICON-2I RUC            | ItaliaMeteo (MeteoHub)              | 2.2 km           | +24h        | every 3 hours |
 | WRF                    | ItaliaMeteo, CIMA, LaMMA (MeteoHub) | 1.5 km           | +72h        | 00/12         |
 | MOLOCH                 | CNR-ISAC, ItaliaMeteo (MeteoHub)    | ~1 km            | +72h        | 00/12         |
 | ICON-D2                | DWD Open Data                       | 2.2 km           | +48h        | every 3 hours |
@@ -33,6 +34,7 @@ Fields available per model:
 | GFS            | ✓             | ✓         | ✓                   | ✓                  | — (snowfall is not published) | ✓                        |
 | ECMWF (all 3)  | ✓             | ✓         | ✓                   | ✓                  | ✓                             | — (not in the open data) |
 | ICON-2I        | ✓             | ✓         | ✓                   | ✓                  | ✓                             | ✓                        |
+| ICON-2I RUC    | ✓             | ✓         | ✓                   | ✓                  | ✓                             | — (snowfall limit instead) |
 | WRF            | ✓             | ✓         | ✓                   | T only             | —                             | —                        |
 | MOLOCH         | ✓             | ✓         | ✓                   | T only             | ✓                             | —                        |
 | ICON-D2        | ✓             | ✓         | ✓                   | ✓                  | ✓                             | ✓                        |
@@ -287,6 +289,10 @@ Keep the external token valid and check the cron service's execution history.
 - ECMWF: [Open Data](https://www.ecmwf.int/en/forecasts/datasets/open-data), CC-BY-4.0 licence
 - ItaliaMeteo: [ICON-2I on MeteoHub](https://dati.agenziaitaliameteo.it/dataset/previsioni-meteorologiche-modello-icon-2i),
   CC-BY licence, "single variable" service (only the messages of the needed steps are downloaded).
+- ICON-2I RUC (rapid update cycle): [MeteoHub](https://meteohub.agenziaitaliameteo.it/nwp/ICON_2I_RUC/), the same
+  files as ICON-2I in another folder, a run every 3 hours up to +24h. No freezing level: it has the **snowfall limit**
+  instead ("Quota neve", height where precipitation turns from rain to snow, from the wet bulb), shown as a field of
+  its own; it is missing where the ground is above it. Left out of the model median (it would count ICON-2I twice).
 - WRF: [MeteoHub](https://meteohub.agenziaitaliameteo.it/nwp/), "single variable" service; only the GRIB2 message
   headers are read and the needed steps downloaded. Lambert grid remapped to ~1.6 km with the nearest point.
 - MOLOCH (CNR-ISAC): [MeteoHub](https://meteohub.agenziaitaliameteo.it/nwp/), same service as WRF, CC-BY-SA

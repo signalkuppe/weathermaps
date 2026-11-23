@@ -173,6 +173,9 @@ def test_icon_2i_urls():
     run = _dt(2026, 11, 9, 12)
     assert icon_2i.url(run, get("tp")).endswith("/2026110912/TOT_PREC/ICON_2I_SURFACE_PRESSURE_LEVELS_2026110912_surface-0.grib")
     assert icon_2i.url(run, get("t850")).endswith("/2026110912/T/ICON_2I_SURFACE_PRESSURE_LEVELS_2026110912_isobaricInhPa-850.grib")
+    # rapid update cycle: same names in another folder, without the freezing level
+    assert icon_2i.ruc.url(run, get("sf")).endswith("/ICON_2I_RUC/2026110912/SNOW_GSP/ICON_2I_RUC_2026110912_surface-0.grib")
+    assert "icon-2i-ruc" not in get("hzero").selectors and icon_2i.ruc.MODEL.max_step == 24
 
 
 # ---------- interpolation for the mean
