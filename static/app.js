@@ -6639,7 +6639,7 @@
   const chartCss = (c) =>
     [
       // the page classes do not apply inside an image: same styles and colours
-      `.ch-title{font:650 12.5px system-ui,sans-serif;fill:${c.fg}}.ch-note{font-weight:400;font-size:11.5px;fill:${c.muted}}.ch-leg{font:400 11.5px system-ui,sans-serif;fill:${c.muted}}.ch-leg tspan{font-weight:650;fill:${c.fg}}`,
+      `.ch-title{font:600 12.5px system-ui,sans-serif;fill:${c.fg}}.ch-note{font-weight:400;font-size:11.5px;fill:${c.muted}}.ch-leg{font:400 11.5px system-ui,sans-serif;fill:${c.muted}}.ch-leg tspan{font-weight:600;fill:${c.fg}}`,
       `.ch-tick{font:11px system-ui,sans-serif;fill:${c.muted}}.ch-grid{stroke:${c.line};stroke-width:1}`,
       `.ch-info-bg{fill:${c.bg}}.ch-info{fill:${WARN};fill-opacity:.08;stroke:${WARN};stroke-opacity:.35;stroke-width:1}`,
       `.ch-info-text{font:11.5px system-ui,sans-serif;fill:${c.fg}}`,
@@ -6658,13 +6658,13 @@
         ? chartUi.details.textContent // already says "Ensemble GFS/ECMWF" or "Modelli a confronto"
         : `${meta.models.find((entry) => entry.id === model)?.label || model} · ${chartUi.details.textContent}`;
     // 4:5 portrait image (2160 × 2700 px): full format on Instagram, whole in chats; the panels stretch.
-    // Drawn on 720 × 900 points scaled up 3 times: texts a bit smaller than in the page on the phone and taller
-    // panels, so the axes get the same steps as on screen (on 600 × 750 the texts looked big and the steps doubled;
-    // on 1080 points, shrunk on screen, everything looked tiny)
-    const OW = 720,
-      OH = 900,
-      M = 28,
-      K = 3,
+    // Drawn on 800 × 1000 points scaled up 2.7 times: texts smaller than in the page on the phone and taller panels,
+    // so the axes get the same steps as on screen (on 600 × 750 the texts looked big and the steps doubled; on 1080
+    // points, shrunk on screen, everything looked tiny). Margin in proportion (28 on 600)
+    const OW = 800,
+      OH = 1000,
+      M = 36,
+      K = 2.7,
       FOOT = 30; // sizes, margin, scale, space for "Realizzato da" at the bottom
     const EW = OW - 2 * M + CHART_R; // SVG width (on the right its inner margin replaces M)
     const TOP = M + 78; // title, subtitle and space before the charts
@@ -7022,7 +7022,7 @@
       const Y = (y) => bot - ((y - lo) / (hi - lo || 1)) * p.ph;
       Object.assign(p, { top, bot, Y });
       svg.push(
-        `<text class="ch-title" x="0" y="${top - 20}">${p.title} <tspan class="ch-note">(${p.unit})</tspan></text>`,
+        `<text class="ch-title" x="0" y="${top - 20}">${p.title}<tspan class="ch-note" dx="4">(${p.unit})</tspan></text>`,
       );
       for (const t of ticks) {
         svg.push(
@@ -7555,7 +7555,7 @@
     const X = (h) => L + ((h - x0) / (x1 - x0 || 1)) * pw;
     const Y = (y) => bot - ((y - lo) / (hiT - lo || 1)) * PH;
     const svg = [
-      `<text class="ch-title" x="0" y="${top - 20}">${temp ? "Temperatura 850 hPa" : "Precipitazione"} <tspan class="ch-note">(${temp ? unit : `${unit}, cumulata`})</tspan></text>`,
+      `<text class="ch-title" x="0" y="${top - 20}">${temp ? "Temperatura 850 hPa" : "Precipitazione"}<tspan class="ch-note" dx="4">(${temp ? unit : `${unit}, cumulata`})</tspan></text>`,
     ];
     if (temp && lo < 0)
       svg.push(
@@ -8372,7 +8372,8 @@
         lo = Math.min(lo, 0);
         hi = Math.max(hi, 0);
       }
-      if (p.kind === "line") {
+      // grid panels: no margin, the scale closes on the first line below and above the values (see p.grid)
+      if (p.kind === "line" && !p.grid) {
         const pad = (hi - lo) * 0.1 || 1;
         lo -= p.min != null && lo >= 0 ? 0 : pad;
         hi += pad;
@@ -8384,16 +8385,30 @@
       }
       if (p.min != null && p.kind === "line") lo = Math.max(0, lo);
       if (p.grid) {
-        // one line (with its number) every `grid` units (1 °C, 250 m), or every 2, 4, 8... times that when the
-        // range is wide: the smallest step that keeps the lines at least 12 px apart in the panel
+        // a line every `grid` units (1 °C, 250 m), or every 2, 4, 8... times that when the range is wide: the
+        // smallest step that keeps the lines at least 8 px apart. Numbers only on some lines, at least 16 px apart
+        // (on the phone: a line every degree, a number every 2). The scale closes on a line below and one above the
+        // values, so the curve never goes past the grid and every panel looks the same
+        if (p.span && hi - lo < p.span) {
+          const mid = (hi + lo) / 2; // minimum width of the scale, around the values
+          lo = mid - p.span / 2;
+          hi = mid + p.span / 2;
+        }
         if (vals.every((y) => y >= 0)) lo = Math.max(0, lo); // no negative heights below the curve
-        // the ends stay on the values (with their margin): lines and numbers only inside
-        let step = p.grid;
-        while ((step * p.h) / Math.max(hi - lo, step) < 12) step *= 2;
+        let step = p.grid,
+          a,
+          b;
+        for (;;) {
+          a = Math.floor(lo / step) * step;
+          b = Math.max(Math.ceil(hi / step) * step, a + step);
+          if ((step * p.h) / (b - a) >= 8) break;
+          step *= 2;
+        }
+        let every = step;
+        while ((every * p.h) / (b - a) < 16) every *= 2;
         const ticks = [];
-        for (let t = Math.ceil(lo / step) * step; t <= hi + 1e-9; t += step)
-          ticks.push(t);
-        p.scale = { ticks, lo, hi };
+        for (let t = a; t <= b + 1e-9; t += step) ticks.push(t);
+        p.scale = { ticks, lo: a, hi: b, every };
         continue;
       }
       const ticks = niceTicks(lo, hi);
@@ -8418,22 +8433,25 @@
         top = panelTop + HEAD,
         bot = top + PH;
       panelTop = bot + GAP;
-      const { ticks, lo, hi } = p.scale;
+      const { ticks, lo, hi, every } = p.scale;
       const Y = (y) => bot - ((y - lo) / (hi - lo || 1)) * PH;
       p.Y = Y;
       p.top = top;
       p.bot = bot;
       const pd = pin != null ? valueAt(p, pin) : null;
+      // the unit after a fixed 4 px, not after a space: Safari can draw "(°C)" with another font and a wider space
       svg.push(
-        `<text class="ch-title" x="0" y="${top - 20}">${p.title} <tspan class="ch-note">(${p.unit})${p.note ? " · " + p.note : ""}</tspan></text>`,
+        `<text class="ch-title" x="0" y="${top - 20}">${p.title}<tspan class="ch-note" dx="4">(${p.unit})${p.note ? " · " + p.note : ""}</tspan></text>`,
       );
       for (const t of ticks) {
         svg.push(
           `<line class="ch-grid" x1="${L}" x2="${L + pw}" y1="${Y(t)}" y2="${Y(t)}"/>`,
         );
-        svg.push(
-          `<text class="ch-tick" x="${L - 4}" y="${Y(t) + 3.5}" text-anchor="end">${tickText(t)}</text>`,
-        );
+        // grid panels: numbers only on the lines that are multiples of `every` (the others are left blank)
+        if (!every || Math.abs(t / every - Math.round(t / every)) < 1e-9)
+          svg.push(
+            `<text class="ch-tick" x="${L - 4}" y="${Y(t) + 3.5}" text-anchor="end">${tickText(t)}</text>`,
+          );
       }
       if (p.zero && lo < 0 && hi > 0)
         svg.push(
