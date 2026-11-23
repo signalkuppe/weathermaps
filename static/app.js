@@ -8864,7 +8864,9 @@
         : null;
       if (d) text += ` da ${d.name}`;
     }
-    if (currentContour) {
+    // the lines' field of the entry shown: after a change of entry the old one stays until the new map is loaded,
+    // and the new entry may have no lines (no name for them)
+    if (currentContour && variable().contour_field) {
       const z = valueAt(currentContour, e.latlng.lat, e.latlng.lng);
       if (z != null)
         text += ` · ${contourName().toLowerCase()} <b>${Math.round(z)}</b> ${currentContour.units}`;
@@ -8940,7 +8942,7 @@
     let t = `${v.toFixed(variable().decimals)} ${current.units}`;
     const d = current.u ? windDirAt(current, ll.lat, ll.lng) : null;
     if (d) t += ` da ${d.name}`;
-    if (currentContour) {
+    if (currentContour && variable().contour_field) {
       const z = valueAt(currentContour, ll.lat, ll.lng);
       if (z != null)
         t += ` · ${contourName().toLowerCase()} ${Math.round(z)} ${currentContour.units}`;
