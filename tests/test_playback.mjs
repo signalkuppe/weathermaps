@@ -530,6 +530,7 @@ test("switching between model maps and extra layers resets zoom to the current m
     radarIdx: -1,
     radarAutoplay: false,
     radarReadyOnce: false,
+    applyNoData() {}, // the model's "not available" state, not under test here
     glBase: { stop: () => stops.push("mapbox") },
     glImgs: new Map(),
     map: {

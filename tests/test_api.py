@@ -73,6 +73,13 @@ def test_runs_only_latest_complete_and_incoming(tmp_path: Path):
     assert [x["run"] for x in r] == [new, newer]
     assert "incoming" not in r[0] and r[1]["incoming"] is True
     assert r[1]["variables"]["tp"]["steps"] == [3] and r[1]["variables"]["tp"]["expected"] == 56
+    # when each run last got data (the page names the model updated last): the newest field folder
+    import os
+    tp_dir = store.var_dir("gfs", new, "tp")
+    os.utime(tp_dir, (1795000000, 1795000000))
+    with TestClient(create_app(store=store, start_scheduler=False)) as c:
+        r = c.get("/api/runs").json()["gfs"]
+    assert r[0]["updated_at"] >= "2026-11-17T" and r[1]["updated_at"].endswith("+00:00")
     # cleanup: the most recent complete run and the incoming one remain
     assert runs_to_keep(store, "gfs", [newer, new]) == {new, newer}
     assert store.purge_superseded("gfs", {new, newer}) == [old]

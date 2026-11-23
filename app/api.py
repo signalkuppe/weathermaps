@@ -120,7 +120,20 @@ def _run_item(store: Store, model_id: str, rid: str) -> dict | None:
             m = mean_mod.members_info(store, rid, var_id)
             info["members"] = (m or {}).get("members", {})
         vars_out[var_id] = info
-    return {"run": rid, "variables": vars_out} if vars_out else None
+    if not vars_out:
+        return None
+    # when the run last got new data: the newest field folder (it changes at every step written); the page shows
+    # the model updated last at the bottom of the panel
+    updated = 0.0
+    for var_id in vars_out:
+        try:
+            updated = max(updated, store.var_dir(model_id, rid, var_id).stat().st_mtime)
+        except OSError:
+            pass
+    item = {"run": rid, "variables": vars_out}
+    if updated:
+        item["updated_at"] = datetime.fromtimestamp(updated, timezone.utc).isoformat(timespec="seconds")
+    return item
 
 
 def _round_list(values: np.ndarray, decimals: int) -> list:

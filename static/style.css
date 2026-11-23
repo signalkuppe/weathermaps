@@ -1896,10 +1896,8 @@ body.radar-mode .badge-radar .badge-btn {
 }
 /* a notice shown between the models and the places (no data, error): it keeps its space above the line */
 .panel-body:has(
-    > .run-live:not([hidden]),
-    > .run-live-note:not(:empty),
-    > .nodata:not([hidden]),
-    > .status:not(:empty)
+    > details.models.is-open
+      ~ :is(.run-live:not([hidden]), .run-live-note:not(:empty), .nodata:not([hidden]), .status:not(:empty))
   )
   > #points-box {
   margin-top: 0;
@@ -3511,7 +3509,12 @@ body.radar-mode .badge-radar #radar-slider {
   font-size: 12.5px;
   line-height: 1.4;
 }
-.nodata[hidden] {
+.nodata[hidden],
+.panel-body > details.models:not(.is-open) ~ .nodata {
+  display: none; /* the notice is about the model and field chosen: it goes away with their section closed */
+}
+/* the same for the other notices under the models (incoming run, its note, loading errors) */
+.panel-body > details.models:not(.is-open) ~ :is(.run-live, .run-live-note, .status) {
   display: none;
 }
 .nodata b {
@@ -3526,7 +3529,7 @@ body.no-data .wm-native-map canvas {
   ); /* the Mapbox basemap too, which is not inside the Leaflet map */
 }
 /* without data only the main menu stays above the map: no bar, legend, places or tooltip */
-.no-data .badge,
+.no-data:not(.no-data-time) .badge,
 .no-data .legend,
 .no-data .probe,
 .no-data .leaflet-marker-pane,

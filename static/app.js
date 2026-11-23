@@ -1302,7 +1302,14 @@
   const steps = () => {
     const m = meta.models.find((x) => x.id === state.model);
     const max = m?.max_step ?? Infinity;
-    return (m?.steps || meta.steps).filter((s) => s <= max);
+    const all = (m?.steps || meta.steps).filter((s) => s <= max);
+    // the median exists only where enough models have the step (e.g. not at +141h, which few models have): the
+    // slider skips the others instead of stopping on a "no data" notice
+    if (state.model === "mean") {
+      const have = availableSteps();
+      if (have.size) return all.filter((s) => have.has(s));
+    }
+    return all;
   };
   function rangePlaybackSteps(allSteps, available, from, to) {
     return allSteps.filter(
@@ -1315,19 +1322,31 @@
     new Set(runInfo()?.variables[dataVar()]?.steps || []);
 
   /** Notice in the centre of the map (null = hidden). */
-  function showNoData(title, text = "") {
-    ui.nodata.hidden = !title;
-    if (title) {
-      ui.nodataTitle.textContent = title;
-      ui.nodataText.textContent = text;
+  let noData = null; // notice of the model maps ({ title, text }), kept while an extra layer is on top
+  /** `time`: only this time has no data (the others do): the bar with slider and arrows stays, to choose another. */
+  function showNoData(title, text = "", time = false) {
+    noData = title ? { title, text, time } : null;
+    applyNoData();
+  }
+  /** The model maps' "no data" state: only without an extra layer (radar, satellite, soundings and ensemble have
+   *  their own data: no grey map, no notice, their bar stays). setExtra calls it again when the layer changes. */
+  function applyNoData() {
+    const on = !!noData && state.extra === "none";
+    // the notice appears (new choice, or back from an extra layer): panel and "Modelli e parametri" open, otherwise
+    // only a silent grey map would remain (the notice is hidden with the section closed)
+    if (on && ui.nodata.hidden) {
+      if (panelCollapsed()) ui.collapse.click();
+      openSection($("models-box"));
     }
-    map.getContainer().classList.toggle("map-nodata", !!title); // without data the map stays grey
-    document.body.classList.toggle("no-data", !!title); // and only the main menu is on top (see style.css)
-    if (title) {
+    ui.nodata.hidden = !on;
+    if (on) {
+      ui.nodataTitle.textContent = noData.title;
+      ui.nodataText.textContent = noData.text;
       ui.probe.hidden = true;
     }
-    // panel closed (often on mobile): it reopens, otherwise only a silent grey map would remain
-    if (title && panelCollapsed()) ui.collapse.click();
+    map.getContainer().classList.toggle("map-nodata", on); // without data the map stays grey
+    document.body.classList.toggle("no-data", on); // and only the main menu is on top (see style.css)
+    document.body.classList.toggle("no-data-time", on && noData.time); // the time bar too
   }
 
   function setStatus(text, warn = false) {
@@ -2692,6 +2711,7 @@
     document.body.classList.toggle("radar-mode", !!cfg);
     // any extra layer (radar, satellite, soundings, ensemble): on mobile no model next to the name (style.css)
     document.body.classList.toggle("extra-mode", state.extra !== "none");
+    applyNoData(); // the model's "not available" (grey map, notice) only without an extra layer
     if (glImgs.has("wm-model")) glPut("wm-model", { visible: !cfg && !snd && !ens }); // the model colours disappear in Mapbox too
     $("extra-name").textContent = cfg?.name || "";
     if (cfg) togglePlay(false);
@@ -3674,6 +3694,7 @@
       showNoData(
         `Nessun dato per ${fmtLocal(new Date(runDate(state.run).getTime() + state.step * 3600e3))}`,
         `${modelLabel()} non ha dati di ${baseLabel()} per quest'ora: scegline un'altra con lo slider o le frecce.`,
+        true,
       );
       return;
     }
@@ -9571,6 +9592,14 @@
     fadeRo.observe(d);
     for (const child of d.children) fadeRo.observe(child); // growing content (new places) without changing the section
   }
+  /** Opens a section (closing the open one), as a click on its title; nothing if it is already open. */
+  function openSection(d) {
+    if (wantsOpen(d)) return;
+    animateSections([
+      ...SECTIONS.filter((o) => o !== d && wantsOpen(o)).map((o) => [o, false]),
+      [d, true],
+    ]);
+  }
   for (const d of SECTIONS) {
     d.querySelector("summary").addEventListener("click", (e) => {
       e.preventDefault();
@@ -9721,12 +9750,34 @@
         minute: "2-digit",
       })
       .replace(",", "");
-    el.textContent = `Aggiornamento ${when}`;
-    el.title = d.toLocaleString("it-IT", {
-      timeZone: "Europe/Rome",
-      dateStyle: "full",
-      timeStyle: "short",
-    });
+    // the model whose run got new data last (not the median, recomputed at every update)
+    let last = null;
+    for (const [id, items] of Object.entries(runs || {})) {
+      if (id === "mean") continue;
+      for (const it of items)
+        if (!it.incoming && it.updated_at && (!last || it.updated_at > last.at))
+          last = { id, run: it.run, at: it.updated_at };
+    }
+    const full = (x) =>
+      x.toLocaleString("it-IT", {
+        timeZone: "Europe/Rome",
+        dateStyle: "full",
+        timeStyle: "short",
+      });
+    if (last && meta) {
+      const at = new Date(last.at);
+      const time = at.toLocaleTimeString("it-IT", {
+        timeZone: "Europe/Rome",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      // "23/11 14:22 · AROME 09Z": the clock already says it is the update (the full text in the tooltip)
+      el.textContent = `${when} · ${shortLabel(last.id)} ${cycle(last.run)}`;
+      el.title = `Aggiornamento: ${full(d)}\nUltimo modello arrivato: ${meta.models.find((m) => m.id === last.id)?.label || last.id} corsa ${cycle(last.run)}, alle ${time}`;
+    } else {
+      el.textContent = `Aggiornamento ${when}`;
+      el.title = full(d);
+    }
     el.dateTime = publishedAt;
     $("updated-row").hidden = false;
   }
@@ -10054,6 +10105,7 @@
         refreshRuns(),
       ]);
       meta = m;
+      renderUpdated(); // with the model names now: the last model updated (runs arrived together with meta)
       // version from the git tags (empty if there are no tags)
       if (meta.version) {
         $("updated-version").textContent = meta.version; // at the end of the last row of the panel
