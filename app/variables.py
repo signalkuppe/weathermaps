@@ -198,12 +198,16 @@ register(
             "icon-2i": GribSelector(param="TOT_PREC", levtype="surface", levelist="0", short_name="tp", step_range_prefix="0-"),
             # MeteoHub, folders named after ecCodes; selected by the WMO code of total precipitation (0,1,8)
             "wrf": GribSelector(param="tp", levtype="surface", levelist="0", code=(0, 1, 8), step_range_prefix="0-"),
+            # MOLOCH: hourly amounts (k-1, k], summed since the start (small messages: mostly zero)
+            "moloch": GribSelector(param="unknown", levtype="surface", levelist="0", code=(0, 1, 8),
+                                   hourly_buckets=True),
             # Météo-France: package (param) and WMO code; (0,1,52) accumulated is total precipitation (rain+snow+graupel)
             "arome": GribSelector(param="SP1", code=(0, 1, 52), step_range_prefix="0-"),
         },
         # GFS APCP and ICON TOT_PREC are in kg m-2 (= mm); ECMWF tp is in metres.
         convert={"gfs": _identity, "ecmwf": _m_to_mm, "icon-ch2": _identity, "icon-ch1": _identity,
-                 "icon-d2": _identity, "icon-2i": _identity, "wrf": _identity, "arome": _identity},
+                 "icon-d2": _identity, "icon-2i": _identity, "wrf": _identity, "arome": _identity,
+                 "moloch": _identity},
         scale=PRECIP_SCALE,
         decimals=1,
         nonnegative=True,
@@ -256,8 +260,10 @@ register(
             "icon-d2": GribSelector(param="t", levtype="pressure-level", levelist="850", short_name="t"),
             "icon-2i": GribSelector(param="T", levtype="isobaricInhPa", levelist="850", short_name="t"),
             "wrf": GribSelector(param="t", levtype="isobaricInhPa", levelist="850", code=(0, 0, 0)),
+            "moloch": GribSelector(param="t", levtype="isobaricInhPa", levelist="850", code=(0, 0, 0)),
         },
-        convert={"gfs": _k_to_c, "ecmwf": _k_to_c, "icon-d2": _k_to_c, "icon-2i": _k_to_c, "wrf": _k_to_c},
+        convert={"gfs": _k_to_c, "ecmwf": _k_to_c, "icon-d2": _k_to_c, "icon-2i": _k_to_c, "wrf": _k_to_c,
+                 "moloch": _k_to_c},
         scale=T850_SCALE,
         decimals=1,
         rank="asc",  # ranking: lowest temperature first
@@ -292,6 +298,7 @@ T2M_SEL = {
     "icon-d2": GribSelector(param="t_2m", levtype="single-level"),
     "icon-2i": GribSelector(param="T_2M", levtype="heightAboveGround", levelist="2"),
     "wrf": GribSelector(param="2t", levtype="heightAboveGround", levelist="2", code=(0, 0, 0)),
+    "moloch": GribSelector(param="2t", levtype="heightAboveGround", levelist="2", code=(0, 0, 0)),
     "icon-ch2": GribSelector(param="T_2M"),
     "icon-ch1": GribSelector(param="T_2M"),
 }
@@ -459,9 +466,13 @@ register(
             "icon-ch1": GribSelector(param="SNOW_GSP", step_range_prefix="0-"),
             # Météo-France: accumulated snow in the SP1 package
             "arome": GribSelector(param="SP1", code=(0, 1, 66), step_range_prefix="0-"),
+            # MOLOCH: hourly snowfall in metres of water, summed since the start
+            "moloch": GribSelector(param="asnow", levtype="surface", levelist="0", code=(0, 1, 29),
+                                   hourly_buckets=True),
         },
         convert={"ecmwf": _m_to_snow_cm, "icon-d2": _mm_to_snow_cm, "icon-2i": _mm_to_snow_cm,
-                 "icon-ch2": _mm_to_snow_cm, "icon-ch1": _mm_to_snow_cm, "arome": _mm_to_snow_cm},
+                 "icon-ch2": _mm_to_snow_cm, "icon-ch1": _mm_to_snow_cm, "arome": _mm_to_snow_cm,
+                 "moloch": _m_to_snow_cm},
         scale=SNOW_SCALE,
         decimals=1,
         nonnegative=True,
@@ -588,6 +599,8 @@ def _wind_component(comp: str, level: str) -> Variable:
     mine = GribSelector(param=pu if u else pv, levtype=lt, levelist=lv, code=(0, 2, 2 if u else 3))
     other = GribSelector(param=pv if u else pu, levtype=lt, levelist=lv, code=(0, 2, 3 if u else 2))
     sel["wrf"] = dataclasses.replace(mine, pair=other, lambert=WRF_LAMBERT, component=comp)
+    # MOLOCH: rotated grid, but the components are already east/north (uvRelativeToGrid = 0)
+    sel["moloch"] = GribSelector(param=pu if u else pv, levtype=lt, levelist=lv, code=(0, 2, 2 if u else 3))
     name = "10 m" if level == "10" else f"{level} hPa"
     return Variable(
         id=f"{comp}{level}", label=f"Vento {name} ({'verso est' if u else 'verso nord'})", units="km/h", kind="instant",
@@ -614,8 +627,10 @@ register(
             "icon-d2": GribSelector(param="fi", levtype="pressure-level", levelist="850"),
             "icon-2i": GribSelector(param="FI", levtype="isobaricInhPa", levelist="850"),
             "wrf": GribSelector(param="gh", levtype="isobaricInhPa", levelist="850"),
+            "moloch": GribSelector(param="gh", levtype="isobaricInhPa", levelist="850", code=(0, 3, 5)),
         },
-        convert={"gfs": _identity, "ecmwf": _identity, "icon-d2": _geopot_to_m, "icon-2i": _geopot_to_m, "wrf": _identity},
+        convert={"gfs": _identity, "ecmwf": _identity, "icon-d2": _geopot_to_m, "icon-2i": _geopot_to_m, "wrf": _identity,
+                 "moloch": _identity},
         scale=HZERO_SCALE, decimals=0, hidden=True, half_res=True,
     )
 )

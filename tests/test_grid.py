@@ -232,7 +232,7 @@ def test_meteohub_urls_and_selectors():
     assert meteohub.wrf.url(run, get("tp")).endswith("/WRF/2026110900/tp/WRF_2026110900_surface-0.grib")
     assert meteohub.wrf.url(run, get("t850")).endswith("/WRF/2026110900/t/WRF_2026110900_isobaricInhPa-850.grib")
     assert not get("tp").selectors["wrf"].hourly_buckets
-    assert "moloch" not in get("tp").selectors  # excluded for now
+    assert get("tp").selectors["moloch"].hourly_buckets and get("sf").convert["moloch"](1.0) == 1000.0
 
 
 # ---------- Météo-France AROME: packages in 6-hour blocks

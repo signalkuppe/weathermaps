@@ -7379,6 +7379,7 @@
     "icon-ch2": "#cc5de8",
     arome: "#4dabf7",
     wrf: "#ff6b6b",
+    moloch: "#e8590c",
     // the median: thick, in the text colour (like the spaghetti mean)
   };
   async function loadMulti() {

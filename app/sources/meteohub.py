@@ -210,17 +210,16 @@ wrf = MeteoHubSource(
     dataset="WRF", prefix="WRF", dlat=0.015, dlon=0.02,  # ~1.6 km at 45°N
 )
 
-# MOLOCH: excluded for now (hourly precipitation, ~430 MB per run from a slow server).
-# To re-enable it: add it to SOURCES in fetcher.py and add these selectors in variables.py
-#   tp:   GribSelector(param="unknown", levtype="surface", levelist="0", code=(0, 1, 8), step_range_prefix="0-", hourly_buckets=True)
-#   t850: GribSelector(param="t", levtype="isobaricInhPa", levelist="850", code=(0, 0, 0))
+# MOLOCH: rotated grid of 0.0091° (~1 km) over Italy, one file per variable with the 73 hourly steps (~6 MB per
+# instant field and step; the hourly precipitation and snow messages are small, mostly zero). The 00 UTC run comes out
+# about 8h30 after, the 12 UTC one about 9h after. Remapped like WRF (~1.6 km) so as not to weigh more on the site.
 moloch = MeteoHubSource(
     ModelInfo(
-        id="moloch", label="MOLOCH 1,5 km", resolution=0.015, cycles=(0, 12), delay_hours=6.0, max_step=72, country="it",
+        id="moloch", label="MOLOCH 1 km", resolution=0.0091, cycles=(0, 12), delay_hours=8.5, max_step=72, country="it",
         description=(
-            "Modello MOLOCH del CNR-ISAC (catena ItaliaMeteo e Consorzio Moloch), a 1,5 km, "
-            "pensato per orografia e fenomeni convettivi. Di norma una corsa al giorno (00 UTC) fino a +72h; "
-            "dati CC-BY-SA."
+            "Modello MOLOCH del CNR-ISAC (catena ItaliaMeteo e Consorzio Moloch), a circa 1 km sull'Italia, "
+            "pensato per orografia e fenomeni convettivi. Corse delle 00 e 12 UTC fino a +72h, disponibili circa "
+            "8-9 ore dopo; dati CC-BY-SA."
         ),
     ),
     dataset="MOLOCH_AIM", prefix="MOLOCH_AIM", dlat=0.015, dlon=0.02,

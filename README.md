@@ -3,7 +3,7 @@
 **App: <https://signalkuppe.github.io/weathermaps/>** (updated once an hour)
 
 Forecast maps of precipitation, temperature at 850 hPa and at 2 m, wet-bulb temperature at 2 m, snow, freezing level
-and wind from eight models over Northern Italy. The [Mapbox](https://www.mapbox.com) basemap can be chosen in the
+and wind from the global and local models over Northern Italy. The [Mapbox](https://www.mapbox.com) basemap can be chosen in the
 settings: **Outdoors** (with pronounced relief, the default) or **Base** (Streets recoloured like a weather chart); the
 data colours sit inside the map, below borders and place names, which stay readable at any opacity. Without a Mapbox
 token the page falls back to Thunderforest / OpenStreetMap tiles. Basemap, borders, opacity, sharp cells and contour
@@ -19,6 +19,7 @@ The app's interface is in Italian; the code, comments and documentation are in E
 | ECMWF AIFS             | ECMWF Open Data (machine learning)  | 0.25°            | +192h, 6h   | 00/06/12/18   |
 | ICON-2I                | ItaliaMeteo (MeteoHub)              | 2.2 km           | +72h        | 00/12         |
 | WRF                    | ItaliaMeteo, CIMA, LaMMA (MeteoHub) | 1.5 km           | +72h        | 00/12         |
+| MOLOCH                 | CNR-ISAC, ItaliaMeteo (MeteoHub)    | ~1 km            | +72h        | 00/12         |
 | ICON-D2                | DWD Open Data                       | 2.2 km           | +48h        | every 3 hours |
 | AROME                  | Météo-France Open Data              | 0.025° (~2.5 km) | +51h        | every 3 hours |
 | ICON-CH2-EPS (control) | MeteoSwiss                          | ~2 km            | +120h       | every 6 hours |
@@ -33,6 +34,7 @@ Fields available per model:
 | ECMWF (all 3)  | ✓             | ✓         | ✓                  | ✓                             | — (not in the open data) |
 | ICON-2I        | ✓             | ✓         | ✓                  | ✓                             | ✓                        |
 | WRF            | ✓             | ✓         | T only             | —                             | —                        |
+| MOLOCH         | ✓             | ✓         | T only             | ✓                             | —                        |
 | ICON-D2        | ✓             | ✓         | ✓                  | ✓                             | ✓                        |
 | AROME          | ✓             | —         | —                  | ✓                             | —                        |
 | ICON-CH2 / CH1 | ✓             | —         | ✓                  | ✓                             | ✓                        |
@@ -50,7 +52,7 @@ isotherm.
 The **wet bulb at 2 m** is computed from temperature and dew point at 2 m with the psychrometric equation, constant
 coefficient A = 6.46 × 10⁻⁴ °C⁻¹ and the model's local surface pressure (not reduced to sea level). Pressures are
 converted to hPa, like the vapour pressure; below 0 °C snow easily reaches the ground.
-WRF is available for the 2 m temperature but not for the wet bulb: the MeteoHub catalogue does not expose the
+WRF and MOLOCH are available for the 2 m temperature but not for the wet bulb: the MeteoHub catalogue does not expose the
 required surface pressure, and no standard or sea-level pressure is used instead.
 `tw2m` fields already in the cache are not recomputed: the correction applies to new downloads. To regenerate
 existing runs too, remove only the `tw2m` fields (including the median) from the cache and run the download again.
@@ -277,8 +279,10 @@ Keep the external token valid and check the cron service's execution history.
   CC-BY licence, "single variable" service (only the messages of the needed steps are downloaded).
 - WRF: [MeteoHub](https://meteohub.agenziaitaliameteo.it/nwp/), "single variable" service; only the GRIB2 message
   headers are read and the needed steps downloaded. Lambert grid remapped to ~1.6 km with the nearest point.
-- MOLOCH (CNR-ISAC, 1.5 km): supported by `app/sources/meteohub.py` but excluded for now, because it provides
-  precipitation hour by hour (~430 MB per run from a slow server); instructions to re-enable it are in the module.
+- MOLOCH (CNR-ISAC): [MeteoHub](https://meteohub.agenziaitaliameteo.it/nwp/), same service as WRF, CC-BY-SA
+  licence. Rotated grid of 0.0091° (~1 km) remapped to ~1.6 km with the nearest point; wind components are already
+  east/north. Precipitation and snow come hour by hour and are summed since the start of the run (small messages);
+  snow is in metres of water. The 00 UTC run comes out about 8h30 after, the 12 UTC one about 9h after.
 - DWD: [ICON-D2 Open Data](https://opendata.dwd.de/weather/nwp/icon-d2/), regular 0.02° grid.
 - Météo-France: [AROME 0.025° packages](https://www.data.gouv.fr/datasets/paquets-arome-resolution-0-025/), Licence
   Ouverte Etalab 2.0. Precipitation and snow (SP1 package, in 6-hour blocks): the GRIB2 headers are read and only the
