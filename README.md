@@ -28,16 +28,22 @@ The app's interface is in Italian; the code, comments and documentation are in E
 
 Fields available per model:
 
-| Model          | Precipitation | T 850 hPa | T and wet bulb 2 m | Snow                          | Freezing level           |
-| -------------- | ------------- | --------- | ------------------ | ----------------------------- | ------------------------ |
-| GFS            | ✓             | ✓         | ✓                  | — (snowfall is not published) | ✓                        |
-| ECMWF (all 3)  | ✓             | ✓         | ✓                  | ✓                             | — (not in the open data) |
-| ICON-2I        | ✓             | ✓         | ✓                  | ✓                             | ✓                        |
-| WRF            | ✓             | ✓         | T only             | —                             | —                        |
-| MOLOCH         | ✓             | ✓         | T only             | ✓                             | —                        |
-| ICON-D2        | ✓             | ✓         | ✓                  | ✓                             | ✓                        |
-| AROME          | ✓             | —         | —                  | ✓                             | —                        |
-| ICON-CH2 / CH1 | ✓             | —         | ✓                  | ✓                             | ✓                        |
+| Model          | Precipitation | T 850 hPa | RH and wind 850 hPa | T and wet bulb 2 m | Snow                          | Freezing level           |
+| -------------- | ------------- | --------- | ------------------- | ------------------ | ----------------------------- | ------------------------ |
+| GFS            | ✓             | ✓         | ✓                   | ✓                  | — (snowfall is not published) | ✓                        |
+| ECMWF (all 3)  | ✓             | ✓         | ✓                   | ✓                  | ✓                             | — (not in the open data) |
+| ICON-2I        | ✓             | ✓         | ✓                   | ✓                  | ✓                             | ✓                        |
+| WRF            | ✓             | ✓         | ✓                   | T only             | —                             | —                        |
+| MOLOCH         | ✓             | ✓         | ✓                   | T only             | ✓                             | —                        |
+| ICON-D2        | ✓             | ✓         | ✓                   | ✓                  | ✓                             | ✓                        |
+| AROME          | ✓             | —         | —                   | —                  | ✓                             | —                        |
+| ICON-CH2 / CH1 | ✓             | —         | —                   | ✓                  | ✓                             | ✓                        |
+
+**Relative humidity and wind at 850 hPa** (about 1500 m) are a combined entry, "UR e vento 850": humidity in colour
+(from brown when dry to dark blue when saturated, a stop every 10% plus 95%) with the wind arrows on top. The AIFS and MOLOCH publish only the specific
+humidity: the relative one is computed from it, the temperature and the level's pressure (vapour pressure
+e = q·p / (0.622 + 0.378·q), saturation over water with Bolton's formula). ICON-CH (model levels only) and AROME
+(pressure levels in packages not downloaded) do not have it.
 
 The three ECMWF entries are separate models and all three enter the median. The IFS 0.1° is the same run as the
 0.25°, published about two hours later; it has no synoptic chart (that stays at 0.25°). The AIFS has a step every 6

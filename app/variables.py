@@ -713,9 +713,56 @@ register(
 )
 
 
-for _lvl in ("10", "700"):
+for _lvl in ("10", "700", "850"):
     for _c in ("u", "v"):
         register(_wind_component(_c, _lvl))
+
+
+def rh_from_q(t_k, q, p_hpa):
+    """Relative humidity (%) from temperature (K), specific humidity (kg/kg) and pressure (hPa): vapour pressure
+    e = q p / (0.622 + 0.378 q), saturation over water with Bolton's formula. For models that publish only the
+    specific humidity (AIFS, MOLOCH)."""
+    t_k, q = np.asarray(t_k, dtype=np.float64), np.asarray(q, dtype=np.float64)
+    e = q * p_hpa / (0.622 + 0.378 * q)
+    es = 6.112 * np.exp(17.67 * (t_k - 273.15) / (t_k - 29.65))
+    return np.clip(100.0 * e / es, 0.0, 100.0)
+
+
+def _rh_percent(x):
+    return np.clip(np.asarray(x, dtype=np.float64), 0.0, 100.0)  # the IFS gives up to ~103% (supersaturation)
+
+
+# Relative humidity: dry in brown, about half in a light neutral, moist in blue, saturated (clouds) dark blue; a stop
+# every 10% plus 95% (nearly saturated air), smooth gradient.
+RH_SCALE = ColorScale(
+    thresholds=[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 100],
+    colors=["#4a2a06", "#6e4210", "#8c5a1c", "#b07d3a", "#d2aa6c", "#ece0c0",
+            "#d6ecf5", "#a6d0ea", "#6fa9d8", "#3f7fc0", "#245ea6", "#13306e"],
+    transparent_below=None,
+    continuous=True,
+)
+# 850 hPa (about 1500 m): moist air, clouds and dry intrusions at the height of the Prealps. Hidden: the menu has the
+# combined entry with the 850 hPa wind. ICON-CH (model levels only) and AROME (IP packages) are not there.
+register(
+    Variable(
+        id="r850", label="Umidità relativa 850 hPa", units="%", kind="instant",
+        selectors={
+            "gfs": GribSelector(var="RH", level="850_mb"),
+            "ecmwf": GribSelector(param="r", levtype="pl", levelist="850"),
+            "icon-d2": GribSelector(param="relhum", levtype="pressure-level", levelist="850"),
+            "icon-2i": GribSelector(param="RELHUM", levtype="isobaricInhPa", levelist="850"),
+            "wrf": GribSelector(param="r", levtype="isobaricInhPa", levelist="850", code=(0, 1, 1)),
+            # MOLOCH: from temperature and specific humidity (see rh_from_q); the pressure is the level's
+            "moloch": GribSelector(param="t", levtype="isobaricInhPa", levelist="850", code=(0, 0, 0),
+                                   dew=GribSelector(param="qv", levtype="isobaricInhPa", levelist="850",
+                                                    code=(0, 1, 0))),
+        },
+        convert={m: _rh_percent for m in ("gfs", "ecmwf", "icon-d2", "icon-2i", "wrf", "moloch")},
+        combine=rh_from_q,
+        extra={"pressure_hpa": 850.0},  # combined models: constant pressure, no surface field to download
+        scale=RH_SCALE, decimals=0, hidden=True,
+    )
+)
 
 # menu entries for the wind: speed in colour from the two components, arrows for the direction
 # ECMWF IFS 0.1° and AIFS: same files and parameter names as the IFS 0.25°, and they have all of its fields. The
@@ -728,11 +775,16 @@ for _var in REGISTRY.values():
 # ...but the AIFS gives precipitation and snow already in kg m-2 (mm), the IFS in metres
 REGISTRY["tp"].convert["aifs"] = _identity
 REGISTRY["sf"].convert["aifs"] = _mm_to_snow_cm
+# ...and has no relative humidity: computed from temperature and specific humidity, like MOLOCH
+REGISTRY["r850"].selectors["aifs"] = GribSelector(
+    param="t", levtype="pl", levelist="850", short_name="t",
+    dew=GribSelector(param="q", levtype="pl", levelist="850", short_name="q"))
 
 
 VECTORS = [
     {"id": "wind10", "label": "Vento 10 m", "u": "u10", "v": "v10"},
     {"id": "wind700", "label": "Vento 700 hPa", "u": "u700", "v": "v700"},
+    {"id": "wind850", "label": "Vento 850 hPa", "u": "u850", "v": "v850"},
 ]
 
 
@@ -765,6 +817,14 @@ COMBOS = [
         "after": "tp_hzero",  # position in the menu: after the other precipitation combination
         "field": "tp",
         "arrows": "wind700",  # 700 hPa wind arrows (direction and, with their length, strength)
+    },
+    {
+        "id": "r850_wind850",
+        "label": "Umidità relativa e vento 850 hPa",
+        "menu_label": "UR e vento 850",  # in the dropdown
+        "after": "t850",
+        "field": "r850",
+        "arrows": "wind850",
     },
 ]
 
