@@ -6478,6 +6478,7 @@
     const sv = series.vars?.[v];
     if (
       !current ||
+      current.var !== v || // the map is still on the previous entry (loading): nothing to compare
       !sv ||
       !["tp", "sf"].includes(v) ||
       state.model !== model ||
@@ -8892,7 +8893,8 @@
       if (z != null)
         text += ` · ${contourName().toLowerCase()} <b>${Math.round(z)}</b> ${currentContour.units}`;
     }
-    if (currentArrows) {
+    // as for the lines: the old entry's arrows stay until the new map is loaded, the new entry may have none
+    if (currentArrows && variable().arrows) {
       // combined with arrows: wind speed and direction at the point
       const { lat0, lon0, dlat, dlon, nx, ny } = currentArrows.grid;
       const ix = Math.round((e.latlng.lng - lon0) / dlon),
@@ -8968,7 +8970,7 @@
       if (z != null)
         t += ` · ${contourName().toLowerCase()} ${Math.round(z)} ${currentContour.units}`;
     }
-    if (currentArrows) {
+    if (currentArrows && variable().arrows) {
       const { lat0, lon0, dlat, dlon, nx, ny } = currentArrows.grid;
       const ix = Math.round((ll.lng - lon0) / dlon),
         iy = Math.round((ll.lat - lat0) / dlat);
