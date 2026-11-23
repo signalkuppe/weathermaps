@@ -485,8 +485,11 @@ body.share-wide .wm-native-map {
   color: var(--accent);
   font-weight: 650;
 }
+/* closed: the line is only hidden (its 1px taken back by the margin), so it can fade in the closing animation
+   without the panel jumping by a pixel at the end (app.js, setPanelCollapsed) */
 .panel.collapsed .panel-head {
-  border-bottom: 0;
+  border-bottom-color: transparent;
+  margin-bottom: -1px;
 }
 .panel-body {
   padding: 10px 12px 12px;
@@ -1023,31 +1026,6 @@ input[type="range"] {
 .badge-btn {
   display: none;
 }
-@media (max-width: 1100px) {
-  .badge {
-    left: auto;
-    right: 64px;
-    transform: none;
-  }
-}
-@media (min-width: 1101px),
-  (min-width: 601px) and (orientation: landscape),
-  (min-width: 601px) and (not (pointer: coarse)) {
-  .badge {
-    font-size: 15px;
-    padding: 8px 18px;
-    transition:
-      opacity 200ms ease,
-      translate 200ms ease,
-      visibility 0s;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .badge {
-      transition: none;
-    }
-  }
-}
-
 .time {
   position: relative;
   padding: 6px 0 2px;
@@ -1558,8 +1536,8 @@ body.radar-loading .legend {
 @keyframes badge-in {
   from {
     opacity: 0;
-    translate: 0 -14px;
-    scale: 0.94;
+    translate: 0 18px;
+    scale: 0.96;
   }
   to {
     opacity: 1;
@@ -1573,21 +1551,6 @@ body.radar-loading .legend {
   }
   to {
     opacity: 1;
-  }
-}
-@media (max-width: 600px),
-  (orientation: portrait) and (pointer: coarse) and (max-width: 1100px) {
-  @keyframes badge-in {
-    from {
-      opacity: 0;
-      translate: 0 18px;
-      scale: 0.96;
-    }
-    to {
-      opacity: 1;
-      translate: 0 0;
-      scale: 1;
-    }
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -2601,12 +2564,6 @@ body.radar-mode .badge-radar .badge-btn {
   }
   /* extra layers: the four tiles in one row, small square pictures (2×2 needed scrolling); ".panel" to win over the
      base rules further down */
-  /* time shown, play and step slider only in the bar at the bottom (within thumb reach, over the map): not repeated
-     in the panel */
-  .panel .time,
-  .panel .stepper {
-    display: none;
-  }
   .panel .extra-tiles {
     grid-template-columns: repeat(3, 1fr);
     gap: 6px;
@@ -2652,366 +2609,461 @@ body.radar-mode .badge-radar .badge-btn {
   .wm-mapbox-controls .mapboxgl-ctrl-group {
     display: none;
   }
-  /* a single box at the bottom: image time + model/run, below it the compact legend */
-  /* row: ‹ time › ▶ … model run; below, full width, the legend */
-  .badge {
-    top: auto;
-    /* above the Home indicator in the app, but close to the edge: the reserved space (34px) is more than needed */
-    bottom: max(8px, calc(env(safe-area-inset-bottom) - 12px));
-    left: 8px;
-    right: 8px;
-    transform: none;
-    max-width: none;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0;
-    padding: 0 10px 8px 2px;
-    border-radius: 8px;
-    font-size: 13px;
-  }
-  .badge-text {
-    display: contents;
-    line-height: inherit;
-  }
-  .badge-d {
-    display: none;
-  }
-  .badge-m {
-    display: inline;
-    order: 2;
-  }
-  .badge-m-range {
-    font-size: 10px;
-    line-height: 1.2;
-    white-space: nowrap;
-  }
-  /* fixed width for the time: days and months have different widths ("gio 11 giu" ~112 px, "dom 03 mag"
-     ~136 px at 13px), so when the step changes arrows and play stay put */
-  .badge-m-time {
-    width: 10.5em;
-    text-align: center;
-  }
-  /* the model takes only the remaining space (basis 0): the row never wraps, at worst the name is shortened */
-  .badge-m-model {
-    order: 5;
-    flex: 1 1 0;
-    max-width: 30%;
-    margin-left: 8px;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    text-align: right;
-    color: var(--muted);
-    font-size: 11px;
-  }
-  /* 40×40 touch area even if the symbol is small; the rest of the box lets dragging through */
-  .badge-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 34px;
-    height: 40px;
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--accent);
-    cursor: pointer;
-    pointer-events: auto;
-  }
-  .badge-btn svg {
-    display: block;
-  }
-  /* ▶ time … model run [share]; below, the step slider at full width (instead of the arrows) */
-  #m-first,
-  #m-prev,
-  #m-next {
-    display: none;
-  }
-  #m-play {
-    order: 1;
-    flex: 0 0 34px;
-  }
-  .badge-m-time {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    justify-content: center;
-    flex: 1 1 0;
-    width: auto;
-    min-width: 0;
-    text-align: left;
-    padding-left: 8px;
-    height: 40px;
-    line-height: 1.2;
-    white-space: normal;
-  }
-  .badge-m-time:has(.badge-m-range) b {
-    font-size: 11px;
-  }
-  .badge-m-time:has(.badge-m-range) {
-    flex-direction: row;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 6px;
-    min-width: max-content;
-    white-space: nowrap;
-  }
-  /* left edge of the bar aligned with the date and the legend title, the right one with the bar's.
-     44 px tall touch area (the visible bar stays thin, the rest is transparent) and a large knob; no
-     browser gesture on the slider (touch-action: none), so the first touch does not move the page or the map */
-  .badge .m-step {
-    display: block;
-    order: 6;
-    flex: 0 0 calc(100% - 8px);
-    width: calc(100% - 8px);
-    margin: -10px 0 -6px 8px;
-    height: 44px;
-    pointer-events: auto;
-    transition:
-      height 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
-      margin 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
-      opacity 0.2s ease,
-      transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
-  }
-  body.range-mode .badge .single-step,
-  body:not(.range-mode) .badge .interval-step {
-    display: none;
-  }
-  .share-btn {
-    order: 5;
-    width: 34px;
-    height: 40px;
-    margin: 0 -8px 0 4px;
-  }
-  body.radar-mode .badge .extra-close {
-    margin-left: 4px;
-  }
-  /* opening the panel changes nothing in the box: controls, handle and legend stay as they are */
-  .badge {
-    transition: padding-top 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
-  }
+}
+
+/* bottom bar, the same on phones and computers: play, time, model and share above the step slider, the legend
+   below; the time and the slider are not repeated in the panel. Phone-only details are in the @media above, the
+   wider computer layout right after */
+.panel .time,
+.panel .stepper {
+  display: none;
+}
+/* a single box at the bottom: image time + model/run, below it the compact legend */
+/* row: ‹ time › ▶ … model run; below, full width, the legend */
+.badge {
+  top: auto;
+  /* above the Home indicator in the app, but close to the edge: the reserved space (34px) is more than needed */
+  bottom: max(8px, calc(env(safe-area-inset-bottom) - 12px));
+  left: 8px;
+  right: 8px;
+  transform: none;
+  max-width: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0;
+  padding: 0 10px 8px 2px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.badge-text {
+  display: contents;
+  line-height: inherit;
+}
+.badge-d {
+  display: none;
+}
+.badge-m {
+  display: inline;
+  order: 2;
+}
+.badge-m-range {
+  font-size: 10px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+/* fixed width for the time: days and months have different widths ("gio 11 giu" ~112 px, "dom 03 mag"
+   ~136 px at 13px), so when the step changes arrows and play stay put */
+.badge-m-time {
+  width: 10.5em;
+  text-align: center;
+}
+/* the model takes only the remaining space (basis 0): the row never wraps, at worst the name is shortened */
+.badge-m-model {
+  order: 5;
+  flex: 1 1 0;
+  max-width: 30%;
+  margin-left: 8px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+  color: var(--muted);
+  font-size: 11px;
+}
+/* 40×40 touch area even if the symbol is small; the rest of the box lets dragging through */
+.badge-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.badge-btn svg {
+  display: block;
+}
+/* ▶ time … model run [share]; below, the step slider at full width (instead of the arrows) */
+#m-first,
+#m-prev,
+#m-next {
+  display: none;
+}
+#m-play {
+  order: 1;
+  flex: 0 0 34px;
+}
+.badge-m-time {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+  text-align: left;
+  padding-left: 8px;
+  height: 40px;
+  line-height: 1.2;
+  white-space: normal;
+}
+.badge-m-time:has(.badge-m-range) b {
+  font-size: 11px;
+}
+.badge-m-time:has(.badge-m-range) {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  min-width: max-content;
+  white-space: nowrap;
+}
+/* left edge of the bar aligned with the date and the legend title, the right one with the bar's.
+   44 px tall touch area (the visible bar stays thin, the rest is transparent) and a large knob; no
+   browser gesture on the slider (touch-action: none), so the first touch does not move the page or the map */
+.badge .m-step {
+  display: block;
+  order: 6;
+  flex: 0 0 calc(100% - 8px);
+  width: calc(100% - 8px);
+  margin: -10px 0 -6px 8px;
+  height: 44px;
+  pointer-events: auto;
+  transition:
+    height 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
+    margin 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 0.2s ease,
+    transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+body.range-mode .badge .single-step,
+body:not(.range-mode) .badge .interval-step {
+  display: none;
+}
+.share-btn {
+  order: 5;
+  width: 34px;
+  height: 40px;
+  margin: 0 -8px 0 4px;
+}
+body.radar-mode .badge .extra-close {
+  margin-left: 4px;
+}
+/* opening the panel changes nothing in the box: controls, handle and legend stay as they are */
+.badge {
+  transition: padding-top 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.badge > .badge-btn,
+.badge > .share-btn,
+.badge-m,
+.badge-radar,
+.legend-handle {
+  transition:
+    height 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 0.2s ease,
+    transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .badge,
   .badge > .badge-btn,
   .badge > .share-btn,
   .badge-m,
-  .badge-radar,
-  .legend-handle {
-    transition:
-      height 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
-      opacity 0.2s ease,
-      transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+  .badge-radar {
+    transition: none;
   }
-  @media (prefers-reduced-motion: reduce) {
-    .badge,
-    .badge > .badge-btn,
-    .badge > .share-btn,
-    .badge-m,
-    .badge-radar {
-      transition: none;
-    }
-  }
+}
+.badge .legend {
+  order: 7;
+  flex-basis: 100%;
+  padding: 10px 0 10px 8px;
+  flex-wrap: wrap;
+}
+/* the legend stays folded until it is asked for with the handle at the top centre of the box (tap or swipe up);
+   it unfolds with the box growing along (max-height and padding animated, not display) */
+.badge .legend {
+  max-height: 120px;
+  overflow: hidden;
+  transition:
+    max-height 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
+    padding 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 0.2s ease;
+}
+.badge:not(.legend-open) .legend {
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
   .badge .legend {
-    order: 7;
-    flex-basis: 100%;
-    padding: 10px 0 10px 8px;
-    flex-wrap: wrap;
+    transition: none;
   }
-  /* the legend stays folded until it is asked for with the handle at the top centre of the box (tap or swipe up);
-     it unfolds with the box growing along (max-height and padding animated, not display) */
-  .badge .legend {
-    max-height: 120px;
-    overflow: hidden;
-    transition:
-      max-height 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
-      padding 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
-      opacity 0.2s ease;
+}
+.legend-handle {
+  display: flex;
+  order: -1;
+  flex-basis: 100%;
+  justify-content: center;
+  align-items: center;
+  height: 18px;
+  margin: 0 0 -4px 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  touch-action: none; /* the swipe is ours, not a page scroll */
+  -webkit-tap-highlight-color: transparent;
+}
+.legend-handle span {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--muted);
+  opacity: 0.55;
+}
+/* nothing to show (visible satellite): no handle */
+.badge:has(> .legend[hidden]) .legend-handle,
+.badge:has(> .legend:empty) .legend-handle {
+  display: none;
+}
+/* compact bar (model maps, radar and satellite): a round play button on the left, as tall as the two rows on its
+   right (time, model and share above — layer name, time, share and close with radar/satellite — the slider below);
+   handle on top, legend at the bottom across the full width */
+.badge {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto 28px 28px auto; /* handle, time row, slider row, legend */
+  align-items: center;
+  padding: 0 10px 12px 8px;
+}
+.badge > .legend-handle,
+.badge > .legend {
+  grid-column: 1 / -1;
+}
+.badge > .legend-handle {
+  grid-row: 1;
+  margin: 0 0 -6px;
+}
+.badge > .legend {
+  grid-row: 4;
+  padding-left: 0;
+}
+body:not(.radar-mode) #m-play,
+body.radar-mode .badge-radar #radar-play {
+  grid-column: 1;
+  grid-row: 2 / span 2;
+  width: 48px; /* a bit smaller than the two rows (2 × 28px), centred on them */
+  height: 48px;
+  translate: 0 3px; /* a little lower: lines up better with the slider knob */
+  margin-right: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+}
+body:not(.radar-mode) #m-play svg,
+body.radar-mode .badge-radar #radar-play svg {
+  width: 20px;
+  height: 20px;
+}
+body:not(.radar-mode) .badge-m-time {
+  grid-column: 2;
+  grid-row: 2;
+  height: 28px;
+  padding-left: 0;
+  align-self: end;
+  translate: 0 2px; /* a touch closer to the slider */
+}
+body:not(.radar-mode) .badge-m-model {
+  grid-column: 3;
+  grid-row: 2;
+  max-width: 40vw;
+  translate: 0 2px;
+}
+body:not(.radar-mode) .badge > #share {
+  grid-column: 4;
+  grid-row: 2;
+  height: 28px;
+}
+body:not(.radar-mode) .badge .m-step {
+  grid-column: 2 / -1;
+  grid-row: 3;
+  width: 100%;
+  margin: 0;
+  height: 28px;
+}
+/* radar and satellite: the bar's own box dissolves, its play, text and slider go into the same grid */
+body.radar-mode .badge .badge-radar {
+  display: contents;
+}
+body.radar-mode .badge-radar-text {
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  translate: 0 2px;
+}
+body.radar-mode .badge > #share {
+  grid-column: 3;
+  grid-row: 2;
+  height: 28px;
+}
+body.radar-mode .badge > .extra-close {
+  grid-column: 4;
+  grid-row: 2;
+  height: 28px;
+}
+body.radar-mode .badge-radar #radar-slider {
+  grid-column: 2 / -1;
+  grid-row: 3;
+  width: 100%;
+  height: 28px;
+}
+/* compact legend above the run label: unit on the left, colour bar with the thresholds below */
+.legend {
+  position: static;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 0 8px;
+}
+/* field name and unit on one row above the colour bar */
+.legend h2 {
+  flex-basis: 100%;
+  margin: 0 0 3px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+}
+.legend .lg-text {
+  display: none;
+}
+.legend ol {
+  flex: 1;
+  flex-direction: row;
+}
+.legend li {
+  flex: 1;
+  display: block;
+  position: relative;
+  line-height: 1;
+}
+.legend i {
+  display: block;
+  width: 100%;
+  height: 8px;
+  border-radius: 0;
+}
+/* the threshold sits on the left edge of its class */
+.legend .lg-tick {
+  display: block;
+  height: 12px;
+  padding-top: 2px;
+  font-size: 9px;
+  line-height: 10px;
+  transform: translateX(-50%);
+  width: max-content;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* computers, tablets in landscape: the same bar, centred and not as wide as the screen (it stays clear of the panel
+   on the left and of the Mapbox logo), with the legend always open and a little larger text */
+@media (min-width: 1101px),
+  (min-width: 601px) and (orientation: landscape),
+  (min-width: 601px) and (not (pointer: coarse)) {
+  .badge {
+    left: 50%;
+    right: auto;
+    bottom: calc(16px + env(safe-area-inset-bottom));
+    translate: -50% 0;
+    width: clamp(360px, calc(100vw - 2 * 340px), 440px);
+    max-width: calc(100vw - 24px);
+    padding: 0 14px 12px 12px;
+    border-radius: 12px;
+    font-size: 14px;
   }
-  .badge:not(.legend-open) .legend {
-    max-height: 0;
-    padding-top: 0;
-    padding-bottom: 0;
-    opacity: 0;
+  .badge.badge-enter {
+    animation-name: badge-in-centred;
   }
-  @media (prefers-reduced-motion: reduce) {
-    .badge .legend {
-      transition: none;
-    }
-  }
-  .legend-handle {
-    display: flex;
-    order: -1;
-    flex-basis: 100%;
-    justify-content: center;
-    align-items: center;
-    height: 18px;
-    margin: 0 0 -4px 8px;
-    padding: 0;
-    border: 0;
-    background: none;
-    cursor: pointer;
-    touch-action: none; /* the swipe is ours, not a page scroll */
-    -webkit-tap-highlight-color: transparent;
+  /* the legend opens and closes with the handle on top, as on phones (click, or the L key): a little taller to be
+     seen and hit with the mouse */
+  .badge > .legend-handle {
+    height: 22px;
   }
   .legend-handle span {
-    width: 36px;
-    height: 4px;
-    border-radius: 2px;
-    background: var(--muted);
-    opacity: 0.55;
+    width: 44px;
+    height: 5px;
+    transition:
+      opacity 0.15s ease,
+      background-color 0.15s ease;
   }
-  /* nothing to show (visible satellite): no handle */
-  .badge:has(> .legend[hidden]) .legend-handle,
-  .badge:has(> .legend:empty) .legend-handle {
-    display: none;
+  @media (hover: hover) {
+    .legend-handle:hover span {
+      opacity: 1;
+      background: var(--fg);
+    }
   }
-  /* compact bar (model maps, radar and satellite): a round play button on the left, as tall as the two rows on its
-     right (time, model and share above — layer name, time, share and close with radar/satellite — the slider below);
-     handle on top, legend at the bottom across the full width */
-  .badge {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto auto;
-    grid-template-rows: auto 28px 28px auto; /* handle, time row, slider row, legend */
-    align-items: center;
-    padding: 0 10px 12px 8px;
+  .badge .legend {
+    padding-bottom: 0;
   }
-  .badge > .legend-handle,
-  .badge > .legend {
-    grid-column: 1 / -1;
+  /* open: the last threshold, centred on the end of the colour bar, is not cut */
+  .badge.legend-open .legend {
+    overflow: visible;
   }
-  .badge > .legend-handle {
-    grid-row: 1;
-    margin: 0 0 -6px;
-  }
-  .badge > .legend {
-    grid-row: 4;
-    padding-left: 0;
-  }
-  body:not(.radar-mode) #m-play,
-  body.radar-mode .badge-radar #radar-play {
-    grid-column: 1;
-    grid-row: 2 / span 2;
-    width: 48px; /* a bit smaller than the two rows (2 × 28px), centred on them */
-    height: 48px;
-    translate: 0 3px; /* a little lower: lines up better with the slider knob */
-    margin-right: 12px;
-    border-radius: 50%;
-    background: var(--accent);
-    color: #fff;
-  }
-  body:not(.radar-mode) #m-play svg,
-  body.radar-mode .badge-radar #radar-play svg {
-    width: 20px;
-    height: 20px;
-  }
-  body:not(.radar-mode) .badge-m-time {
-    grid-column: 2;
-    grid-row: 2;
-    height: 28px;
-    padding-left: 0;
-    align-self: end;
-    translate: 0 2px; /* a touch closer to the slider */
+  .badge-m-range {
+    font-size: 12px;
   }
   body:not(.radar-mode) .badge-m-model {
-    grid-column: 3;
-    grid-row: 2;
-    max-width: 40vw;
-    translate: 0 2px;
+    font-size: 13px;
   }
-  body:not(.radar-mode) .badge > #share {
-    grid-column: 4;
-    grid-row: 2;
-    height: 28px;
-  }
-  body:not(.radar-mode) .badge .m-step {
-    grid-column: 2 / -1;
-    grid-row: 3;
-    width: 100%;
-    margin: 0;
-    height: 28px;
-  }
-  /* radar and satellite: the bar's own box dissolves, its play, text and slider go into the same grid */
-  body.radar-mode .badge .badge-radar {
-    display: contents;
-  }
-  body.radar-mode .badge-radar-text {
-    grid-column: 2;
-    grid-row: 2;
-    min-width: 0;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    translate: 0 2px;
-  }
-  body.radar-mode .badge > #share {
-    grid-column: 3;
-    grid-row: 2;
-    height: 28px;
-  }
-  body.radar-mode .badge > .extra-close {
-    grid-column: 4;
-    grid-row: 2;
-    height: 28px;
-  }
-  body.radar-mode .badge-radar #radar-slider {
-    grid-column: 2 / -1;
-    grid-row: 3;
-    width: 100%;
-    height: 28px;
-  }
-  /* compact legend above the run label: unit on the left, colour bar with the thresholds below */
-  .legend {
-    position: static;
-    min-width: 0;
-    padding: 0;
-    border: 0;
-    box-shadow: none;
-    background: none;
-    display: flex;
-    align-items: flex-start;
-    gap: 0 8px;
-  }
-  /* field name and unit on one row above the colour bar */
   .legend h2 {
-    flex-basis: 100%;
-    margin: 0 0 3px;
-    font-size: 10px;
-    font-weight: 600;
-    line-height: 12px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    color: var(--muted);
-  }
-  .legend .lg-text {
-    display: none;
-  }
-  .legend ol {
-    flex: 1;
-    flex-direction: row;
-  }
-  .legend li {
-    flex: 1;
-    display: block;
-    position: relative;
-    line-height: 1;
+    font-size: 11px;
+    line-height: 14px;
   }
   .legend i {
-    display: block;
-    width: 100%;
-    height: 8px;
-    border-radius: 0;
+    height: 10px;
   }
-  /* the threshold sits on the left edge of its class */
   .legend .lg-tick {
-    display: block;
-    height: 12px;
-    padding-top: 2px;
-    font-size: 9px;
-    line-height: 10px;
-    transform: translateX(-50%);
-    width: max-content;
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
+    font-size: 10px;
+  }
+  @media (hover: hover) {
+    .badge-btn:hover,
+    .badge .share-btn:hover {
+      filter: brightness(1.15);
+    }
+  }
+  /* the panel stops above the bar when they would overlap (narrow windows, long lists of places) */
+  .panel {
+    max-height: calc(
+      var(--app-h, 100dvh) - 36px - var(--bar-h, 120px) -
+        env(safe-area-inset-top) - env(safe-area-inset-bottom)
+    );
+  }
+}
+@keyframes badge-in-centred {
+  from {
+    opacity: 0;
+    translate: -50% 18px;
+    scale: 0.96;
+  }
+  to {
+    opacity: 1;
+    translate: -50% 0;
+    scale: 1;
   }
 }
 

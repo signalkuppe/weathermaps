@@ -923,31 +923,46 @@
   // in index.html); Leaflet keeps updating it by itself.
   ui.attrib.appendChild(map.attributionControl.getContainer());
 
-  // on mobile badge and legend become a single box at the bottom: the legend goes into the badge
+  // badge and legend are a single box at the bottom, on phones and computers alike: the legend goes into the badge
   // mobile version: phones and tablets in portrait (same rule in the @media of style.css)
   const mobileMq = window.matchMedia(
     "(max-width: 600px), (orientation: portrait) and (pointer: coarse) and (max-width: 1100px)",
   );
   const hoverMq = window.matchMedia("(hover: hover)"); // devices with a mouse: there is the hover tooltip
-  const legendHome = ui.legend.parentNode;
-  function placeLegend() {
-    (mobileMq.matches ? ui.badge : legendHome).appendChild(ui.legend);
-  }
-  placeLegend();
-  mobileMq.addEventListener("change", placeLegend);
+  ui.badge.appendChild(ui.legend);
 
   // mobile: the legend inside the box is folded; the handle at the top centre shows it (tap or swipe up) and hides it
   // again (tap or swipe down)
   function setupLegendHandle() {
     const handle = $("legend-handle");
+    const LEGEND_KEY = "weathermaps.legend-open";
     const setOpen = (open) => {
       ui.badge.classList.toggle("legend-open", open);
       handle.setAttribute("aria-expanded", String(open));
-      handle.setAttribute(
-        "aria-label",
-        open ? "Nascondi la legenda" : "Mostra la legenda",
-      );
+      const label = open ? "Nascondi la legenda" : "Mostra la legenda";
+      handle.setAttribute("aria-label", label);
+      handle.title = `${label} (L)`;
+      // computers: the choice is kept for the next visit (on phones the legend always starts folded, more map)
+      if (!mobileMq.matches)
+        try {
+          localStorage.setItem(LEGEND_KEY, open ? "1" : "0");
+        } catch {}
     };
+    let stored = null;
+    try {
+      stored = localStorage.getItem(LEGEND_KEY);
+    } catch {}
+    setOpen(!mobileMq.matches && stored === "1");
+    // L key (computers): the same as a click on the handle, when there is a legend to show
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "l" && e.key !== "L") return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.target.closest("input, select, textarea, [contenteditable]")) return;
+      if (document.querySelector("dialog[open]")) return;
+      if (!handle.offsetParent) return; // no handle: nothing to show (satellite, soundings, ensemble)
+      e.preventDefault();
+      setOpen(!ui.badge.classList.contains("legend-open"));
+    });
     let swipe = null,
       swiped = false;
     handle.addEventListener("click", () => {
@@ -977,6 +992,12 @@
     // grows over it for a moment); it follows only the other height changes (radar bar, panel)
     if (window.ResizeObserver)
       new ResizeObserver(() => {
+        // computers: the panel stops above the bar (style.css, --bar-h)
+        if (ui.badge.offsetHeight)
+          document.documentElement.style.setProperty(
+            "--bar-h",
+            `${ui.badge.offsetHeight}px`,
+          );
         const h = mobileMq.matches
           ? ui.badge.offsetHeight -
             (ui.badge.contains(ui.legend) ? ui.legend.offsetHeight : 0)
@@ -1306,7 +1327,7 @@
       ui.probe.hidden = true;
     }
     // panel closed (often on mobile): it reopens, otherwise only a silent grey map would remain
-    if (title && ui.panel.classList.contains("collapsed")) ui.collapse.click();
+    if (title && panelCollapsed()) ui.collapse.click();
   }
 
   function setStatus(text, warn = false) {
@@ -2714,7 +2735,7 @@
           if (
             k !== "none" &&
             mobileMq.matches &&
-            !ui.panel.classList.contains("collapsed")
+            !panelCollapsed()
           )
             ui.collapse.click();
         });
@@ -9559,8 +9580,65 @@
     });
   }
 
-  function setPanelCollapsed(collapsed) {
-    ui.panel.classList.toggle("collapsed", collapsed);
+  /** The state the main panel is in, or heading to while it animates. */
+  function panelCollapsed() {
+    return ui.panel._want ?? ui.panel.classList.contains("collapsed");
+  }
+  /** Opens or closes the main panel; with `animate` its body grows or shrinks (height and opacity, as the sections),
+   *  without it (start-up) it just changes. */
+  function setPanelCollapsed(collapsed, animate = true) {
+    const body = ui.panel.querySelector(".panel-body");
+    const was = panelCollapsed();
+    ui.panel._want = collapsed;
+    const from = body._anim ? body.getBoundingClientRect().height : was ? 0 : null;
+    body._anim?.cancel();
+    ui.panel.classList.remove("collapsed"); // measured open; closed again at the end of the closing animation
+    const open = body.getBoundingClientRect().height;
+    if (!animate || reduceMotion.matches || collapsed === was) {
+      ui.panel._want = undefined;
+      ui.panel.classList.toggle("collapsed", collapsed);
+    } else {
+      const start = from ?? open;
+      const k = start / (open || 1); // how open it is now (0-1): the reversed animation starts from there
+      // the padding shrinks with the height, and the line under the head fades: nothing left to snap at the end
+      const cs = getComputedStyle(body);
+      const pad = (v) => `${parseFloat(v) * k}px`;
+      const timing = { duration: 260, easing: "cubic-bezier(0.25, 0.1, 0.25, 1)" };
+      body.style.overflow = "hidden";
+      const a = body.animate(
+        {
+          height: [`${start}px`, `${collapsed ? 0 : open}px`],
+          paddingTop: [pad(cs.paddingTop), collapsed ? "0px" : cs.paddingTop],
+          paddingBottom: [
+            pad(cs.paddingBottom),
+            collapsed ? "0px" : cs.paddingBottom,
+          ],
+          opacity: [k, collapsed ? 0 : 1],
+        },
+        timing,
+      );
+      const head = ui.panel.querySelector(".panel-head");
+      const line = getComputedStyle(head).borderBottomColor;
+      head.animate(
+        {
+          borderBottomColor: collapsed
+            ? [line, "transparent"]
+            : ["transparent", line],
+          marginBottom: collapsed ? ["0px", "-1px"] : ["-1px", "0px"],
+        },
+        timing,
+      );
+      body._anim = a;
+      a.onfinish = () => {
+        body._anim = null;
+        ui.panel._want = undefined;
+        body.style.overflow = "";
+        ui.panel.classList.toggle("collapsed", collapsed);
+      };
+      a.oncancel = () => {
+        body.style.overflow = "";
+      };
+    }
     ui.collapse.textContent = collapsed ? "+" : "−";
     ui.collapse.setAttribute(
       "aria-label",
@@ -9570,7 +9648,7 @@
     if (!collapsed) togglePlay(false); // reopening the menu stops the animation
   }
   ui.collapse.addEventListener("click", () =>
-    setPanelCollapsed(!ui.panel.classList.contains("collapsed")),
+    setPanelCollapsed(!panelCollapsed()),
   );
   // the whole head (logo and name too) opens and closes the panel, like the − / + button; the other buttons
   // (reload) keep their own action
@@ -9583,7 +9661,7 @@
   document.addEventListener(
     "click",
     (e) => {
-      if (!mobileMq.matches || ui.panel.classList.contains("collapsed")) return;
+      if (!mobileMq.matches || panelCollapsed()) return;
       if (!e.target.closest("#map, .wm-native-map")) return;
       if (e.target.closest(".leaflet-control, .mapboxgl-ctrl")) return;
       e.stopPropagation();
@@ -9967,7 +10045,7 @@
   async function init() {
     loadSettings();
     readHash();
-    setPanelCollapsed(mobileMq.matches);
+    setPanelCollapsed(mobileMq.matches, false);
     try {
       const [m] = await Promise.all([
         fetch(STATIC ? "data/meta.json" : "api/meta").then((r) => r.json()),
