@@ -480,20 +480,23 @@ register(
 )
 
 
-# Freezing level: height (m above sea level) of the 0 °C isotherm, from violet (low) to red (high)
+# Freezing level: height (m above sea level) of the 0 °C isotherm, from violet (low) to dark red (high). Cold hues up
+# to 1500 m (violet, indigo, blue, green), yellow from 2000 m where the freezing level is already high for the cold
+# season, then orange and reds for the summer values: a different hue every 500 m (with three similar light blues
+# between 1000 and 2500 m, 1500 and 2000 m looked the same)
 HZERO_SCALE = ColorScale(
     thresholds=[0, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500],
     colors=[
-        "#5b2a9a",  # < 500
-        "#3f4fc9",  # 500-1000
-        "#2f80ed",  # 1000-1500
-        "#5fb3f5",  # 1500-2000
-        "#a6dcf7",  # 2000-2500
-        "#d9ef8b",  # 2500-3000
-        "#fee08b",  # 3000-3500
-        "#fdae61",  # 3500-4000
-        "#f46d43",  # 4000-4500
-        "#d73027",  # > 4500
+        "#45148a",  # 0
+        "#3232b8",  # 500
+        "#1462d6",  # 1000
+        "#2db34a",  # 1500
+        "#fdd649",  # 2000
+        "#fb9a3c",  # 2500
+        "#ef5a2f",  # 3000
+        "#c81e1e",  # 3500
+        "#8f1239",  # 4000
+        "#5c0a3a",  # 4500
     ],
     transparent_below=None,
     continuous=True,
