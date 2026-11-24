@@ -54,6 +54,8 @@
     bordersOpacity: $("borders-opacity"),
     iso: $("iso"),
     isoRow: $("iso-row"),
+    snow: $("snow"),
+    snowRow: $("snow-row"),
     isoText: $("iso-text"),
     legend: $("legend"),
     probe: $("probe"),
@@ -113,6 +115,7 @@
     opacity: 0.7,
     crisp: false,
     iso: true,
+    snow: true, // snow hatching on the precipitation maps
     hours: 3,
     base: "topo",
     borders: "regions",
@@ -127,6 +130,7 @@
   let current = null; // /api/field response shown
   let currentContour = null; // field of the lines in combined entries (e.g. freezing level over precipitation)
   let currentArrows = null; // wind components in combined entries with arrows (e.g. 700 hPa wind over precipitation)
+  let currentSnow = null; // snow over the same period, for the hatching on the precipitation maps
   let overlay = null;
   // sharing over the live map (see liveStart): declared here, it is read by the map's tooltip, menu and popup
   const live = {
@@ -1283,13 +1287,15 @@
   // combined entries: what the lines are ("· linee zero termico ogni 250 m"), in the legend and in the shared image
   const lcFirst = (t) => t.charAt(0).toLowerCase() + t.slice(1); // "Vento 700 hPa" → "vento 700 hPa"
   const isoNote = () => {
+    // precipitation with the snow hatching: say what the stripes are
+    const snow = snowHatchOn() ? ` · <i class="lg-snow"></i>neve` : "";
     if (variable().arrows)
-      return ` · frecce ${lcFirst(variable().arrows.label)}`;
+      return ` · frecce ${lcFirst(variable().arrows.label)}${snow}`;
     const c = variable().contour_field && variable().contours;
-    if (!c || !isoNow()) return "";
+    if (!c || !isoNow()) return snow;
     return weightedContour()
-      ? ` · linee ${contourName().toLowerCase()}`
-      : ` · linee ${c.label.toLowerCase()} ogni ${c.step} ${c.units}`;
+      ? ` · linee ${contourName().toLowerCase()}${snow}`
+      : ` · linee ${c.label.toLowerCase()} ogni ${c.step} ${c.units}${snow}`;
   };
   // with accumulations the lines are not those of the final time but the period mean weighted by precipitation
   const weightedContour = () =>
@@ -1325,8 +1331,9 @@
   /** Notice in the centre of the map (null = hidden). */
   let noData = null; // notice of the model maps ({ title, text }), kept while an extra layer is on top
   /** `time`: only this time has no data (the others do): the bar with slider and arrows stays, to choose another. */
-  function showNoData(title, text = "", time = false) {
-    noData = title ? { title, text, time } : null;
+  /** `models`: ids of the models that have the field, listed after `text` as buttons that switch to them. */
+  function showNoData(title, text = "", time = false, models = null) {
+    noData = title ? { title, text, time, models } : null;
     applyNoData();
   }
   /** The model maps' "no data" state: only without an extra layer (radar, satellite, soundings and ensemble have
@@ -1343,6 +1350,21 @@
     if (on) {
       ui.nodataTitle.textContent = noData.title;
       ui.nodataText.textContent = noData.text;
+      if (noData.models?.length) {
+        noData.models.forEach((id, i) => {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.className = "nodata-model";
+          b.textContent = shortLabel(id);
+          b.title = `Passa a ${meta.models.find((m) => m.id === id)?.label || shortLabel(id)}`;
+          b.addEventListener("click", () => {
+            ui.model.value = id;
+            ui.model.dispatchEvent(new Event("change"));
+          });
+          ui.nodataText.append(i ? ", " : " ", b);
+        });
+        ui.nodataText.append(".");
+      }
       ui.probe.hidden = true;
     }
     map.getContainer().classList.toggle("map-nodata", on); // without data the map stays grey
@@ -1376,6 +1398,7 @@
         state.opacity = Math.min(1, Math.max(0.1, d.opacity));
       if (typeof d.crisp === "boolean") state.crisp = d.crisp;
       if (typeof d.iso === "boolean") state.iso = d.iso;
+      if (typeof d.snow === "boolean") state.snow = d.snow;
       if (current && BORDER_NAMES[d.borders]) state.borders = d.borders;
       if (["radar", "sat", "vis", "snd", "ens"].includes(d.extra))
         state.extra =
@@ -1402,6 +1425,7 @@
           opacity: state.opacity,
           crisp: state.crisp,
           iso: state.iso,
+          snow: state.snow,
           borders: state.borders,
           bordersOpacity: state.bordersOpacity,
           extra: state.extra,
@@ -1439,6 +1463,7 @@
       state.opacity = Math.min(1, Math.max(0.1, +p.get("opacity")));
     if (p.get("crisp")) state.crisp = p.get("crisp") === "1";
     if (p.get("iso")) state.iso = p.get("iso") !== "0";
+    if (p.get("neve")) state.snow = p.get("neve") !== "0";
   }
   // Safari allows at most 100 replaceState calls every 30 seconds, then throws: dragging the slider back and forth
   // the map update stopped there (it looked frozen). So the address is written shortly after the last
@@ -1484,6 +1509,7 @@
     }
     if (state.crisp) p.set("crisp", "1");
     if (!state.iso) p.set("iso", "0");
+    if (!state.snow) p.set("neve", "0");
     replaceHash("#" + p.toString());
   }
 
@@ -2158,6 +2184,7 @@
       if (cv) contourFieldAt(s[j]).then(lines).catch(() => {});
       else if (cfg) mainField(s[j]).then(lines).catch(() => {});
       if (variable().arrows) arrowsFieldAt(s[j]).catch(() => {});
+      snowFieldAt(s[j]).catch(() => {});
     }
   }
 
@@ -2882,6 +2909,119 @@
     if (current?.u || currentArrows) drawArrows();
   });
 
+  // ---------- snow hatching: on the precipitation maps, white diagonal stripes where most of the precipitation of the
+  // period falls as snow (snow water equivalent at least half of the total), like the hatching of many LAM charts.
+  // Drawn in screen pixels at every move, like the arrows: the stripes keep the same spacing at every zoom.
+  const SNOW_SHARE = 0.5; // snow (cm = mm of water at 10:1) / precipitation (mm)
+  /** The entry shown can have the hatching: precipitation (also combined) of a model that has the snow. */
+  function snowPossible() {
+    const sf = meta?.variables.find((x) => x.id === "sf");
+    return !!sf && dataVar() === "tp" && sf.models.includes(state.model);
+  }
+  /** ...and it is switched on in Impostazioni. */
+  function snowHatchOn() {
+    return state.snow && snowPossible();
+  }
+  /** Snow over the same period as the precipitation shown. */
+  function snowFieldAt(step) {
+    if (!snowHatchOn()) return Promise.resolve(null);
+    return getField(step, state.mode, { ...ctxNow(), var: "sf" });
+  }
+  map.createPane("hatch");
+  map.getPane("hatch").style.zIndex = 415; // above the colours, below contours and arrows
+  map.getPane("hatch").style.pointerEvents = "none";
+  const hatchCanvas = L.DomUtil.create("canvas", "wm-hatch", map.getPane("hatch"));
+  let hatchShown = false;
+  function clearHatch() {
+    if (!hatchShown) return;
+    hatchShown = false;
+    hatchCanvas.width = hatchCanvas.height = 0;
+  }
+  function drawHatch() {
+    ui.snowRow.hidden = !snowPossible(); // the switch only where there is something to switch
+    hatchCanvas.style.visibility = "";
+    const f = current,
+      sf = currentSnow;
+    if (!f || !sf || !snowHatchOn() || state.extra !== "none" || f.u)
+      return clearHatch();
+    const size = map.getSize();
+    const dpr = window.devicePixelRatio || 1;
+    const W = Math.round(size.x * dpr),
+      H = Math.round(size.y * dpr);
+    if (!W || !H) return clearHatch();
+    // where it snows: on blocks of B screen pixels (Mercator: latitude depends only on y, longitude only on x)
+    const B = 2,
+      cols = Math.ceil(size.x / B),
+      rows = Math.ceil(size.y / B);
+    const lngs = new Float64Array(cols),
+      lats = new Float64Array(rows);
+    for (let c = 0; c < cols; c++)
+      lngs[c] = map.containerPointToLatLng([c * B + B / 2, 0]).lng;
+    for (let r = 0; r < rows; r++)
+      lats[r] = map.containerPointToLatLng([0, r * B + B / 2]).lat;
+    const sp = sampler(f, false),
+      ss = sampler(sf, false);
+    const below = variable().scale.transparent_below ?? 0.1;
+    const mask = new Uint8Array(cols * rows);
+    let any = false;
+    for (let r = 0; r < rows; r++)
+      for (let c = 0; c < cols; c++) {
+        const p = sp(lats[r], lngs[c]);
+        if (p == null || p < below) continue; // no colour, no stripes
+        const s = ss(lats[r], lngs[c]);
+        if (s != null && s >= SNOW_SHARE * p) {
+          mask[r * cols + c] = 1;
+          any = true;
+        }
+      }
+    if (!any) return clearHatch();
+    hatchCanvas.width = W;
+    hatchCanvas.height = H;
+    hatchCanvas.style.width = `${size.x}px`;
+    hatchCanvas.style.height = `${size.y}px`;
+    L.DomUtil.setPosition(hatchCanvas, map.containerPointToLayerPoint([0, 0]));
+    // stripes at 45° every 7 px, white 1.5 px with a faint dark edge (readable on the pale blues too)
+    const period = Math.max(4, Math.round(7 * dpr)),
+      white = Math.max(1, Math.round(1.5 * dpr)),
+      edge = white + Math.max(1, Math.round(0.8 * dpr));
+    const little = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
+    const pack = (r, g, b, a) =>
+      little
+        ? ((a << 24) | (b << 16) | (g << 8) | r) >>> 0
+        : ((r << 24) | (g << 16) | (b << 8) | a) >>> 0;
+    const WHITE = pack(255, 255, 255, 235),
+      DARK = pack(20, 30, 50, 70);
+    const img = new ImageData(W, H);
+    const px = new Uint32Array(img.data.buffer);
+    const bx = new Int32Array(W);
+    for (let x = 0; x < W; x++) bx[x] = Math.min(cols - 1, ((x / dpr) / B) | 0);
+    for (let y = 0; y < H; y++) {
+      const row = Math.min(rows - 1, ((y / dpr) / B) | 0) * cols,
+        o = y * W;
+      for (let x = 0; x < W; x++) {
+        if (!mask[row + bx[x]]) continue;
+        const d = (x + H - y) % period; // lines from bottom-left to top-right
+        if (d < white) px[o + x] = WHITE;
+        else if (d < edge) px[o + x] = DARK;
+      }
+    }
+    hatchCanvas.getContext("2d").putImageData(img, 0, 0);
+    hatchCanvas.style.opacity = Math.max(0.35, colorsOpacity());
+    hatchShown = true;
+  }
+  map.on("moveend", () => {
+    if (hatchShown || currentSnow) drawHatch();
+  });
+  /** Snow at the point for tooltip and copied values ("3.5"), only on the precipitation maps and where it snows. */
+  function snowText(ll) {
+    if (!currentSnow || !snowHatchOn()) return "";
+    const s = valueAt(currentSnow, ll.lat, ll.lng);
+    return s != null && s >= 0.1 ? s.toFixed(1) : "";
+  }
+  map.on("zoomstart", () => {
+    hatchCanvas.style.visibility = "hidden"; // stripes are redrawn at the new zoom
+  });
+
   /** Field of the lines in combined entries at step `step`. With accumulations (e.g. precipitation in 24h) it is the
    *  period's mean freezing level weighted by precipitation: for each point, each sub-interval between two steps counts as
    *  much as the precipitation that fell in it, with the mean freezing level between its two ends. Where no rain falls in
@@ -3216,6 +3356,7 @@
     });
     linesDrawn = drawContours(variable().contour_field ? currentContour : f);
     drawArrows();
+    drawHatch();
     return painted;
   }
 
@@ -3228,8 +3369,10 @@
     glRemove("wm-model");
     currentContour = null;
     currentArrows = null;
+    currentSnow = null;
     drawContours(null);
     arrowsLayer.clearLayers();
+    clearHatch();
   }
 
   // ---------- contour lines (isotherms at 850 hPa): computed here from the field, drawn above the colours
@@ -3703,19 +3846,17 @@
     saveSettings();
     renderLegend();
     renderTime();
+    ui.snowRow.hidden = !snowPossible();
     if (!variable().models.includes(state.model)) {
       setLoading(false);
       clearOverlay();
       current = null;
       renderPoints();
       setStatus("");
-      const names = meta.models
+      const ids = meta.models
         .filter((m) => variable().models.includes(m.id))
-        .map((m) => shortLabel(m.id));
-      showNoData(
-        "Grandezza non disponibile",
-        `Disponibile con: ${names.join(", ")}.`,
-      );
+        .map((m) => m.id);
+      showNoData("Grandezza non disponibile", "Disponibile con:", false, ids);
       return;
     }
     if (!state.run) {
@@ -3754,6 +3895,7 @@
           mainField(state.step),
           cv ? contourFieldAt(state.step).catch(() => null) : null,
           arrowsFieldAt(state.step).catch(() => null), // arrows of the combined entries (if missing, only the colours)
+          snowFieldAt(state.step).catch(() => null), // snow hatching on precipitation (if missing, no stripes)
         ]);
       let got;
       for (let attempt = 0; ; attempt++) {
@@ -3765,11 +3907,12 @@
           if (e.name !== "AbortError" || attempt >= 3 || my !== seq) throw e;
         }
       }
-      const [f, cf, af] = got;
+      const [f, cf, af, sn] = got;
       if (my !== seq) return;
       current = f;
       currentContour = cf;
       currentArrows = af;
+      currentSnow = sn;
       await draw(f);
       if (my !== seq) return;
       renderPoints();
@@ -5145,6 +5288,13 @@
         r.width,
         r.height,
       );
+      ctx.globalAlpha = 1;
+    }
+    if (hatchShown && state.extra === "none") {
+      // snow hatching, like the page (in screen pixels)
+      const r = hatchCanvas.getBoundingClientRect();
+      ctx.globalAlpha = +hatchCanvas.style.opacity || 1;
+      ctx.drawImage(hatchCanvas, r.left - cr.left, r.top - cr.top, r.width, r.height);
       ctx.globalAlpha = 1;
     }
     const arrowsCanvas = map.getPane("arrows").querySelector("canvas");
@@ -8932,6 +9082,8 @@
         : null;
       if (d) text += ` da ${d.name}`;
     }
+    const snow = snowText(e.latlng);
+    if (snow) text += ` · neve <b>${snow}</b> cm`;
     // the lines' field of the entry shown: after a change of entry the old one stays until the new map is loaded,
     // and the new entry may have no lines (no name for them)
     if (currentContour && variable().contour_field) {
@@ -9011,6 +9163,8 @@
     let t = `${v.toFixed(variable().decimals)} ${current.units}`;
     const d = current.u ? windDirAt(current, ll.lat, ll.lng) : null;
     if (d) t += ` da ${d.name}`;
+    const snow = snowText(ll);
+    if (snow) t += ` · neve ${snow} cm`;
     if (currentContour && variable().contour_field) {
       const z = valueAt(currentContour, ll.lat, ll.lng);
       if (z != null)
@@ -9504,6 +9658,7 @@
   function applyColorsOpacity() {
     overlay?.setOpacity(colorsOpacity());
     if (glImgs.has("wm-model")) glPut("wm-model", { opacity: colorsOpacity() });
+    hatchCanvas.style.opacity = Math.max(0.35, colorsOpacity());
   }
   // border opacity (Settings), separate from the colours': applies to the whole lines layer
   function applyBordersOpacity() {
@@ -9519,6 +9674,21 @@
   ui.crisp.addEventListener("change", () => {
     state.crisp = ui.crisp.checked;
     if (current) draw(current);
+    writeHash();
+    saveSettings();
+  });
+  ui.snow.addEventListener("change", () => {
+    state.snow = ui.snow.checked;
+    const my = seq;
+    // switched on: the snow of the time shown (already in memory if seen before), then the stripes
+    snowFieldAt(state.step)
+      .catch(() => null)
+      .then((sn) => {
+        if (my !== seq) return; // meanwhile another map: its load brings its own snow
+        currentSnow = sn;
+        drawHatch();
+      });
+    renderLegend();
     writeHash();
     saveSettings();
   });
@@ -10198,6 +10368,7 @@
     applyBordersOpacity();
     ui.crisp.checked = state.crisp;
     ui.iso.checked = state.iso;
+    ui.snow.checked = state.snow;
     setupVars();
     // initial state (index.html): "Modelli e parametri" open, the other sections closed, on every screen
     setupPoints();

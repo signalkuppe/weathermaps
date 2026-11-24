@@ -1465,7 +1465,8 @@ body.range-mode .stepper .interval-step {
 body.radar-mode .wm-overlay,
 body.radar-mode .leaflet-contours-pane,
 body.radar-mode .leaflet-contourLabels-pane,
-body.radar-mode .leaflet-arrows-pane {
+body.radar-mode .leaflet-arrows-pane,
+body.radar-mode .leaflet-hatch-pane {
   display: none;
 }
 .badge-radar,
@@ -3540,6 +3541,21 @@ body.radar-mode .badge-radar #radar-slider {
   font-weight: 650;
   color: var(--warn-title);
 }
+/* "Disponibile con: …": each model is a link that switches to it */
+.nodata .nodata-model {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.nodata .nodata-model:hover {
+  color: var(--warn-title);
+}
 .map-nodata .leaflet-tile-pane,
 body.no-data .wm-native-map canvas {
   filter: grayscale(
@@ -3646,7 +3662,8 @@ body.no-data .wm-native-map canvas {
 .wm-native-moving #probe,
 .wm-native-moving .pt-pop,
 .wm-native-moving .leaflet-contours-pane,
-.wm-native-moving .leaflet-contourLabels-pane {
+.wm-native-moving .leaflet-contourLabels-pane,
+.wm-native-moving .leaflet-hatch-pane {
   visibility: hidden;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -4402,6 +4419,7 @@ body.snd-mode .wm-overlay,
 body.snd-mode .leaflet-contours-pane,
 body.snd-mode .leaflet-contourLabels-pane,
 body.snd-mode .leaflet-arrows-pane,
+body.snd-mode .leaflet-hatch-pane,
 body.snd-mode .pt,
 body.snd-mode .legend,
 body.snd-mode .badge {
@@ -4413,6 +4431,7 @@ body.ens-mode .wm-overlay,
 body.ens-mode .leaflet-contours-pane,
 body.ens-mode .leaflet-contourLabels-pane,
 body.ens-mode .leaflet-arrows-pane,
+body.ens-mode .leaflet-hatch-pane,
 body.ens-mode .legend,
 body.ens-mode .badge {
   display: none !important;
@@ -4532,4 +4551,13 @@ body.ens-mode .badge {
   body.extra-mode .head-model {
     display: none;
   }
+}
+/* snow hatching on the precipitation maps: the sample next to the legend title */
+.legend .lg-snow {
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  margin: 0 0.25em -0.1em 0;
+  border-radius: 2px;
+  background: repeating-linear-gradient(-45deg, #fff 0 1.5px, rgba(20, 30, 50, 0.3) 1.5px 2.3px, #3f9cf5 2.3px 5px);
 }
