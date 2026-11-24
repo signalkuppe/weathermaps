@@ -1286,9 +1286,14 @@
         : "";
   // combined entries: what the lines are ("· linee zero termico ogni 250 m"), in the legend and in the shared image
   const lcFirst = (t) => t.charAt(0).toLowerCase() + t.slice(1); // "Vento 700 hPa" → "vento 700 hPa"
-  const isoNote = () => {
+  /** `html`: with the hatched sample before "neve" (legend); plain text for the shared image. */
+  const isoNote = (html = false) => {
     // precipitation with the snow hatching: say what the stripes are
-    const snow = snowHatchOn() ? ` · <i class="lg-snow"></i>neve` : "";
+    const snow = snowHatchOn()
+      ? html
+        ? ` · <i class="lg-snow"></i>neve`
+        : " · tratteggio neve"
+      : "";
     if (variable().arrows)
       return ` · frecce ${lcFirst(variable().arrows.label)}${snow}`;
     const c = variable().contour_field && variable().contours;
@@ -1963,7 +1968,7 @@
             : "";
         return `<li><i style="background:linear-gradient(to right, ${colors[i]}, ${colors[i + 1]})"></i><span class="lg-tick">${tick}</span>${end}</li>`;
       });
-      ui.legend.innerHTML = `<h2><span class="lg-label">${baseLabel()} ${modeLabel} </span>(${v.units})${isoNote()}</h2><ol class="lg-continuous">${segs.join("")}</ol>`;
+      ui.legend.innerHTML = `<h2><span class="lg-label">${baseLabel()} ${modeLabel} </span>(${v.units})${isoNote(true)}</h2><ol class="lg-continuous">${segs.join("")}</ol>`;
       return;
     }
     const items = thresholds.map((t, i) => {
@@ -1984,7 +1989,7 @@
             : num(t);
       return `<li><i style="background:${colors[i]}"></i><span class="lg-text">${text}</span><span class="lg-tick">${tick}</span></li>`;
     });
-    ui.legend.innerHTML = `<h2><span class="lg-label">${baseLabel()} ${modeLabel} </span>(${v.units})${isoNote()}</h2><ol>${items.join("")}</ol>`;
+    ui.legend.innerHTML = `<h2><span class="lg-label">${baseLabel()} ${modeLabel} </span>(${v.units})${isoNote(true)}</h2><ol>${items.join("")}</ol>`;
   }
 
   // ---------- data
@@ -5195,6 +5200,20 @@
     "1:1": [1200, 1200],
     "16:9": [1600, 900],
   };
+  // "Full": the proportions of all the space available for the frame (the whole map on screen, minus the dialog's
+  // bars), updated at every layout. Short side 1200 px like 1:1, so header and legend fit; long side at most 2400
+  // (very wide or tall windows: the short side shrinks instead, the proportions stay those of the space).
+  let fullAspect = 4 / 3;
+  const SHARE_FORMATS = ["full", ...Object.keys(RATIOS)];
+  const FORMAT_NAMES = { full: "Full" };
+  function dims(r) {
+    if (r !== "full") return RATIOS[r];
+    const a = Math.min(4, Math.max(0.25, fullAspect));
+    const long = Math.min(2400, 1200 * Math.max(a, 1 / a));
+    return a >= 1
+      ? [Math.round(long), Math.round(long / a)]
+      : [Math.round(long * a), Math.round(long)];
+  }
   const PT_SCALE = 1.5; // size of markers and values in the image relative to the screen
   // over the live map the image is the frame enlarged (on a phone ~3×, 360 → 1200 px): places and the shared point
   // follow it, but at most twice their screen size (bigger they covered the map)
@@ -5453,7 +5472,7 @@
     fixed: false, // 500 hPa chart: fixed framing (like Meteociel), no proportions, zoom or dragging
     savedRatio: null,
   };
-  const ratioOf = () => RATIOS[crop.ratio][0] / RATIOS[crop.ratio][1];
+  const ratioOf = () => dims(crop.ratio)[0] / dims(crop.ratio)[1];
   const cropH = () => crop.w / ratioOf();
   const maxCropW = () => Math.min(crop.snap.W, crop.snap.H * ratioOf());
   const clampW = (w) => Math.min(maxCropW(), w);
@@ -5468,7 +5487,22 @@
     const cx = crop.x + crop.w / 2;
     const cy = crop.y + cropH() / 2;
     crop.ratio = r;
-    [outCanvas.width, outCanvas.height] = RATIOS[r];
+    [outCanvas.width, outCanvas.height] = dims(r);
+    // buttons first: the frame is computed from the space left above them
+    shareUi.ratio.replaceChildren(
+      ...SHARE_FORMATS.map((k) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = FORMAT_NAMES[k] || k;
+        if (k === "full") b.title = "Tutto lo spazio disponibile";
+        b.setAttribute("aria-pressed", String(k === crop.ratio));
+        b.addEventListener("click", () => {
+          crop.chosenRatio = k; // kept for the next openings
+          setRatio(k);
+        });
+        return b;
+      }),
+    );
     if (live.on)
       liveLayout(); // the frame follows the proportions; the crop is taken from it at capture time
     else {
@@ -5478,25 +5512,12 @@
       crop.y = cy - cropH() / 2;
       clampCrop();
     }
-    shareUi.ratio.replaceChildren(
-      ...Object.keys(RATIOS).map((k) => {
-        const b = document.createElement("button");
-        b.type = "button";
-        b.textContent = k;
-        b.setAttribute("aria-pressed", String(k === crop.ratio));
-        b.addEventListener("click", () => {
-          crop.chosenRatio = k; // kept for the next openings
-          setRatio(k);
-        });
-        return b;
-      }),
-    );
     scheduleRender();
   }
 
   /** Final image: map crop + points + header + legend and credits. */
   function renderOut() {
-    const [OW, OH] = RATIOS[crop.ratio];
+    const [OW, OH] = dims(crop.ratio);
     const ctx = outCanvas.getContext("2d");
     const { snap, texts } = crop;
     const s = OW / crop.w; // image px per map px
@@ -5746,6 +5767,10 @@
   const view = { dpr: 1, cw: 0, ch: 0, fx: 0, fy: 0, fw: 0, fh: 0 };
   function layoutView() {
     const r = shareUi.canvas.getBoundingClientRect();
+    if (crop.ratio === "full" && r.width > 2 * FRAME_PAD && r.height > 2 * FRAME_PAD) {
+      fullAspect = (r.width - 2 * FRAME_PAD) / (r.height - 2 * FRAME_PAD);
+      [outCanvas.width, outCanvas.height] = dims("full");
+    }
     view.dpr = window.devicePixelRatio || 1;
     view.cw = r.width;
     view.ch = r.height;
@@ -5949,10 +5974,14 @@
     const tools = shareUi.dialog
       .querySelector(".share-tools")
       .getBoundingClientRect();
-    const pad = 14;
+    const pad = crop.ratio === "full" ? 0 : 14; // "Full": edge to edge, no margins around the frame
     const top = head.bottom + pad,
       availW = d.width - 2 * pad,
       availH = Math.max(40, tools.top - pad - top);
+    if (crop.ratio === "full") {
+      fullAspect = availW / availH;
+      [outCanvas.width, outCanvas.height] = dims("full");
+    }
     const ratio = ratioOf();
     live.w = Math.min(availW, availH * ratio);
     live.h = live.w / ratio;
@@ -5972,7 +6001,7 @@
   /** Header and legend of the image over the frame (same drawing as the final image, scaled to the frame). */
   function liveDecor() {
     if (!live.on || !crop.texts) return;
-    const [OW, OH] = RATIOS[crop.ratio];
+    const [OW, OH] = dims(crop.ratio);
     const ctx = shareDecor.getContext("2d");
     const k = shareDecor.width / OW;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -6034,10 +6063,9 @@
     isoSharing = true;
     isoWeights();
     crop.texts = shareTexts();
-    // proportions: the last chosen, otherwise square on phones (the screen is tall: a 4:3 frame would take only a
-    // strip of the map) and 4:3 on desktop
-    crop.ratio = crop.chosenRatio || (mobileMq.matches ? "1:1" : "4:3");
-    [outCanvas.width, outCanvas.height] = RATIOS[crop.ratio];
+    // proportions: the last chosen, otherwise "Full" (all the space available, on phones and desktop)
+    crop.ratio = crop.chosenRatio || "full";
+    [outCanvas.width, outCanvas.height] = dims(crop.ratio);
     shareUi.pointsRow.hidden =
       !pointMarkers.length || !!crop.pinLL || synoptic();
     shareUi.points.checked = state.extra === "none";
@@ -6127,7 +6155,7 @@
       crop.savedRatio = crop.ratio; // found again at the next sharing of the other maps
       crop.ratio = SYN_RATIO;
     }
-    [outCanvas.width, outCanvas.height] = RATIOS[crop.ratio];
+    [outCanvas.width, outCanvas.height] = dims(crop.ratio);
     crop.w = maxCropW();
     const c = crop.snap.pin || { x: crop.snap.W / 2, y: crop.snap.H / 2 };
     crop.x = c.x - crop.w / 2;
