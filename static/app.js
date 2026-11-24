@@ -64,6 +64,7 @@
     badgeText: $("badge-text"),
     mPlay: $("m-play"),
     runAge: $("run-age"),
+    runLate: $("run-late"),
     runLive: $("run-live"),
     runLiveText: $("run-live-text"),
     refresh: $("refresh"),
@@ -1641,6 +1642,45 @@
   const incomingRun = () =>
     (runs[state.model] || []).find((r) => r.incoming && r.variables[dataVar()]);
 
+  // ---------- source late: runs that should be out by now (typical delay + margin) and are not
+  const LATE_MARGIN_H = 3;
+  /** Runs missing after the newest one we have (incoming ones count): 0 = on time, or nothing to judge. Computed
+   *  with the device clock, so the notice works even if our own updates stop. */
+  function lateRuns(id) {
+    const m = meta.models.find((x) => x.id === id);
+    const have = (runs[id] || []).map((r) => r.run).sort().at(-1);
+    if (!m || id === "mean" || m.delay_hours == null || !m.cycles?.length || !have)
+      return 0;
+    const last = runDate(have).getTime();
+    let t = Date.now() - (m.delay_hours + LATE_MARGIN_H) * 3600e3;
+    t -= t % 3600e3;
+    let n = 0;
+    for (; t > last; t -= 3600e3)
+      if (m.cycles.includes(new Date(t).getUTCHours())) n++;
+    return n;
+  }
+  const lateText = (n) =>
+    n === 1
+      ? "la corsa successiva non è ancora stata pubblicata"
+      : `le ${n} corse successive non sono ancora state pubblicate`;
+  /** Yellow dot next to the late models in the model menu. */
+  function markLateModels() {
+    for (const o of ui.model.querySelectorAll("option")) {
+      const n = lateRuns(o.value);
+      let dot = o.querySelector(".opt-late");
+      if (!n) {
+        dot?.remove();
+        continue;
+      }
+      if (!dot) {
+        dot = document.createElement("span");
+        dot.className = "opt-late";
+        o.append(dot);
+      }
+      dot.title = `In ritardo: ${lateText(n)}`;
+    }
+  }
+
   /** Returns true if the run shown has changed. */
   function setupRuns() {
     const before = state.run;
@@ -1666,6 +1706,11 @@
           ? `Mediana di ${n} modelli`
           : `Emessa ${fmtAge(r.run)}`;
     }
+    const late = r ? lateRuns(state.model) : 0;
+    ui.runLate.hidden = !late;
+    if (late)
+      ui.runLate.textContent = `In ritardo: ${lateText(late)}. Mostriamo l'ultima disponibile.`;
+    markLateModels();
     renderRunLive(incomingRun());
     return before !== state.run;
   }
@@ -9003,6 +9048,12 @@
     mapMenuPin.style.top = `${cr.top + p.y}px`;
     mapMenuPin.hidden = false;
   }
+  /** Height of the status bar area (iPhone home screen app), 0 elsewhere. */
+  const safeProbe = document.createElement("div");
+  safeProbe.style.cssText =
+    "position:fixed;top:0;left:0;width:0;visibility:hidden;pointer-events:none;height:env(safe-area-inset-top,0px)";
+  document.body.append(safeProbe);
+  const safeAreaTop = () => safeProbe.offsetHeight;
   /** keep: the visible part changed (keyboard, iOS moving the page): the menu stays where it is while it is
    *  still entirely visible, and moves only if it would end up hidden (no jumps when opening the folder list). */
   function placeMapMenu(keep = false) {
@@ -9015,12 +9066,18 @@
     mapMenuPin.style.top = `${y}px`;
     const w = mapMenu.offsetWidth,
       h = mapMenu.offsetHeight;
-    // visible part of the page: on mobile, with the keyboard open (name field), it is shorter than the window
-    const vv = window.visualViewport;
+    // visible part of the page: on mobile, with the keyboard open (name field), it is shorter than the window.
+    // Only while a field of the menu has the focus: iOS (home screen app) can keep a stale, shorter visual
+    // viewport after the keyboard closes, and every menu ended up clamped at the top, under the status bar
+    const vv = mapMenu.contains(document.activeElement) &&
+      document.activeElement.matches("input, textarea")
+      ? window.visualViewport
+      : null;
+    const safeTop = vv ? 0 : safeAreaTop();
     const vx = vv?.offsetLeft ?? 0,
-      vy = vv?.offsetTop ?? 0,
-      vw = vv?.width ?? innerWidth,
-      vh = vv?.height ?? innerHeight;
+      vy = vv?.offsetTop ?? safeTop,
+      vw = vv?.width ?? document.documentElement.clientWidth,
+      vh = vv?.height ?? document.documentElement.clientHeight - safeTop;
     if (keep && !mapMenu.hidden) {
       const r = mapMenu.getBoundingClientRect();
       if (

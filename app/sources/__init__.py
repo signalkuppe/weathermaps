@@ -45,6 +45,7 @@ class ModelInfo:
             "label": self.label,
             "resolution": self.resolution,
             "cycles": list(self.cycles),
+            "delay_hours": self.delay_hours,
             "max_step": self.max_step,
             "description": self.description,
             "country": self.country,
