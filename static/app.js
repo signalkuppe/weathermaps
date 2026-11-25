@@ -841,6 +841,23 @@
       // lost while in the background: reload when the page comes back, if it was not restored meanwhile
       if (!document.hidden && glLostTimer) location.reload();
     });
+    // Mapbox does not throw on HTTP errors, it emits "error" and only logs to the console, so Sentry never sees
+    // them. A rejected token (401: invalid or revoked; 403: URL restriction or missing scope) leaves the map
+    // without basemap: reported once per page and status, token removed from the URL. Other errors (a tile lost
+    // to a slow network) stay in the console only.
+    const glReported = new Set();
+    glBase.on("error", (e) => {
+      console.error(e.error || e); // a listener replaces Mapbox's own console.error
+      const status = e.error?.status;
+      if ((status !== 401 && status !== 403) || glReported.has(status)) return;
+      glReported.add(status);
+      const url = String(e.error.url || "").replace(/access_token=[^&]*/, "access_token=…");
+      window.Sentry?.captureMessage(`Mapbox ${status}: token rifiutato`, {
+        level: "error",
+        tags: { mapbox_status: status },
+        extra: { url, message: e.error.message },
+      });
+    });
     map.getContainer().classList.add("wm-native");
     map.attributionControl.addAttribution(MAPBOX_ATTR);
     connectMapbox(glBase);
@@ -10430,6 +10447,20 @@
           "The operation was aborted",
         ],
         beforeSend(event) {
+          // Facebook and Instagram in-app browsers (iOS): their injected scripts and the stricter webview throw
+          // a generic "Internal error" with no frames of ours; dropped only then, our own errors still arrive
+          if (
+            /FBAN|FBAV|Instagram/.test(navigator.userAgent) &&
+            event.exception?.values?.some((x) =>
+              /Internal error/.test(x.value || ""),
+            ) &&
+            !event.exception.values.some((x) =>
+              x.stacktrace?.frames?.some((f) =>
+                /\/(app|render|static_entry)\.js|mapbox-gl/.test(f.filename || ""),
+              ),
+            )
+          )
+            return null;
           if (event.request?.url) event.request.url = noHash(event.request.url);
           if (event.request?.headers?.Referer)
             delete event.request.headers.Referer;
