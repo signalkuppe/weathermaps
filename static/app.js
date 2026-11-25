@@ -1542,7 +1542,7 @@
       // second line (menus drawn by the page only, see renderModelSubs): latest run and the model at the edges
       o.innerHTML =
         `<span class="opt-icon ${kind}" aria-hidden="true">${modelIcon(m)}</span>` +
-        `<span class="opt-text"><span class="opt-label"></span>${RICH_SELECT ? '<span class="opt-sub"></span>' : ""}</span>`;
+        `<span class="opt-text"><span class="opt-line"><span class="opt-label"></span></span>${RICH_SELECT ? '<span class="opt-sub"></span>' : ""}</span>`;
       o.querySelector(".opt-label").textContent = m.label;
       o.selected = m.id === value;
       select.append(o);
@@ -1733,7 +1733,7 @@
       if (!dot) {
         dot = document.createElement("span");
         dot.className = "opt-late";
-        o.append(dot);
+        (o.querySelector(".opt-line") || o).append(dot); // right after the name, on its line
       }
       dot.title = `In ritardo: ${lateText(n)}`;
     }

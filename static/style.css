@@ -852,6 +852,15 @@ input[type="range"] {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* name and late-run dot on one line */
+  .rich-select .opt-line {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
+  .rich-select .opt-line .opt-late {
+    margin-left: 6px;
+  }
   .rich-select .opt-text {
     display: flex;
     flex-direction: column;
