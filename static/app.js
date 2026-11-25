@@ -7758,6 +7758,13 @@
     }
     return out;
   }
+  /** Comparison header: "Modelli a confronto · what · period". On phones only the period: field and family are
+   *  already written in the controls next to it (see .cd-long in style.css). */
+  function multiDetails(what, period = "") {
+    // texts made here (field, family, dates): no user input
+    chartUi.details.innerHTML =
+      `<span class="cd-long">Modelli a confronto · ${what}${period ? " · " : ""}</span>${period}`;
+  }
   async function loadMulti() {
     const request = chartContext;
     const v = request.multi;
@@ -7768,7 +7775,7 @@
     const what =
       (v === "t850" ? "temperatura a 850 hPa" : "precipitazione cumulata") +
       (family ? ` · base ${family === "ecmwf" ? "ECMWF" : "GFS"}` : "");
-    chartUi.details.textContent = `Modelli a confronto · ${what}`;
+    multiDetails(what);
     chartUi.warn.hidden = true;
     chartUi.body.innerHTML =
       '<div class="chart-empty">Carico il grafico…</div>';
@@ -7813,7 +7820,7 @@
         s0 > 0
           ? fmtSpan(at(s0), at(s1), { month: false })
           : `fino a ${fmtLocal(at(s1))}`;
-      chartUi.details.textContent = `Modelli a confronto · ${what} · ${period}`;
+      multiDetails(what, period);
     }
     // each model: accumulated since its start (0 at the start of the run), brought back to 0 at the start of the period
     const lines = ok
