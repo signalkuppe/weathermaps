@@ -7663,6 +7663,8 @@
     arome: "#4dabf7",
     wrf: "#ff6b6b",
     moloch: "#e8590c",
+    bolam: "#94d82d",
+    "moloch-isac": "#c2255c",
     // the median: thick, in the text colour (like the spaghetti mean)
   };
   async function loadMulti() {

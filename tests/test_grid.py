@@ -238,6 +238,22 @@ def test_meteohub_urls_and_selectors():
     assert get("tp").selectors["moloch"].hourly_buckets and get("sf").convert["moloch"](1.0) == 1000.0
 
 
+
+def test_meteohub_open_data_bundles():
+    """BOLAM / MOLOCH-ISAC: file name from the list of bundles, messages told apart by code and level."""
+    import time as _time
+
+    src = meteohub.bolam
+    src._listing = (_time.monotonic(), [{"date": "2026-11-25", "run": "00:00", "filename": "data-abc.grib"}])
+    assert src._url(None, _dt(2026, 11, 25, 0), get("t2m")).endswith("/api/opendata/data-abc.grib")
+    with pytest.raises(meteohub.NotAvailable):
+        src._url(None, _dt(2026, 11, 26, 0), get("t2m"))
+    info = lambda lt, lv: meteohub.MessageInfo(0, 1, (0, 0, 0), lt, lv, 12, None)  # noqa: E731
+    t2m = get("t2m").selectors["bolam"]
+    assert src._matches(info(103, 2.0), t2m) and not src._matches(info(1, 0.0), t2m)  # 2 m, not the ground
+    assert get("tp").selectors["moloch-isac"].hourly_buckets and get("tp").selectors["bolam"].code == (0, 1, 52)
+    assert "bolam" not in get("t850").selectors and "bolam" in get("u10").selectors
+
 # ---------- Météo-France AROME: packages in 6-hour blocks
 from app.sources import arome as arome_mod  # noqa: E402
 

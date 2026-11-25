@@ -1,4 +1,5 @@
-"""ItaliaMeteo models on MeteoHub ("single variable"): WRF (CIMA/LaMMA) and MOLOCH (CNR-ISAC).
+"""ItaliaMeteo models on MeteoHub ("single variable"): WRF (CIMA/LaMMA) and MOLOCH (CNR-ISAC); plus the CNR-ISAC
+BOLAM and MOLOCH "open data" bundles (one file per run with all the surface fields, see OpenDataSource).
 
 For each run and variable there is a file with all hourly steps, even hundreds of MB.
 Only the GRIB2 message headers (parameter, level, step) are read with small
@@ -11,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import struct
+import time
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -27,6 +29,9 @@ from .meteoswiss import Regridder
 log = logging.getLogger("weathermaps.meteohub")
 
 ROOT = "https://meteohub.agenziaitaliameteo.it/nwp"
+API = "https://meteohub.agenziaitaliameteo.it/api"
+LEVEL_TYPES = {"surface": 1, "heightAboveGround": 103, "isobaricInhPa": 100}
+LISTING_TTL = 600  # seconds between two reads of the list of open data bundles
 HEADER_BYTES = 4096  # sections 0–4 of a message almost always fit in a few KB
 UNIT_HOURS = {0: 1 / 60, 1: 1, 2: 24, 10: 3, 11: 6, 12: 12, 13: 1 / 3600}
 
@@ -78,8 +83,10 @@ def parse_header(buf: bytes, offset: int) -> MessageInfo:
 
 
 class MeteoHubSource:
-    def __init__(self, model: ModelInfo, dataset: str, prefix: str, dlat: float, dlon: float):
+    def __init__(self, model: ModelInfo, dataset: str, prefix: str, dlat: float, dlon: float,
+                 max_dist_km: float | None = None):
         self.MODEL = model
+        self.max_dist_km = max_dist_km  # None = the Regridder default (fine grids)
         self.dataset = dataset
         self.prefix = prefix
         self.dlat = dlat
@@ -88,6 +95,13 @@ class MeteoHubSource:
         self._regridders: dict[str, Regridder] = {}
         # running sums for hourly-interval precipitation: url -> (last hour summed, sum, regridder, unit)
         self._sums: dict[str, tuple[int, np.ndarray, Regridder, str]] = {}
+
+    def _matches(self, m: MessageInfo, sel) -> bool:
+        """Extra filter on the messages of a file (the single-variable files need none)."""
+        return True
+
+    def _url(self, client: httpx.Client, run: datetime, variable: Variable) -> str:
+        return self.url(run, variable)
 
     def url(self, run: datetime, variable: Variable) -> str:
         sel = variable.selectors[self.MODEL.id]
@@ -144,7 +158,8 @@ class MeteoHubSource:
             lat = eccodes.codes_get_array(gid, "latitudes")
             lon = eccodes.codes_get_array(gid, "longitudes")
             lon = (lon + 180) % 360 - 180
-            rg = Regridder.build(lat, lon, bbox, self.dlat, self.dlon)
+            extra = {"max_dist_km": self.max_dist_km} if self.max_dist_km else {}
+            rg = Regridder.build(lat, lon, bbox, self.dlat, self.dlon, **extra)
             rg.save(path)
             log.info("%s: regular grid %dx%d, %.0f%% inside the domain",
                      self.MODEL.id, rg.index.shape[1], rg.index.shape[0], 100 * rg.valid.mean())
@@ -164,7 +179,7 @@ class MeteoHubSource:
     def _fetch_bucket_sum(self, client: httpx.Client, url: str, sel, step: int, bbox: BBox) -> Field:
         """Total since the start of the run by summing the hourly precipitation (k-1, k] for k = 1..step, incrementally."""
         buckets = {int(round(m.step)): m for m in self.index(client, url)
-                   if m.code == sel.code and m.accum_from is not None and abs(m.step - m.accum_from - 1) < 1e-6}
+                   if m.code == sel.code and self._matches(m, sel) and m.accum_from is not None and abs(m.step - m.accum_from - 1) < 1e-6}
         last, total, rg, units = self._sums.get(url, (0, None, None, ""))
         if last > step:  # request for an earlier step: start over
             last, total, rg = 0, None, None
@@ -182,12 +197,14 @@ class MeteoHubSource:
 
     def fetch(self, client: httpx.Client, run: datetime, step: int, variable: Variable, bbox: BBox) -> Field:
         sel = variable.selectors[self.MODEL.id]
-        url = self.url(run, variable)
+        url = self._url(client, run, variable)
         if sel.hourly_buckets:
             return self._fetch_bucket_sum(client, url, sel, step, bbox)
         accum = sel.step_range_prefix == "0-"
         for m in self.index(client, url):
             if sel.code and m.code != sel.code:
+                continue
+            if not self._matches(m, sel):
                 continue
             if abs(m.step - step) > 1e-6:
                 continue
@@ -223,4 +240,70 @@ moloch = MeteoHubSource(
         ),
     ),
     dataset="MOLOCH_AIM", prefix="MOLOCH_AIM", dlat=0.015, dlon=0.02,
+)
+
+
+class OpenDataSource(MeteoHubSource):
+    """CNR-ISAC BOLAM and MOLOCH "open data" bundles: one GRIB file per run with all the hourly steps of a few
+    surface fields (2 m temperature and dew point, 10 m wind, hourly precipitation, cloud cover, snow on the ground).
+    The file name is not predictable: it comes from the dataset's list of bundles (date and hour of the run).
+    The messages are told apart by WMO code and level (e.g. 2 m and ground temperature share the code); MOLOCH
+    also repeats some fields every 3 hours on a coarser grid, after the full one: the first match is the full one.
+    """
+
+    def __init__(self, model: ModelInfo, dataset: str, dlat: float, dlon: float, max_dist_km: float | None = None):
+        super().__init__(model, dataset=dataset, prefix=dataset, dlat=dlat, dlon=dlon, max_dist_km=max_dist_km)
+        self._listing: tuple[float, list[dict]] = (0.0, [])
+
+    def _matches(self, m: MessageInfo, sel) -> bool:
+        if sel.levtype is None:
+            return True
+        level = float(sel.levelist or 0)
+        return m.level_type == LEVEL_TYPES[sel.levtype] and abs(m.level - level) < 1e-6
+
+    def bundles(self, client: httpx.Client) -> list[dict]:
+        at, items = self._listing
+        if time.monotonic() - at > LISTING_TTL or not items:
+            resp = client.get(f"{API}/datasets/{self.dataset}/opendata")
+            resp.raise_for_status()
+            items = resp.json()
+            self._listing = (time.monotonic(), items)
+        return items
+
+    def _url(self, client: httpx.Client, run: datetime, variable: Variable) -> str:
+        for item in self.bundles(client):
+            if item.get("date") == f"{run:%Y-%m-%d}" and item.get("run") == f"{run:%H}:00":
+                return f"{API}/opendata/{item['filename']}"
+        raise NotAvailable(f"{self.MODEL.id} {run:%Y%m%d%H}: corsa non ancora pubblicata")
+
+
+ISAC_CHAIN = (
+    "Catena GLOBO-BOLAM-MOLOCH del CNR-ISAC: il modello globale GLOBO parte dalle analisi del GFS (NOAA), "
+    "BOLAM prende i bordi da GLOBO e MOLOCH da BOLAM. Pubblica solo grandezze al suolo: niente quota "
+    "né sondaggi. Dati open data ItaliaMeteo (MeteoHub), CC-BY-SA."
+)
+
+bolam = OpenDataSource(
+    ModelInfo(
+        id="bolam", label="BOLAM 8 km", resolution=0.075, cycles=(0,), delay_hours=5.5, max_step=72, country="it",
+        description=(
+            "Modello BOLAM del CNR-ISAC, a circa 8 km su Europa e Mediterraneo. Corsa delle 00 UTC fino a +72h, "
+            "disponibile circa 5 ore dopo. " + ISAC_CHAIN
+        ),
+    ),
+    # 8 km cells: a point of the regular grid can be ~6 km from the nearest model point
+    dataset="BOLAM", dlat=0.075, dlon=0.1, max_dist_km=12,
+)
+
+# 0.0113° rotated grid (1154x1154 points, ~2.7 MB per field and step): remapped like the other MOLOCH (~1.6 km)
+moloch_isac = OpenDataSource(
+    ModelInfo(
+        id="moloch-isac", label="MOLOCH ISAC 1,2 km", resolution=0.0113, cycles=(3,), delay_hours=5.0, max_step=45,
+        country="it", short="MOLOCH-ISAC",
+        description=(
+            "Modello MOLOCH nella catena del CNR-ISAC, a circa 1,2 km sull'Italia, annidato in BOLAM. Corsa delle "
+            "03 UTC fino a +45h, disponibile circa 5 ore dopo. " + ISAC_CHAIN
+        ),
+    ),
+    dataset="MOLOCH", dlat=0.015, dlon=0.02,
 )

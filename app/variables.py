@@ -16,6 +16,10 @@ from .config import SYNOPTIC_BBOX
 Kind = Literal["accum", "instant", "vector"]
 
 
+# CNR-ISAC models from the MeteoHub open data bundles (BOLAM, MOLOCH): surface fields only
+ISAC_MODELS = ("bolam", "moloch-isac")
+
+
 @dataclass(frozen=True)
 class GribSelector:
     """How to find the field in a model.
@@ -203,11 +207,14 @@ register(
                                    hourly_buckets=True),
             # Météo-France: package (param) and WMO code; (0,1,52) accumulated is total precipitation (rain+snow+graupel)
             "arome": GribSelector(param="SP1", code=(0, 1, 52), step_range_prefix="0-"),
+            # CNR-ISAC open data bundles: hourly amounts (k-1, k] with code (0,1,52), summed since the start
+            **{m: GribSelector(param="tp", levtype="surface", levelist="0", code=(0, 1, 52), hourly_buckets=True)
+               for m in ISAC_MODELS},
         },
         # GFS APCP and ICON TOT_PREC are in kg m-2 (= mm); ECMWF tp is in metres.
         convert={"gfs": _identity, "ecmwf": _m_to_mm, "icon-ch2": _identity, "icon-ch1": _identity,
                  "icon-d2": _identity, "icon-2i": _identity, "wrf": _identity, "arome": _identity,
-                 "moloch": _identity},
+                 "moloch": _identity, **{m: _identity for m in ISAC_MODELS}},
         scale=PRECIP_SCALE,
         decimals=1,
         nonnegative=True,
@@ -299,6 +306,8 @@ T2M_SEL = {
     "icon-2i": GribSelector(param="T_2M", levtype="heightAboveGround", levelist="2"),
     "wrf": GribSelector(param="2t", levtype="heightAboveGround", levelist="2", code=(0, 0, 0)),
     "moloch": GribSelector(param="2t", levtype="heightAboveGround", levelist="2", code=(0, 0, 0)),
+    # same code as the ground temperature in the same file: told apart by the level
+    **{m: GribSelector(param="2t", levtype="heightAboveGround", levelist="2", code=(0, 0, 0)) for m in ISAC_MODELS},
     "icon-ch2": GribSelector(param="T_2M"),
     "icon-ch1": GribSelector(param="T_2M"),
 }
@@ -622,6 +631,9 @@ def _wind_component(comp: str, level: str) -> Variable:
     sel["wrf"] = dataclasses.replace(mine, pair=other, lambert=WRF_LAMBERT, component=comp)
     # MOLOCH: rotated grid, but the components are already east/north (uvRelativeToGrid = 0)
     sel["moloch"] = GribSelector(param=pu if u else pv, levtype=lt, levelist=lv, code=(0, 2, 2 if u else 3))
+    if level == "10":  # CNR-ISAC bundles: 10 m wind only, already east/north like MOLOCH
+        for m in ISAC_MODELS:
+            sel[m] = GribSelector(param=pu if u else pv, levtype=lt, levelist=lv, code=(0, 2, 2 if u else 3))
     name = "10 m" if level == "10" else f"{level} hPa"
     return Variable(
         id=f"{comp}{level}", label=f"Vento {name} ({'verso est' if u else 'verso nord'})", units="km/h", kind="instant",

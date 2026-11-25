@@ -143,7 +143,7 @@ def test_registered_with_dew_point():
     assert v.combine is wet_bulb_k
     assert all(sel.dew is not None for sel in v.selectors.values())
     assert all(sel.pressure is not None for sel in v.selectors.values())
-    assert set(v.selectors) == set(REGISTRY["t2m"].selectors) - {"wrf", "moloch"}  # no surface pressure on MeteoHub
+    assert set(v.selectors) == set(REGISTRY["t2m"].selectors) - {"wrf", "moloch", "bolam", "moloch-isac"}  # no surface pressure on MeteoHub
 
 
 def test_local_pressure_and_missing():
