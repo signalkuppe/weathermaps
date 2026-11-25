@@ -100,6 +100,82 @@
     ui.privacyDialog.close();
   });
 
+  // ---------- release notes: the "## <version>" section of CHANGELOG.md (changelog.md next to the page), shown
+  // only on request from Info e crediti. Between two tags (local "v1.0.0-rc17+3") the base tag is used; a version
+  // without a section shows the newest one.
+  const changelogDialog = $("changelog-dialog");
+  /** The few Markdown forms CHANGELOG.md uses: ### headings, "- " lists, paragraphs, **bold**, `code`, links. */
+  function changelogHtml(md) {
+    const esc = (t) =>
+      t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const inline = (t) =>
+      esc(t)
+        .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+        .replace(/`(.+?)`/g, "<code>$1</code>")
+        .replace(
+          /\[([^\]]+)\]\((https?:[^)\s]+)\)/g,
+          '<a href="$2" target="_blank" rel="noopener">$1</a>',
+        );
+    let html = "";
+    let list = false;
+    let para = [];
+    const flush = () => {
+      if (para.length) html += `<p>${inline(para.join(" "))}</p>`;
+      para = [];
+      if (list) html += "</ul>";
+      list = false;
+    };
+    for (const line of md.split("\n")) {
+      const t = line.trim();
+      if (!t) flush();
+      else if (t.startsWith("### ")) {
+        flush();
+        html += `<h3>${inline(t.slice(4))}</h3>`;
+      } else if (t.startsWith("- ")) {
+        if (para.length) flush();
+        if (!list) html += "<ul>";
+        list = true;
+        html += `<li>${inline(t.slice(2))}</li>`;
+      } else para.push(t);
+    }
+    flush();
+    return html;
+  }
+  async function openChangelog() {
+    const text = $("changelog-text");
+    text.textContent = "Carico le novità…";
+    if (!changelogDialog.open) changelogDialog.showModal();
+    $("changelog-close").focus();
+    try {
+      const md = await fetch("changelog.md", { cache: "no-cache" }).then(
+        (r) => (r.ok ? r.text() : Promise.reject(new Error(r.status))),
+      );
+      // sections: "## v1.0.0-rc17" followed by its lines, newest first; comments dropped
+      const sections = md
+        .replace(/<!--[\s\S]*?-->/g, "")
+        .split(/^## /m)
+        .slice(1)
+        .map((s) => {
+          const nl = s.indexOf("\n");
+          return { tag: s.slice(0, nl).trim().split(/\s/)[0], body: s.slice(nl + 1) };
+        });
+      const version = (meta?.version || "").split("+")[0];
+      const section = sections.find((s) => s.tag === version) || sections[0];
+      if (!section) throw new Error("vuoto");
+      $("changelog-title").textContent = `Novità · ${section.tag}`;
+      text.innerHTML = changelogHtml(section.body);
+    } catch {
+      text.textContent = "Le novità non sono disponibili in questo momento.";
+    }
+  }
+  $("changelog-open").addEventListener("click", openChangelog);
+  $("changelog-close").addEventListener("click", () => changelogDialog.close());
+  changelogDialog.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    changelogDialog.close();
+  });
+
   // run: always the model's latest complete run (no longer chosen by hand)
   const state = {
     model: "gfs",

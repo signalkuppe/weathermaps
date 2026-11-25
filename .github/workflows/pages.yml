@@ -33,7 +33,7 @@ jobs:
         with:
           fetch-depth: 0 # the history with the tags is needed for the version shown next to the name (git describe)
 
-      # interface-only push (every changed file in static/): the site of the last full build is reused and only the
+      # interface-only push (every changed file in static/ or CHANGELOG.md): the site of the last full build is reused and only the
       # page is replaced, without downloading and regenerating the map data (about 1-2 minutes instead of ~8).
       # Hourly runs, manual runs, pushes that touch anything else and commits with "[full]" make the full build.
       - name: Tipo di aggiornamento
@@ -44,7 +44,7 @@ jobs:
           kind=full
           if [ "${{ github.event_name }}" = "push" ] && [ -n "$BEFORE" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
             changed=$(git diff --name-only "$BEFORE" "$GITHUB_SHA")
-            if [ -n "$changed" ] && ! echo "$changed" | grep -qv '^static/'; then kind=page; fi
+            if [ -n "$changed" ] && ! echo "$changed" | grep -qvE '^(static/|CHANGELOG\.md$)'; then kind=page; fi
             # "[full]" in the last commit message forces the full build
             if git log -1 --format=%B "$GITHUB_SHA" | grep -qF '[full]'; then kind=full; fi
           fi

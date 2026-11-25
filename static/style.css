@@ -1775,6 +1775,19 @@ body.radar-mode .badge-radar .badge-btn {
   text-decoration: underline;
   cursor: pointer;
 }
+/* same look as the links of the row above (credits-data): muted, underlined, " · " between them */
+.info-links .privacy-open {
+  margin: 0;
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+.changelog-body h3 {
+  margin: 20px 0 8px;
+}
+.changelog-body #changelog-text > :first-child {
+  margin-top: 0;
+}
 .privacy-head {
   width: min(100%, 760px);
   margin: 0 auto;

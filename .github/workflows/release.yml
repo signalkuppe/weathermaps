@@ -1,0 +1,49 @@
+name: Release
+
+# A GitHub release for every version tag, with that version's section of CHANGELOG.md as notes.
+# Manual run (Actions tab): for a tag pushed before this workflow existed, or to refresh the notes after editing them.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag (e.g. v1.0.0-rc17)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Note dal changelog
+        run: |
+          # the "## <tag>" section, up to the next "## " heading
+          awk -v tag="$TAG" '
+            /^## / { on = ($2 == tag); next }
+            on { print }
+          ' CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "::error::CHANGELOG.md has no '## $TAG' section"
+            exit 1
+          fi
+          cat notes.md
+
+      - name: Crea o aggiorna la release
+        run: |
+          pre=""
+          case "$TAG" in *-*) pre="--prerelease" ;; esac  # v1.0.0-rc17: pre-release
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --notes-file notes.md
+          else
+            gh release create "$TAG" --title "$TAG" --notes-file notes.md --verify-tag $pre
+          fi

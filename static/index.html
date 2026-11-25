@@ -601,9 +601,11 @@
               >Segnala un bug</a
             >
           </p>
-          <button id="privacy-open" class="privacy-open" type="button">
-            Informativa privacy
-          </button>
+          <p class="credits-data info-links">
+            <button id="changelog-open" class="privacy-open" type="button">Novità della versione</button>
+            ·
+            <button id="privacy-open" class="privacy-open" type="button">Informativa privacy</button>
+          </p>
         </details>
         <!-- last element of the panel: when the data were updated; the clock (Lucide "clock", ISC) sits
              in the column of the section triangles -->
@@ -1110,6 +1112,50 @@
             esterni è possibile rivolgersi anche direttamente al fornitore.
           </p>
         </section>
+      </article>
+    </dialog>
+    <!-- release notes: the section of CHANGELOG.md for the running version (changelog.md next to the page) -->
+    <dialog
+      id="changelog-dialog"
+      class="share-dialog privacy-dialog"
+      aria-labelledby="changelog-title"
+      tabindex="-1"
+    >
+      <header class="share-head privacy-head">
+        <h2 id="changelog-title">Novità</h2>
+        <button
+          id="changelog-close"
+          class="share-x"
+          type="button"
+          aria-label="Chiudi"
+          title="Chiudi (Esc)"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="22"
+            height="22"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M18 6 6 18" />
+            <path d="m6 6 12 12" />
+          </svg>
+        </button>
+      </header>
+      <article class="privacy-body changelog-body">
+        <div id="changelog-text"></div>
+        <p class="privacy-updated">
+          <a
+            href="https://github.com/signalkuppe/weathermaps/releases"
+            target="_blank"
+            rel="noopener"
+            >Tutte le versioni su GitHub</a
+          >
+        </p>
       </article>
     </dialog>
     <!-- meteogram of a place: the chosen model's fields over time (see app/series.py) -->

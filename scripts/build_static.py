@@ -111,6 +111,7 @@ def build_page(out_dir: Path) -> None:
     for name in ("render.js", "style.css", "borders.json", "borders-synoptic.json", "clim-t850.json",
                  "manifest.webmanifest"):
         shutil.copy(ROOT / "static" / name, out_dir / name)
+    shutil.copy(ROOT / "CHANGELOG.md", out_dir / "changelog.md")  # release notes, opened from Info e crediti
     build_javascript(out_dir / "app.js")
     if (out_dir / "icons").exists():
         shutil.rmtree(out_dir / "icons")

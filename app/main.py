@@ -8,6 +8,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import scheduler
@@ -45,6 +46,12 @@ def create_app(store: Store | None = None, start_scheduler: bool | None = None) 
         return response
     app.add_middleware(GZipMiddleware, minimum_size=1000)
     app.include_router(router)
+
+    @app.get("/changelog.md", include_in_schema=False)
+    def changelog():
+        # release notes, kept at the repository root (GitHub convention); the static build copies it next to the page
+        return FileResponse(STATIC_DIR.parent / "CHANGELOG.md", media_type="text/markdown; charset=utf-8")
+
     app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
     return app
 
