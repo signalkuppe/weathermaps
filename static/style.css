@@ -4531,6 +4531,9 @@ body.share-nopoints .leaflet-marker-icon.pt {
   width: auto;
   margin: 0;
   font-size: 13px;
+  /* as tall as the buttons next to it: 1.4 line + 4px padding top and bottom + 1px borders */
+  box-sizing: border-box;
+  height: calc(1.4em + 10px);
 }
 
 /* soundings mode (Extra layers): the model layers, places and top bar go away; map and stations
