@@ -1502,6 +1502,7 @@
       "chartFrom",
       "chartEns",
       "chartMulti",
+      "chartFam",
       "chartSnd",
     ])
       if (previous.has(key)) p.set(key, previous.get(key));
@@ -6437,6 +6438,7 @@
     details: $("chart-details"),
     warn: $("chart-warn"),
     multi: $("chart-multi"),
+    family: $("chart-family"),
     sounding: $("chart-sounding"),
     model: $("chart-model"),
     close: $("chart-close"),
@@ -6602,6 +6604,9 @@
     else params.delete("chartEns");
     if (chartContext.multi) params.set("chartMulti", chartContext.multi);
     else params.delete("chartMulti");
+    if (chartContext.multi && chartContext.family)
+      params.set("chartFam", chartContext.family);
+    else params.delete("chartFam");
     if (chartContext.sounding)
       params.set(
         "chartSnd",
@@ -6667,6 +6672,9 @@
         multi: ["tp", "t850"].includes(params.get("chartMulti"))
           ? params.get("chartMulti")
           : null,
+        family: ["ecmwf", "gfs"].includes(params.get("chartFam"))
+          ? params.get("chartFam")
+          : null,
       },
     );
   }
@@ -6683,12 +6691,14 @@
       pushHistory = true,
       ensemble = false, // GFS ensemble spaghetti (synoptic chart) instead of the meteogram
       multi = null, // "tp" (accumulated) or "t850": all models and the median compared
+      family = null, // with multi: only the ECMWF ("ecmwf") or GFS ("gfs") family, see modelFamily
     } = {},
   ) {
     chartUi.title.textContent = p.name;
     // model comparison: no model choice, in its place Precipitazione / T 850 hPa
     chartUi.model.hidden = !!multi;
     chartUi.multi.hidden = !multi;
+    chartUi.family.hidden = !multi;
     chartUi.sounding.hidden = true;
     chartUi.dialog.classList.remove("side-panel"); // the model charts full screen
     if (multi) {
@@ -6698,7 +6708,7 @@
         (model === state.model
           ? state.run
           : (runs[model] || []).find((x) => !x.incoming)?.run);
-      chartContext = { place: p, model, run: ref, from, until, multi };
+      chartContext = { place: p, model, run: ref, from, until, multi, family };
       writeChartHash(pushHistory && !chartUi.dialog.open);
       if (!chartUi.dialog.open) chartUi.dialog.showModal();
       chartUi.dialog.focus();
@@ -6890,6 +6900,13 @@
       chartUi.body.replaceChildren(message);
     }
   }
+  chartUi.family.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-f]");
+    const f = b?.dataset.f || null;
+    if (!b || !chartContext?.multi || f === (chartContext.family || null)) return;
+    chartContext.family = f;
+    loadMulti();
+  });
   chartUi.multi.addEventListener("click", (e) => {
     const b = e.target.closest("button[data-v]");
     if (!b || !chartContext?.multi || b.dataset.v === chartContext.multi)
@@ -6937,6 +6954,7 @@
         "chartFrom",
         "chartEns",
         "chartMulti",
+        "chartFam",
         "chartSnd",
       ])
         params.delete(key);
@@ -7711,17 +7729,48 @@
     "arome-hd": "#1c7ed6",
     wrf: "#ff6b6b",
     moloch: "#e8590c",
-    bolam: "#94d82d",
+    bolam: "#b197fc", // lavender: GFS (its driver) is green
     "moloch-isac": "#c2255c",
     // the median: thick, in the text colour (like the spaghetti mean)
   };
+  /** Family of a model for the comparison: ECMWF (its global models and those driven by the IFS) or GFS (GFS and
+   *  those driven by it, e.g. BOLAM and MOLOCH-ISAC); null for the others (ICON-D2, AROME, WRF) and the median. */
+  function modelFamily(m) {
+    if (["ecmwf", "ecmwf-hres", "aifs"].includes(m.id) || m.base === "IFS") return "ecmwf";
+    if (m.id === "gfs" || m.base === "GFS") return "gfs";
+    return null;
+  }
+  /** Median of the lines (same hours as theirs), where at least two models have a value. */
+  function familyMedian(lines) {
+    const at = (l, h) => {
+      const p = l.pts;
+      if (h < p[0][0] - 1e-6 || h > p[p.length - 1][0] + 1e-6) return null;
+      for (let i = 1; i < p.length; i++)
+        if (p[i][0] >= h - 1e-6)
+          return p[i - 1][1] + ((p[i][1] - p[i - 1][1]) * (h - p[i - 1][0])) / (p[i][0] - p[i - 1][0] || 1);
+      return p[0][1];
+    };
+    const hours = [...new Set(lines.flatMap((l) => l.pts.map(([h]) => h)))].sort((a, b) => a - b);
+    const out = [];
+    for (const h of hours) {
+      const vals = lines.map((l) => at(l, h)).filter((x) => x != null).sort((a, b) => a - b);
+      if (vals.length < 2) continue;
+      const k = vals.length >> 1;
+      out.push([h, vals.length % 2 ? vals[k] : (vals[k - 1] + vals[k]) / 2]);
+    }
+    return out;
+  }
   async function loadMulti() {
     const request = chartContext;
     const v = request.multi;
+    const family = request.family || null;
     for (const b of chartUi.multi.querySelectorAll("button"))
       b.setAttribute("aria-pressed", String(b.dataset.v === v));
+    for (const b of chartUi.family.querySelectorAll("button"))
+      b.setAttribute("aria-pressed", String((b.dataset.f || null) === family));
     const what =
-      v === "t850" ? "temperatura a 850 hPa" : "precipitazione cumulata";
+      (v === "t850" ? "temperatura a 850 hPa" : "precipitazione cumulata") +
+      (family ? ` · base ${family === "ecmwf" ? "ECMWF" : "GFS"}` : "");
     chartUi.details.textContent = `Modelli a confronto · ${what}`;
     chartUi.warn.hidden = true;
     chartUi.body.innerHTML =
@@ -7730,7 +7779,10 @@
     chartPin = null;
     writeChartHash();
     const { lat, lon } = request.place;
-    const models = meta.models; // the median too
+    // all models and the published median, or one family only: its median is computed here (see familyMedian)
+    const models = family
+      ? meta.models.filter((m) => modelFamily(m) === family)
+      : meta.models;
     const got = await Promise.all(
       models.map(async (m) => {
         const r = (runs[m.id] || []).find(
@@ -7827,6 +7879,11 @@
         };
       })
       .filter((l) => l.pts.length > 1);
+    if (family) {
+      const med = familyMedian(lines);
+      if (med.length > 1)
+        lines.push({ id: "mean", label: "Mediana", mean: true, color: null, pts: med, run: lines[0]?.run });
+    }
     chartData = {
       multi: v,
       lines,
@@ -8086,6 +8143,7 @@
     chartUi.title.textContent = st.name;
     chartUi.model.hidden = true;
     chartUi.multi.hidden = true;
+    chartUi.family.hidden = true;
     chartUi.sounding.hidden = true;
     chartContext = {
       place: { name: st.name, lat: st.lat, lon: st.lon },

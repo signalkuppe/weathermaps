@@ -4492,6 +4492,9 @@ body.share-nopoints .leaflet-marker-icon.pt {
 .chart-multi {
   display: inline-flex;
 }
+.chart-multi button {
+  white-space: nowrap;
+}
 
 /* soundings: stations on the map (balloon and name) and launch choice in the chart */
 .snd-marker {
