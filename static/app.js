@@ -7661,6 +7661,7 @@
     "icon-ch1": "#f06595",
     "icon-ch2": "#cc5de8",
     arome: "#4dabf7",
+    "arome-hd": "#1c7ed6",
     wrf: "#ff6b6b",
     moloch: "#e8590c",
     bolam: "#94d82d",

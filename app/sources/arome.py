@@ -1,4 +1,4 @@
-"""Météo-France AROME 0.025° (~2.5 km) from the Open Data published on data.gouv.fr.
+"""Météo-France AROME 0.025° (~2.5 km) and 0.01° (~1.3 km, "HD") from the Open Data published on data.gouv.fr.
 
 The data come in "paquets": one GRIB2 file per group of parameters and 6-hour block
 (SP1 = surface, with precipitation, ~55 MB). Precipitation only: T 850 hPa is in the IP1 package
@@ -34,11 +34,16 @@ def block(step: int) -> str:
 
 
 class AromeSource(MeteoHubSource):
+    grid = "0025"
+
     def url(self, run: datetime, variable: Variable, step: int = 0) -> str:  # type: ignore[override]
         """E.g. .../2026-11-10T03:00:00Z/arome/0025/SP1/arome__0025__SP1__07H12H__2026-11-10T03:00:00Z.grib2"""
         pkg = variable.selectors[self.MODEL.id].param
         ts = f"{run:%Y-%m-%dT%H}:00:00Z"
-        return f"{ROOT}/{ts}/arome/0025/{pkg}/arome__0025__{pkg}__{block(step)}__{ts}.grib2"
+        return f"{ROOT}/{ts}/arome/{self.grid}/{pkg}/arome__{self.grid}__{pkg}__{self.block(step)}__{ts}.grib2"
+
+    def block(self, step: int) -> str:
+        return block(step)
 
     def fetch(self, client: httpx.Client, run: datetime, step: int, variable: Variable, bbox: BBox) -> Field:
         sel = variable.selectors[self.MODEL.id]
@@ -70,4 +75,30 @@ arome = AromeSource(
         ),
     ),
     dataset="", prefix="", dlat=0.025, dlon=0.025,
+)
+
+
+class AromeHDSource(AromeSource):
+    """AROME 0.01°: one file per hour and package. SP1 = 2 m temperature and humidity, 10 m wind (geographic
+    components, regular grid); SP2 = accumulated rain, snow and graupel since the start (total = their sum)."""
+
+    grid = "001"
+
+    def block(self, step: int) -> str:
+        if not 0 <= step <= 51:
+            raise ValueError(f"AROME HD: passo +{step}h oltre l'orizzonte")
+        return f"{step:02d}H"
+
+
+arome_hd = AromeHDSource(
+    ModelInfo(
+        id="arome-hd", label="AROME 1,3 km", resolution=0.01, cycles=(0, 3, 6, 9, 12, 15, 18, 21),
+        delay_hours=4.0, max_step=51, country="fr", short="AROME HD",
+        description=(
+            "AROME di Météo-France sulla griglia fine a 0,01° (circa 1,3 km, la risoluzione nativa del modello) "
+            "su Francia e Alpi. Una corsa ogni 3 ore fino a +51h, disponibile 3–4 ore dopo. Come l'AROME a "
+            "2,5 km il dominio finisce fra 13 e 14,5°E: Friuli e Alto Adriatico al bordo."
+        ),
+    ),
+    dataset="", prefix="", dlat=0.01, dlon=0.01,
 )

@@ -270,6 +270,17 @@ def test_arome_urls_and_blocks():
         arome_mod.block(54)
 
 
+def test_arome_hd_hourly_files_and_total_precipitation():
+    run = _dt(2026, 11, 25, 3)
+    hd = arome_mod.arome_hd
+    assert hd.url(run, get("t2m"), 12).endswith(
+        "/2026-11-25T03:00:00Z/arome/001/SP1/arome__001__SP1__12H__2026-11-25T03:00:00Z.grib2")
+    assert "/SP2/arome__001__SP2__09H__" in hd.url(run, get("tp"), 9)
+    tp = get("tp").selectors["arome-hd"]  # rain + snow + graupel
+    assert {tp.code, *(p.code for p in tp.plus)} == {(0, 1, 65), (0, 1, 66), (0, 1, 75)}
+    assert "arome-hd" in get("u10").selectors and "arome-hd" not in get("t850").selectors
+
+
 # ---------- wind: half resolution and rotation of the Lambert grid (WRF)
 from app.grid import Field, halve, lambert_to_earth  # noqa: E402
 
