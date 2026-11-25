@@ -4527,6 +4527,11 @@ body.share-nopoints .leaflet-marker-icon.pt {
 .chart-sounding {
   max-width: 14em;
 }
+.chart-family {
+  width: auto;
+  margin: 0;
+  font-size: 13px;
+}
 
 /* soundings mode (Extra layers): the model layers, places and top bar go away; map and stations
    remain (back to the model with Extra layers → Off) */

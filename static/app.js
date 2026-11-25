@@ -6900,11 +6900,9 @@
       chartUi.body.replaceChildren(message);
     }
   }
-  chartUi.family.addEventListener("click", (e) => {
-    const b = e.target.closest("button[data-f]");
-    const f = b?.dataset.f || null;
-    if (!b || !chartContext?.multi || f === (chartContext.family || null)) return;
-    chartContext.family = f;
+  chartUi.family.addEventListener("change", () => {
+    if (!chartContext?.multi) return;
+    chartContext.family = chartUi.family.value || null;
     loadMulti();
   });
   chartUi.multi.addEventListener("click", (e) => {
@@ -7766,8 +7764,7 @@
     const family = request.family || null;
     for (const b of chartUi.multi.querySelectorAll("button"))
       b.setAttribute("aria-pressed", String(b.dataset.v === v));
-    for (const b of chartUi.family.querySelectorAll("button"))
-      b.setAttribute("aria-pressed", String((b.dataset.f || null) === family));
+    chartUi.family.value = family || "";
     const what =
       (v === "t850" ? "temperatura a 850 hPa" : "precipitazione cumulata") +
       (family ? ` · base ${family === "ecmwf" ? "ECMWF" : "GFS"}` : "");

@@ -1136,11 +1136,16 @@
               <button type="button" data-v="t850">T 850 hPa</button>
             </div>
             <!-- model comparison: all models, or only those of the ECMWF or GFS family (median recomputed) -->
-            <div id="chart-family" class="seg chart-multi chart-family" hidden>
-              <button type="button" data-f="">Tutti</button>
-              <button type="button" data-f="ecmwf" title="ECMWF e i modelli guidati dall'IFS">Base ECMWF</button>
-              <button type="button" data-f="gfs" title="GFS e i modelli guidati dal GFS">Base GFS</button>
-            </div>
+            <select
+              id="chart-family"
+              class="chart-family"
+              aria-label="Modelli a confronto"
+              hidden
+            >
+              <option value="">Tutti i modelli</option>
+              <option value="ecmwf">Base ECMWF</option>
+              <option value="gfs">Base GFS</option>
+            </select>
             <!-- sounding: launch choice (instead of the model) -->
             <select
               id="chart-sounding"

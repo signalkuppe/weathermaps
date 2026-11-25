@@ -1068,7 +1068,7 @@ test("multimodel charts align map periods across model runs without changing the
       title: {},
       model: {},
       multi: { querySelectorAll: () => [] },
-      family: { querySelectorAll: () => [] },
+      family: {},
       sounding: {},
       details: {},
       warn: {},
