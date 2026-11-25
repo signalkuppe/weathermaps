@@ -21,9 +21,9 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ inputs.tag || github.ref_name }}
     steps:
+      # tag push: the tagged commit; manual run: the chosen branch (main), whose CHANGELOG.md also covers tags
+      # older than the changelog itself
       - uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.tag || github.ref }}
 
       - name: Note dal changelog
         run: |
