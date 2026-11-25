@@ -2884,8 +2884,8 @@ body.radar-mode .badge .extra-close {
    handle on top, legend at the bottom across the full width */
 .badge {
   display: grid;
-  /* the time never shrinks (max-content); a long model name gives way instead and ends with "…" */
-  grid-template-columns: auto max-content minmax(0, 1fr) auto;
+  /* time and model always whole (max-content): the bar is wide enough for both (see the wider layout below) */
+  grid-template-columns: auto max-content minmax(max-content, 1fr) auto;
   grid-template-rows: auto 28px 28px auto; /* handle, time row, slider row, legend */
   align-items: center;
   padding: 0 10px 12px 8px;
@@ -2930,7 +2930,7 @@ body:not(.radar-mode) .badge-m-time {
 body:not(.radar-mode) .badge-m-model {
   grid-column: 3;
   grid-row: 2;
-  max-width: 40vw;
+  max-width: none;
   translate: 0 2px;
 }
 body:not(.radar-mode) .badge > #share {
@@ -2946,6 +2946,9 @@ body:not(.radar-mode) .badge .m-step {
   height: 28px;
 }
 /* radar and satellite: the bar's own box dissolves, its play, text and slider go into the same grid */
+body.radar-mode .badge {
+  grid-template-columns: auto minmax(0, 1fr) auto auto; /* the layer name may give way ("…") */
+}
 body.radar-mode .badge .badge-radar {
   display: contents;
 }
@@ -3040,11 +3043,17 @@ body.radar-mode .badge-radar #radar-slider {
     right: auto;
     bottom: calc(16px + env(safe-area-inset-bottom));
     translate: -50% 0;
-    width: clamp(360px, calc(100vw - 2 * 340px), 440px);
+    /* the usual width, but it grows to hold the whole time and model (e.g. an interval with "ECMWF (AIFS) 00Z") */
+    width: max-content;
+    min-width: min(clamp(360px, calc(100vw - 2 * 340px), 440px), calc(100vw - 24px));
     max-width: calc(100vw - 24px);
     padding: 0 14px 12px 12px;
     border-radius: 12px;
     font-size: 14px;
+  }
+  /* the legend follows the bar's width, it does not widen it */
+  .badge > .legend {
+    contain: inline-size;
   }
   .badge.badge-enter {
     animation-name: badge-in-centred;
