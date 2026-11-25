@@ -867,6 +867,16 @@ input[type="range"] {
   .rich-select selectedcontent .opt-sub {
     display: none;
   }
+  /* with the second line: the flag at the top, next to the name (not centred on the two lines) */
+  .rich-select option:has(.opt-sub:not(:empty)) {
+    align-items: flex-start;
+  }
+  .rich-select option:has(.opt-sub:not(:empty)) .opt-icon {
+    margin-top: 1px;
+  }
+  .rich-select option:has(.opt-sub:not(:empty))::checkmark {
+    align-self: center;
+  }
   .rich-select::picker-icon {
     color: var(--muted);
     transition: rotate 0.15s;
