@@ -12,7 +12,7 @@ from ..variables import GribSelector, Variable
 from . import ModelInfo, NotAvailable
 
 MODEL = ModelInfo(
-    id="ecmwf",
+    id="ecmwf", base="globale",
     label="ECMWF IFS 0.25°",
     resolution=0.25,
     cycles=(0, 12),  # the 06/18 runs stop at 144h

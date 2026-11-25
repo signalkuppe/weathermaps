@@ -232,7 +232,7 @@ wrf = MeteoHubSource(
 # about 8h30 after, the 12 UTC one about 9h after. Remapped like WRF (~1.6 km) so as not to weigh more on the site.
 moloch = MeteoHubSource(
     ModelInfo(
-        id="moloch", label="MOLOCH 1 km", resolution=0.0091, cycles=(0, 12), delay_hours=8.5, max_step=72, country="it",
+        id="moloch", base="IFS", label="MOLOCH 1 km", resolution=0.0091, cycles=(0, 12), delay_hours=8.5, max_step=72, country="it",
         description=(
             "Modello MOLOCH del CNR-ISAC (catena ItaliaMeteo e Consorzio Moloch), a circa 1 km sull'Italia, "
             "pensato per orografia e fenomeni convettivi. Corse delle 00 e 12 UTC fino a +72h, disponibili circa "
@@ -285,7 +285,7 @@ ISAC_CHAIN = (
 
 bolam = OpenDataSource(
     ModelInfo(
-        id="bolam", label="BOLAM 8 km", resolution=0.075, cycles=(0,), delay_hours=5.5, max_step=72, country="it",
+        id="bolam", base="GFS", label="BOLAM 8 km", resolution=0.075, cycles=(0,), delay_hours=5.5, max_step=72, country="it",
         description=(
             "Modello BOLAM del CNR-ISAC, a circa 8 km su Europa e Mediterraneo. Corsa delle 00 UTC fino a +72h, "
             "disponibile circa 5 ore dopo. " + ISAC_CHAIN
@@ -298,7 +298,7 @@ bolam = OpenDataSource(
 # 0.0113° rotated grid (1154x1154 points, ~2.7 MB per field and step): remapped like the other MOLOCH (~1.6 km)
 moloch_isac = OpenDataSource(
     ModelInfo(
-        id="moloch-isac", label="MOLOCH ISAC 1,2 km", resolution=0.0113, cycles=(3,), delay_hours=5.0, max_step=45,
+        id="moloch-isac", base="GFS", label="MOLOCH ISAC 1,2 km", resolution=0.0113, cycles=(3,), delay_hours=5.0, max_step=45,
         country="it", short="ISAC",
         description=(
             "Modello MOLOCH nella catena del CNR-ISAC, a circa 1,2 km sull'Italia, annidato in BOLAM. Corsa delle "

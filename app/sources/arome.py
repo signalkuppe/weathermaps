@@ -66,7 +66,7 @@ class AromeSource(MeteoHubSource):
 
 arome = AromeSource(
     ModelInfo(
-        id="arome", label="AROME 2,5 km", resolution=0.025, cycles=(0, 3, 6, 9, 12, 15, 18, 21),
+        id="arome", base="ARPEGE", label="AROME 2,5 km", resolution=0.025, cycles=(0, 3, 6, 9, 12, 15, 18, 21),
         delay_hours=3.5, max_step=51, country="fr",
         description=(
             "Modello ad alta risoluzione di Météo-France, a 0,025° (circa 2,5 km) su Francia e Alpi. "
@@ -92,7 +92,7 @@ class AromeHDSource(AromeSource):
 
 arome_hd = AromeHDSource(
     ModelInfo(
-        id="arome-hd", label="AROME 1,3 km", resolution=0.01, cycles=(0, 3, 6, 9, 12, 15, 18, 21),
+        id="arome-hd", base="ARPEGE", label="AROME 1,3 km", resolution=0.01, cycles=(0, 3, 6, 9, 12, 15, 18, 21),
         delay_hours=4.0, max_step=51, country="fr", short="AROME HD",
         description=(
             "AROME di Météo-France sulla griglia fine a 0,01° (circa 1,3 km, la risoluzione nativa del modello) "

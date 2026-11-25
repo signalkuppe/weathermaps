@@ -20,7 +20,7 @@ from . import ModelInfo, NotAvailable
 log = logging.getLogger("weathermaps.icon_2i")
 
 MODEL = ModelInfo(
-    id="icon-2i",
+    id="icon-2i", base="IFS",
     label="ICON-2I 2 km",
     resolution=0.025,
     cycles=(0, 12),
@@ -102,7 +102,7 @@ class _Ruc:
     ICON-2I in another folder; out ~1h15 after the start (some runs are skipped)."""
 
     MODEL = ModelInfo(
-        id="icon-2i-ruc",
+        id="icon-2i-ruc", base="IFS",
         label="ICON-2I RUC 2 km",
         short="ICON-2I RUC",
         resolution=0.025,

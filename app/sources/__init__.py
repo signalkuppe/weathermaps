@@ -27,6 +27,9 @@ class ModelInfo:
     country: str = ""  # code of the agency (us, eu, it, de, ch) for the flag in the selector
     short: str = ""  # short name (legends, lists of models); empty = the first word of the label
     steps: tuple[int, ...] | None = None  # steps of the model, if fewer than config.STEPS (e.g. every 6 hours)
+    # model that drives it at the edges (limited-area models: "IFS", "GFS", "ICON", "ARPEGE"), "globale" for the
+    # global ones; empty when not documented. Shown in the model menu next to the latest run
+    base: str = ""
 
     def candidate_runs(self, now: datetime | None = None, count: int = 3) -> list[datetime]:
         """Latest `count` runs plausibly published, newest first."""
@@ -51,6 +54,7 @@ class ModelInfo:
             "country": self.country,
             **({"short": self.short} if self.short else {}),
             **({"steps": list(self.steps)} if self.steps else {}),
+            **({"base": self.base} if self.base else {}),
         }
 
 

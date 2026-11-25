@@ -38,7 +38,7 @@ from .store import Store
 log = logging.getLogger("weathermaps.mean")
 
 MODEL = ModelInfo(
-    id="mean", label="Mediana modelli", resolution=0.02, cycles=tuple(range(24)), delay_hours=0, max_step=192,
+    id="mean", base="mediana", label="Mediana modelli", resolution=0.02, cycles=tuple(range(24)), delay_hours=0, max_step=192,
     description=(
         "Mediana dei modelli disponibili per lo stesso istante, su una griglia comune di circa 2 km. "
         "Ogni modello usa la sua ultima corsa completa. Oltre l'orizzonte dei modelli ad alta "

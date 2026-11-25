@@ -16,7 +16,7 @@ from . import ModelInfo
 from .ecmwf import ROOT, fetch_record
 
 MODEL = ModelInfo(
-    id="aifs",
+    id="aifs", base="globale",
     label="ECMWF AIFS",
     resolution=0.25,
     cycles=(0, 6, 12, 18),

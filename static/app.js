@@ -1530,13 +1530,19 @@
         : "";
 
   /** Model select: flag + name. The initial <button><selectedcontent> stays in place. */
+  // the select drawn by the page (appearance: base-select): the options can have a second line; elsewhere they are
+  // plain text, where it would end up glued to the name
+  const RICH_SELECT = CSS.supports?.("appearance", "base-select") ?? false;
   function fillModelSelect(models, value, select = ui.model) {
     for (const o of [...select.querySelectorAll("option")]) o.remove();
     for (const m of models) {
       const o = document.createElement("option");
       o.value = m.id;
       const kind = m.country ? "flag" : "glyph";
-      o.innerHTML = `<span class="opt-icon ${kind}" aria-hidden="true">${modelIcon(m)}</span><span class="opt-label"></span>`;
+      // second line (menus drawn by the page only, see renderModelSubs): latest run and the model at the edges
+      o.innerHTML =
+        `<span class="opt-icon ${kind}" aria-hidden="true">${modelIcon(m)}</span>` +
+        `<span class="opt-text"><span class="opt-label"></span>${RICH_SELECT ? '<span class="opt-sub"></span>' : ""}</span>`;
       o.querySelector(".opt-label").textContent = m.label;
       o.selected = m.id === value;
       select.append(o);
@@ -1559,6 +1565,7 @@
         models.find((m) => variable().models.includes(m.id)) || models[0]
       ).id;
     fillModelSelect(models, state.model);
+    renderModelSubs();
     renderModelInfo();
   }
 
@@ -1695,7 +1702,27 @@
       ? "la corsa successiva non è ancora stata pubblicata"
       : `le ${n} corse successive non sono ancora state pubblicate`;
   /** Yellow dot next to the late models in the model menu. */
+  /** Model menu, second line of each option: the latest complete run and what drives the model at the edges
+   *  ("00Z mer 25 nov · base IFS"; "globale" for the global models). Not in the closed field (style.css). */
+  function renderModelSubs() {
+    if (!meta || !runs) return;
+    for (const o of ui.model.querySelectorAll("option")) {
+      const sub = o.querySelector(".opt-sub");
+      if (!sub) continue;
+      const m = meta.models.find((x) => x.id === o.value);
+      const run = (runs[o.value] || []).find((r) => !r.incoming)?.run;
+      const base = !m?.base
+        ? ""
+        : ["globale", "mediana"].includes(m.base)
+          ? m.base
+          : `base ${m.base}`;
+      sub.textContent = [run ? `${cycle(run)} ${fmtRunDay(run)}` : "nessuna corsa", base]
+        .filter(Boolean)
+        .join(" · ");
+    }
+  }
   function markLateModels() {
+    renderModelSubs();
     for (const o of ui.model.querySelectorAll("option")) {
       const n = lateRuns(o.value);
       let dot = o.querySelector(".opt-late");

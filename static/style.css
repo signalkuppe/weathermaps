@@ -852,6 +852,21 @@ input[type="range"] {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .rich-select .opt-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  /* second line in the open menu: latest run and the model at the edges, small and muted */
+  .rich-select .opt-sub {
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .rich-select selectedcontent .opt-sub {
+    display: none;
+  }
   .rich-select::picker-icon {
     color: var(--muted);
     transition: rotate 0.15s;

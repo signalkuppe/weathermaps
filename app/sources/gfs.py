@@ -14,7 +14,7 @@ from ..variables import Variable, dewpoint_from_rh_k, wet_bulb_zero_m
 from . import ModelInfo, NotAvailable
 
 MODEL = ModelInfo(
-    id="gfs",
+    id="gfs", base="globale",
     label="GFS 0.25°",
     resolution=0.25,
     cycles=(0, 6, 12, 18),

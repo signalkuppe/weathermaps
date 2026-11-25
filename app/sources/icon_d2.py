@@ -16,7 +16,7 @@ from ..variables import Variable
 from . import ModelInfo, NotAvailable
 
 MODEL = ModelInfo(
-    id="icon-d2",
+    id="icon-d2", base="ICON",
     label="ICON-D2 2 km",
     resolution=0.02,
     cycles=(0, 3, 6, 9, 12, 15, 18, 21),

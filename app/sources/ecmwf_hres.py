@@ -16,7 +16,7 @@ from . import ModelInfo
 from .ecmwf import ROOT, fetch_record
 
 MODEL = ModelInfo(
-    id="ecmwf-hres",
+    id="ecmwf-hres", base="globale",
     label="ECMWF IFS 0.1°",
     resolution=0.1,
     cycles=(0, 12),
