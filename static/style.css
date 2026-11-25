@@ -872,7 +872,7 @@ input[type="range"] {
     align-items: flex-start;
   }
   .rich-select option:has(.opt-sub:not(:empty)) .opt-icon {
-    margin-top: 1px;
+    margin-top: calc((1lh - 15px) / 2); /* centred on the name's line (the flag is 15px tall) */
   }
   .rich-select option:has(.opt-sub:not(:empty))::checkmark {
     align-self: center;
