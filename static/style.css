@@ -2884,7 +2884,8 @@ body.radar-mode .badge .extra-close {
    handle on top, legend at the bottom across the full width */
 .badge {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  /* the time never shrinks (max-content); a long model name gives way instead and ends with "…" */
+  grid-template-columns: auto max-content minmax(0, 1fr) auto;
   grid-template-rows: auto 28px 28px auto; /* handle, time row, slider row, legend */
   align-items: center;
   padding: 0 10px 12px 8px;

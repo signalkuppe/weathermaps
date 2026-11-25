@@ -299,7 +299,7 @@ bolam = OpenDataSource(
 moloch_isac = OpenDataSource(
     ModelInfo(
         id="moloch-isac", label="MOLOCH ISAC 1,2 km", resolution=0.0113, cycles=(3,), delay_hours=5.0, max_step=45,
-        country="it", short="MOLOCH-ISAC",
+        country="it", short="ISAC",
         description=(
             "Modello MOLOCH nella catena del CNR-ISAC, a circa 1,2 km sull'Italia, annidato in BOLAM. Corsa delle "
             "03 UTC fino a +45h, disponibile circa 5 ore dopo. " + ISAC_CHAIN
