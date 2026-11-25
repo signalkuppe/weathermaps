@@ -2777,8 +2777,10 @@
     // ensemble: as with the soundings the model colours go away; places and any point of the map open the spaghetti
     const ens = state.extra === "ens";
     document.body.classList.toggle("ens-mode", ens);
-    if (ens && previous !== "ens" && save)
+    // without places the notice in the middle of the map says it already (see updateEnsEmpty)
+    if (ens && previous !== "ens" && save && places.length)
       toast("Tocca una località o un punto della mappa per vedere l'ensemble");
+    updateEnsEmpty();
     renderSoundings();
     glSatBase(); // satellite: green and blue map under the clouds
     // and in Settings only the note: basemap, borders and model colours are not the chosen ones here
@@ -4278,6 +4280,23 @@
     );
   }
 
+  /** Ensemble layer with no places (in the open folder): instead of an empty map, a notice that any point of the map
+   *  opens its spaghetti and a button to add places (the "Località preferite" section). */
+  function updateEnsEmpty() {
+    const box = $("ens-empty");
+    const on = state.extra === "ens" && !places.length && !synoptic();
+    box.hidden = !on;
+    if (on)
+      $("ens-empty-text").textContent =
+        `${hoverMq.matches ? "Clicca" : "Tocca"} un punto della mappa per vederne l'ensemble, ` +
+        "oppure aggiungi le località che segui per averle sempre sulla mappa.";
+  }
+  $("ens-empty-add").addEventListener("click", () => {
+    if (panelCollapsed()) ui.collapse.click();
+    openSection($("points-box"));
+    setTimeout(() => $("place-q").focus({ preventScroll: true }), 300);
+  });
+
   /** Rebuilds markers and list from `places` (after each addition, edit or deletion). */
   function setupPoints() {
     closePlacePop(); // indexes may change (deletion)
@@ -4361,6 +4380,7 @@
     $("places-export").hidden = !allPlaces.length || !!openFolder || editing;
     $("places-export-tip").hidden = true;
     if (meta && variable()) renderPoints();
+    updateEnsEmpty(); // Ensemble: the notice goes away with the first place (and comes back without any)
   }
 
   $("places-export-btn").addEventListener("click", async () => {

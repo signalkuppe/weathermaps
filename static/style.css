@@ -298,6 +298,42 @@ body.share-wide .wm-native-map {
   font-size: 13px;
   box-shadow: var(--shadow);
 }
+/* Ensemble without places: a notice in the middle of the map (the map stays usable around it) */
+.ens-empty {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  translate: -50% -50%;
+  z-index: 999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: max-content;
+  max-width: min(300px, calc(100vw - 32px));
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: center;
+  box-shadow: var(--shadow);
+}
+.ens-empty button {
+  margin-top: 4px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+body.share-live .ens-empty {
+  display: none;
+}
 /* full-screen modal: 1200×630 frame (og:image) to crop by dragging and zooming */
 .share-dialog {
   width: 100vw;
