@@ -1407,7 +1407,11 @@
   const steps = () => {
     const m = meta.models.find((x) => x.id === state.model);
     const max = m?.max_step ?? Infinity;
-    const all = (m?.steps || meta.steps).filter((s) => s <= max);
+    // fields with their own steps (synoptic chart, to the end of the run: GFS +384h, ECMWF +360h): the server gives
+    // them per model, already cut to its range
+    const all =
+      variable()?.steps?.[state.model] ||
+      (m?.steps || meta.steps).filter((s) => s <= max);
     // the median exists only where enough models have the step (e.g. not at +141h, which few models have): the
     // slider skips the others instead of stopping on a "no data" notice
     if (state.model === "mean") {
@@ -1718,8 +1722,8 @@
   }
 
   // ---------- model and field menus
-  // Computers: a panel that opens to the right of the side panel, on hover (with intent: a short delay to open, a
-  // longer one to close, and no close while the pointer travels towards it) or on click. Phones and tablets in
+  // Computers: a panel that opens to the right of the side panel on click (not on hover: it opened while the pointer
+  // just passed over the panel), closed by a click outside, Escape or a pick. Phones and tablets in
   // portrait (mobileMq): a bottom sheet. The two <select> stay in the page, hidden: they keep the value and fire
   // "change" as before, so the rest of the page does not know about the menus.
   const svgIcon = (paths, size = 24) =>
@@ -1947,16 +1951,8 @@
   sheetHead.addEventListener("pointerup", endDrag);
   sheetHead.addEventListener("pointercancel", endDrag);
 
-  // ----- the computer panel: hover intent and placement
-  const OPEN_DELAY = 120; // passing over the button on the way elsewhere does not open it
-  const CLOSE_DELAY = 500; // a slip outside is forgiven if the pointer comes back in time
-  const SAFE_PAD = 16;
+  // ----- the computer panel: placement
   const EDGE = 12;
-  function inTriangle(p, a, b, c) {
-    const s = (p1, p2, p3) => (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y);
-    const d1 = s(p, a, b), d2 = s(p, b, c), d3 = s(p, c, a);
-    return !((d1 < 0 || d2 < 0 || d3 < 0) && (d1 > 0 || d2 > 0 || d3 > 0));
-  }
   const allMenus = [];
   function makeMenu({ select, title, renderPanel, renderSheet, triggerContent, revealSelected }) {
     const trigger = document.createElement("button");
@@ -1971,9 +1967,12 @@
     pop.setAttribute("role", "listbox");
     pop.setAttribute("aria-label", title);
     pop.hidden = true;
-    document.body.append(pop);
+    // arrow from the panel's left edge to the button (a sibling, not inside: the panel scrolls and would clip it)
+    const arrow = document.createElement("div");
+    arrow.className = "mm-arrow";
+    arrow.hidden = true;
+    document.body.append(pop, arrow);
 
-    let openTimer, closeTimer, safe = null, openedAt = 0;
     const isOpen = () => !pop.hidden;
     function place() {
       // to the right of the side panel, its first row level with the button; inside the window: up if it does not
@@ -1988,59 +1987,28 @@
         pop.style.top = `${Math.max(EDGE, innerHeight - EDGE - r.height)}px`;
       if (pop.getBoundingClientRect().height > innerHeight - 2 * EDGE)
         pop.style.maxHeight = `${innerHeight - 2 * EDGE}px`;
+      // the arrow points at the middle of the button, kept clear of the panel's rounded corners
+      const p = pop.getBoundingClientRect();
+      const y = Math.min(Math.max(t.top + t.height / 2, p.top + 20), p.bottom - 20);
+      arrow.style.left = `${p.left + 1}px`; // +1: over the panel border, which would cross the arrow base
+      arrow.style.top = `${y}px`;
+      // over the models' "Appena aggiornati" column the arrow takes that column's tint, so it looks part of it
+      const recent = pop.querySelector(".mm-recent")?.getBoundingClientRect();
+      arrow.classList.toggle("on-recent", !!recent && y >= recent.top && y <= recent.bottom);
     }
     function setOpen(open) {
-      clearTimeout(openTimer);
-      clearTimeout(closeTimer);
-      safe = null;
       if (open === isOpen()) return;
       if (open) {
         for (const m of allMenus) if (m !== api) m.setOpen(false);
         renderPanel(pop);
         pop.hidden = false;
+        arrow.hidden = false;
         place();
-        openedAt = performance.now();
-      } else pop.hidden = true;
+      } else pop.hidden = arrow.hidden = true;
       trigger.setAttribute("aria-expanded", String(open));
     }
-    const scheduleClose = () => {
-      clearTimeout(closeTimer);
-      closeTimer = setTimeout(() => setOpen(false), CLOSE_DELAY);
-    };
-    for (const el of [trigger, pop]) {
-      el.addEventListener("pointerenter", (e) => {
-        if (e.pointerType !== "mouse" || mobileMq.matches) return;
-        clearTimeout(closeTimer);
-        safe = null;
-        if (!isOpen() && el === trigger) {
-          clearTimeout(openTimer);
-          openTimer = setTimeout(() => setOpen(true), OPEN_DELAY);
-        }
-      });
-      el.addEventListener("pointerleave", (e) => {
-        if (e.pointerType !== "mouse") return;
-        clearTimeout(openTimer);
-        if (!isOpen()) return;
-        if (el === trigger) {
-          const r = pop.getBoundingClientRect();
-          safe = {
-            a: { x: e.clientX, y: e.clientY },
-            b: { x: r.left, y: r.top - SAFE_PAD },
-            c: { x: r.left, y: r.bottom + SAFE_PAD },
-          };
-        }
-        scheduleClose();
-      });
-    }
-    document.addEventListener("pointermove", (e) => {
-      if (!safe || e.pointerType !== "mouse") return;
-      // still heading for the menu: wait again; once out of the triangle the countdown is not renewed
-      if (inTriangle({ x: e.clientX, y: e.clientY }, safe.a, safe.b, safe.c)) scheduleClose();
-      else safe = null;
-    });
     trigger.addEventListener("click", (e) => {
       if (mobileMq.matches) return openSheet(api, e.detail === 0); // detail 0: Enter/Space, not a tap
-      if (isOpen() && performance.now() - openedAt < 700) return; // just opened by the hover: the click means "open"
       setOpen(!isOpen());
     });
     document.addEventListener("pointerdown", (e) => {
@@ -6030,8 +5998,6 @@
     y: 0,
     w: 0,
     touched: false,
-    fixed: false, // 500 hPa chart: fixed framing (like Meteociel), no proportions, zoom or dragging
-    savedRatio: null,
   };
   const ratioOf = () => dims(crop.ratio)[0] / dims(crop.ratio)[1];
   const cropH = () => crop.w / ratioOf();
@@ -6349,8 +6315,7 @@
   const viewScale = () => view.fw / crop.w; // view px per map px
   function renderView() {
     // capture not ready yet (a render asked while the dialog opens, before the first capture)
-    if (shareUi.dialog.classList.contains("share-preparing") || !crop.snap)
-      return;
+    if (!crop.snap) return;
     renderOut();
     const ctx = shareUi.canvas.getContext("2d");
     const { snap } = crop;
@@ -6358,11 +6323,6 @@
     ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
     ctx.clearRect(0, 0, view.cw, view.ch);
     ctx.imageSmoothingQuality = "high";
-    if (crop.fixed) {
-      // fixed framing: only the final image, without the map around it or the crop frame
-      ctx.drawImage(outCanvas, view.fx, view.fy, view.fw, view.fh);
-      return;
-    }
     // whole map at the same scale as the frame, so the context is visible outside
     ctx.drawImage(
       snap.canvas,
@@ -6523,7 +6483,7 @@
   // ---------- sharing over the live map: the dialog leaves the map visible and usable (drag, pinch, wheel, as always),
   // a frame with the image proportions shows what goes into the image, with header and legend drawn over it. The map
   // is captured when it stops (the "Condividi" tap needs the file ready: iOS allows the share sheet only right after a
-  // tap) and the image is always as sharp as the map on screen. The 500 hPa chart keeps its fixed framing (crop.fixed).
+  // tap) and the image is always as sharp as the map on screen. The 500 hPa chart too.
   const shareFrame = $("share-frame"),
     shareDecor = $("share-decor");
   /** Frame: the largest of the chosen proportions between the dialog's top bar and its controls. */
@@ -6632,7 +6592,6 @@
     shareUi.points.checked = state.extra === "none";
     document.body.classList.add("share-live");
     shareUi.dialog.classList.add("share-live");
-    shareUi.dialog.classList.remove("share-fixed");
     if (!shareUi.dialog.open) shareUi.dialog.show(); // not modal: the map below stays usable
     document.activeElement?.blur?.(); // no focus ring on the close button when it opens
     setRatio(crop.ratio); // frame, buttons and preview
@@ -6693,57 +6652,11 @@
     });
     // start from the map as you are viewing it (same area and zoom): no device location
     shareRestore = null;
-    crop.fixed = synoptic();
-    if (!crop.fixed) return liveStart();
-    shareUi.dialog.classList.toggle("share-fixed", crop.fixed);
-    if (crop.fixed) {
-      // 500 hPa chart: the map below is resized and moved for the fixed framing; the dialog opens
-      // right away (the image is still being prepared) so the map is not seen moving
-      shareUi.dialog.classList.add("share-preparing");
-      if (!shareUi.dialog.open) shareUi.dialog.showModal();
-    }
-    await shareWideStart();
-    if (crop.fixed && !shareWide) {
-      // 500 hPa chart: the map shows the whole fixed framing; on closing it goes back to where it was
-      shareRestore = { center: map.getCenter(), zoom: map.getZoom() };
-      map.fitBounds(SYN_FRAME, { animate: false });
-      await mapReady();
-    }
-    await takeSnap();
-    crop.texts = shareTexts();
-    // on opening the largest frame that fits in the map, centred (the proportion stays the last one chosen)
-    if (crop.fixed && crop.ratio !== SYN_RATIO) {
-      crop.savedRatio = crop.ratio; // found again at the next sharing of the other maps
-      crop.ratio = SYN_RATIO;
-    }
-    [outCanvas.width, outCanvas.height] = dims(crop.ratio);
-    crop.w = maxCropW();
-    const c = crop.snap.pin || { x: crop.snap.W / 2, y: crop.snap.H / 2 };
-    crop.x = c.x - crop.w / 2;
-    crop.y = c.y - cropH() / 2;
-    if (crop.fixed) {
-      // 4:3 frame as wide as the fixed framing, vertically centred on it
-      const nw = map.latLngToContainerPoint(SYN_FRAME.getNorthWest()),
-        se = map.latLngToContainerPoint(SYN_FRAME.getSouthEast());
-      crop.w = se.x - nw.x;
-      crop.x = nw.x;
-      crop.y = (nw.y + se.y) / 2 - cropH() / 2;
-    }
-    clampCrop();
-    crop.touched = false;
-    shareUi.pointsRow.hidden = !crop.snap.points.length || !!crop.pinLL;
-    // places: with the model maps on (values), off with radar and satellite (they can be turned on with the switch)
-    shareUi.points.checked = state.extra === "none" && !synoptic();
-    if (crop.fixed && !shareUi.dialog.open) return; // closed while getting ready (the map is already back where it was)
-    shareUi.dialog.classList.remove("share-preparing");
-    if (!shareUi.dialog.open) shareUi.dialog.showModal();
-    layoutView();
-    setRatio(crop.ratio);
+    return liveStart();
   }
 
   // on closing (X, Esc, after sharing) the map goes back to where it was, if you zoomed out in the dialog
   shareUi.dialog.addEventListener("close", () => {
-    shareUi.dialog.classList.remove("share-preparing");
     if (live.on) liveEnd(); // first: minimum zoom and bounds back, then the view
     if (shareRestore)
       map.setView(
@@ -6752,94 +6665,8 @@
         { animate: false },
       );
     shareRestore = null;
-    shareWideEnd();
     liveEnd();
-    if (crop.savedRatio) {
-      crop.ratio = crop.savedRatio;
-      crop.savedRatio = null;
-    }
   });
-
-  // Synoptic chart: with the share dialog open the map, hidden below, becomes 1600×1200 and is framed
-  // on SYN_FRAME, on any screen; on closing it goes back as it was.
-  let shareWide = null;
-  // framing of the 500 hPa chart image, like Meteociel: from Newfoundland to the Black Sea, from North Africa
-  // to Iceland (Italy on the right), 4:3: with 16:9 the Mercator strip looked squashed
-  // further south than the "geographic" centre: at the bottom the image has the colour bar and credits over the map
-  // (~10% of the height), which would cover the Mediterranean; 26–70 N by ~97° of longitude is 4:3 in Mercator.
-  // Always inside the chart's data area (SYNOPTIC_BBOX, 25–72 N, 70 W–64 E): a frame sticking out of it is refused by
-  // the map's bounds, which move the view (Italy ended up at the bottom right of the image)
-  const SYN_FRAME = L.latLngBounds([26, -57], [70, 39.6]);
-  const SYN_RATIO = "4:3";
-  async function shareWideStart() {
-    if (!synoptic()) return;
-    // always the same 1600×1200 map under the dialog (any screen): the fixed framing fits entirely and
-    // the image comes out the same on phone and desktop
-    shareWide = { center: map.getCenter(), zoom: map.getZoom() };
-    const root = document.documentElement.style;
-    root.setProperty("--share-w", "1600px");
-    root.setProperty("--share-h", "1200px");
-    document.body.classList.add("share-wide");
-    // a movement of the Mapbox map still going (inertia after a drag or a pinch) would end after the fit and bring
-    // its old view back over it (Italy shifted and closer in the image): stopped before anything else
-    glBase?.stop();
-    // no area bounds while the image is prepared: with the 1600×1200 map Mapbox applied them to its view and moved it
-    // north-west, Leaflet followed, and the fit was overwritten (Italy at the bottom right of the image, on phones).
-    // The fixed framing is inside the data area anyway; the bounds come back on closing (shareWideEnd)
-    map.setMaxBounds(null);
-    glBase?.setMaxBounds(null);
-    map.invalidateSize({ pan: false });
-    glBase?.resize();
-    updateMinZoom();
-    // Mapbox follows the new size of its box in a later frame: wait for it before fitting
-    await new Promise((r) => setTimeout(r, 120));
-    glBase?.resize();
-    // from a neutral view first: on phones the chart is half a level closer (synopticView) and the fit started from
-    // there came out shifted (Italy at the bottom right of the image)
-    map.setView(SYN_FRAME.getCenter(), map.getMinZoom(), { animate: false });
-    await mapReady();
-    // fit, then check it really holds (the sync with Mapbox after the size change can still move it): the area
-    // inside the map, touching it on one side, and Mapbox on the same view; otherwise again (a few passes at most)
-    for (let k = 0; k < 6; k++) {
-      glBase?.stop();
-      map.fitBounds(SYN_FRAME, { animate: false });
-      await mapReady();
-      if (synFramed()) break;
-    }
-  }
-  function shareBounds() {
-    map.setMaxBounds(areaBox);
-    glBase?.setMaxBounds(glBounds(areaNow()));
-  }
-  function synFramed() {
-    const size = map.getSize();
-    const nw = map.latLngToContainerPoint(SYN_FRAME.getNorthWest());
-    const se = map.latLngToContainerPoint(SYN_FRAME.getSouthEast());
-    const inside =
-      nw.x > -2 && nw.y > -2 && se.x < size.x + 2 && se.y < size.y + 2;
-    const tight =
-      Math.abs(se.x - nw.x - size.x) < 4 || Math.abs(se.y - nw.y - size.y) < 4;
-    if (!inside || !tight) return false;
-    if (!glBase) return true;
-    const c = map.getCenter(),
-      g = glBase.getCenter();
-    return (
-      Math.abs(glBase.getZoom() + 1 - map.getZoom()) < 0.02 &&
-      Math.abs(g.lat - c.lat) < 0.05 &&
-      Math.abs(g.lng - c.lng) < 0.05
-    );
-  }
-  function shareWideEnd() {
-    if (!shareWide) return;
-    const { center, zoom } = shareWide;
-    shareWide = null;
-    document.body.classList.remove("share-wide");
-    map.invalidateSize({ pan: false });
-    glBase?.resize();
-    updateMinZoom();
-    shareBounds(); // area bounds back (removed in shareWideStart)
-    map.setView(center, Math.max(zoom, map.getMinZoom()), { animate: false });
-  }
 
   // device location: no longer used (it used to centre the shared image); remove the one saved by
   // earlier versions

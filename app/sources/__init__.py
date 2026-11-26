@@ -27,6 +27,8 @@ class ModelInfo:
     country: str = ""  # code of the agency (us, eu, it, de, ch) for the flag in the selector
     short: str = ""  # short name (legends, lists of models); empty = the first word of the label
     steps: tuple[int, ...] | None = None  # steps of the model, if fewer than config.STEPS (e.g. every 6 hours)
+    # last step of the published run, if beyond max_step: fields with their own steps (synoptic chart) go up to it
+    run_end: int | None = None
     # model that drives it at the edges (limited-area models: "IFS", "GFS", "ICON", "ARPEGE"), "globale" for the
     # global ones; empty when not documented. Shown in the model menu next to the latest run
     base: str = ""

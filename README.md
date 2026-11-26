@@ -53,6 +53,10 @@ hours: in the median its accumulated total is interpolated at the 3-hour steps, 
 AIFS gives precipitation and snow already in mm (kg m⁻²), the IFS in metres of water. In legends and lists the three
 are shortened to "ECMWF (0.25)", "ECMWF (0.1)" and "ECMWF (AIFS)".
 
+The **synoptic chart** (500 hPa geopotential with sea-level isobars, over Europe and the Atlantic) is the only field
+that goes beyond +192h: to the end of the run, every 6 hours after +192h (GFS +384h, ECMWF IFS 0.25° and AIFS +360h,
+the median +384h, with GFS alone after +360h). The other fields stop at +192h.
+
 **Snow** is in cm of fresh snow: the models give the water equivalent (mm), converted with the standard 10:1 ratio
 (1 mm of water = 1 cm of snow). It is an estimate: wet snow accumulates less, powder snow more. In the ICON models it
 is the sum of grid-scale and convective snow. The **freezing level** is the height (m above sea level) of the 0 °C

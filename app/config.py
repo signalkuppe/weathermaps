@@ -74,6 +74,9 @@ SYNOPTIC_BBOX = "25,72,-70,64"
 
 # Steps shared by GFS and ECMWF: 3h up to 144h, then 6h up to 192h.
 STEPS: list[int] = list(range(3, 145, 3)) + list(range(150, 193, 6))
+# Steps of the fields that go to the end of the run (synoptic chart): the shared ones, then every 6 hours up to
+# +384h (GFS; ECMWF and AIFS stop at +360h, see ModelInfo.run_end)
+LONG_STEPS: list[int] = STEPS + list(range(198, 385, 6))
 
 HTTP_TIMEOUT = float(os.environ.get("HTTP_TIMEOUT", "30"))
 SCHEDULER_INTERVAL_MIN = int(os.environ.get("SCHEDULER_INTERVAL_MIN", "10"))
@@ -139,6 +142,6 @@ def scheduler_enabled() -> bool:
 
 
 def prev_step(step: int) -> int:
-    """Previous step in the shared list (0 for the first)."""
-    i = STEPS.index(step)
-    return STEPS[i - 1] if i > 0 else 0
+    """Previous step in the shared list (0 for the first); the long steps continue it."""
+    i = LONG_STEPS.index(step)
+    return LONG_STEPS[i - 1] if i > 0 else 0

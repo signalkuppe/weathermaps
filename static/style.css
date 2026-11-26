@@ -168,17 +168,6 @@ body.is-starting > :not(.startup-loader):not(script) {
   }
 }
 /* background in the basemaps' terrain colour: when zooming out, the part not yet redrawn is not a grey void */
-/* sharing the synoptic chart on a narrow screen: the map under the dialog becomes 4:3, 1600×1200 (see
-   shareWideStart in app.js) */
-body.share-wide #map,
-body.share-wide .wm-native-map {
-  position: fixed;
-  inset: auto;
-  left: 0;
-  top: 0;
-  width: var(--share-w);
-  height: var(--share-h);
-}
 #map.leaflet-container {
   background: hsl(47, 26%, 88%);
 }
@@ -1473,6 +1462,22 @@ body.range-mode .stepper .interval-step {
 .icon-btn svg {
   display: block;
 }
+/* app reload (Home Screen app): no box, like the menu icon next to it: the bare icon in the muted colour, blue on
+   hover, as wide as the icon (the 44px touch area of .head-actions .icon-btn::after stays) */
+#app-reload {
+  min-width: 16px;
+  width: 16px;
+  border-color: transparent;
+  background: none;
+  color: var(--muted);
+  transition: color 0.15s;
+}
+@media (hover: hover) {
+  #app-reload:hover {
+    border-color: transparent;
+    color: var(--accent);
+  }
+}
 /* Home Screen app in portrait: the map goes under the clock and iOS puts a dark fade on top of it that
    overlaps map and panel; in its place a solid band in the page colour (0 tall in the browser) */
 .status-bar-bg {
@@ -2113,10 +2118,13 @@ body.radar-mode .badge-radar .badge-btn {
   right: 0;
   top: 50%;
   margin-top: -8px;
-  rotate: 180deg; /* panel open: up, it folds the panel */
+  /* the menu (hamburger) symbol instead of the chevron, the same in both states: Lucide "menu" (ISC) */
+  -webkit-mask-image: var(--menu-icon);
+  mask-image: var(--menu-icon);
+  background: var(--fg); /* the colour of the "Weathermaps" title, not the muted grey of the section chevrons */
 }
-.panel.collapsed #collapse::before {
-  rotate: none;
+:root {
+  --menu-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6h16M4 12h16M4 18h16'/%3E%3C/svg%3E");
 }
 @media (hover: hover) {
   .points-box summary:hover::after,
@@ -4449,36 +4457,6 @@ body.share-nopoints .leaflet-marker-icon.pt {
   box-sizing: border-box;
 }
 
-/* 500 hPa chart: fixed framing, no proportions, zoom or drag hint */
-.share-fixed #share-ratio,
-.share-fixed .share-hint,
-.share-fixed .share-zoom {
-  display: none !important;
-}
-.share-fixed #share-canvas {
-  cursor: default;
-}
-
-/* share dialog open while the map below is getting ready (500 hPa chart) */
-.share-preparing #share-canvas {
-  visibility: hidden;
-}
-.share-preparing .share-actions,
-.share-preparing #share-send,
-.share-preparing #share-download {
-  pointer-events: none;
-  opacity: 0.5;
-}
-.share-preparing::after {
-  content: "Preparazione dell'immagine…";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  translate: -50% -50%;
-  color: var(--muted);
-  font-size: 14px;
-}
-
 /* notice in the chart: grid-point total very different from the map's (see chartPointWarning) */
 .chart-warn {
   grid-column: 1 / -1; /* in the chart header: edge to edge */
@@ -4713,27 +4691,35 @@ body.ens-mode .badge {
 /* ================= model and field menus (app.js, "model and field menus") =================
    Computers: a panel to the right of the side panel. Phones and tablets in portrait: a bottom sheet.
    The <select> elements stay in the page, hidden; the visible control is .mm-trigger. */
-/* no box: icon, name and chevron on the row, the chevron on the right edge in line with the section chevrons */
+/* in a box like the other selects (border, background), so it reads as something to pick: icon, name and chevron
+   inside, the chevron on the box's right edge */
 .mm-trigger {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
   min-width: 0;
-  padding: 5px 0;
+  padding: 5px 8px;
   font: inherit;
   color: var(--fg);
   text-align: start;
-  background: none;
-  border: 0;
-  border-radius: 4px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
   cursor: pointer;
+  transition: border-color 0.15s;
+}
+.mm-trigger[aria-expanded="true"] {
+  border-color: var(--accent);
 }
 .mm-trigger:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 @media (hover: hover) {
+  .mm-trigger:hover {
+    border-color: var(--accent);
+  }
   .mm-trigger:hover .mm-chev {
     color: var(--accent);
   }
@@ -4802,14 +4788,31 @@ body.ens-mode .badge {
 .mm-pop[hidden] {
   display: none;
 }
-/* the pointer crosses the 12px gap to the panel without leaving the menu */
-.mm-pop::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -14px;
+/* arrow on the panel's left edge pointing at the button that opened it (placed by app.js: left = the panel's left
+   edge, top = the button's middle): a square turned 45°, same background and border as the panel, its right half
+   hidden under the panel so only the point shows, with the border on the two outer sides */
+.mm-arrow {
+  position: fixed;
+  z-index: 1101;
+  /* 14px: the point reaches ~10px out, almost to the side panel 12px away, so it reads as linking the two */
   width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  background: var(--panel-solid);
+  border-left: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  rotate: 45deg;
+  clip-path: polygon(0 0, 0 100%, 100% 100%); /* only the outer half: the inner half would cover the panel's content */
+  pointer-events: none;
+}
+/* the same tint as .mm-recent, over the panel colour */
+.mm-arrow.on-recent {
+  background:
+    linear-gradient(rgba(95, 160, 255, 0.06), rgba(95, 160, 255, 0.06)),
+    var(--panel-solid);
+}
+.mm-arrow[hidden] {
+  display: none;
 }
 .mm-close {
   display: inline-flex;

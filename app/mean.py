@@ -39,6 +39,7 @@ log = logging.getLogger("weathermaps.mean")
 
 MODEL = ModelInfo(
     id="mean", base="mediana", label="Mediana modelli", resolution=0.02, cycles=tuple(range(24)), delay_hours=0, max_step=192,
+    run_end=384,  # the synoptic chart: to the end of the GFS run, like its members
     description=(
         "Mediana dei modelli disponibili per lo stesso istante, su una griglia comune di circa 2 km. "
         "Ogni modello usa la sua ultima corsa completa. Oltre l'orizzonte dei modelli ad alta "
@@ -167,7 +168,10 @@ def _build(store: Store) -> dict:
         ever = np.zeros((len(vlats), len(vlons)), dtype=bool)
         last = 0  # last step included in the sum (precipitation)
         written: dict[int, list[str]] = {}
-        for s in [x for x in STEPS if x <= MODEL.max_step]:
+        # like fetcher.steps_for (not imported: fetcher imports this module): the shared steps, and for the fields
+        # with their own steps (synoptic chart) the long ones too, to the end of the run
+        own = [x for x in STEPS if x <= MODEL.max_step]
+        for s in own + [x for x in (var.steps or []) if own[-1] < x <= MODEL.run_end]:
             vals, used = [], []
             for m in chosen:
                 if var.kind == "accum":

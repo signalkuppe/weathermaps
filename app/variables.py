@@ -11,7 +11,7 @@ from typing import Callable, Literal
 
 import numpy as np
 
-from .config import SYNOPTIC_BBOX
+from .config import LONG_STEPS, SYNOPTIC_BBOX
 
 Kind = Literal["accum", "instant", "vector"]
 
@@ -739,6 +739,7 @@ register(
         convert={"gfs": _gpm_to_dam, "ecmwf": _gpm_to_dam},
         # one decimal (1 m): with whole decametres the 4 dam bands would have their edges on the cell edges, stepped
         scale=Z500_SCALE, decimals=1, rank="asc", hidden=True, area=SYNOPTIC_AREA,
+        steps=LONG_STEPS,  # to the end of the run (GFS +384h, ECMWF +360h), not only to +192h like the other fields
     )
 )
 register(
@@ -750,6 +751,7 @@ register(
         },
         convert={"gfs": _pa_to_hpa, "ecmwf": _pa_to_hpa},
         scale=HZERO_SCALE, decimals=1, rank="asc", hidden=True, area=SYNOPTIC_AREA,
+        steps=LONG_STEPS,  # the isobars of the synoptic chart, as far as the geopotential
     )
 )
 

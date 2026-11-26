@@ -3,6 +3,19 @@
 <!-- One "## vX.Y.Z" section per tag, newest first, in Italian (it is shown in the app, in Info e crediti, and used
      as the GitHub release notes by .github/workflows/release.yml). Only what users notice, in plain words. -->
 
+## v1.0.0-rc19
+
+### Carta sinottica (pressione e geopotenziale 500 hPa)
+
+- Arriva fino alla fine della corsa: GFS e mediana fino a +384h (16 giorni), ECMWF e AIFS fino a +360h, con una mappa ogni 6 ore dopo le 192h. Le altre grandezze restano a +192h.
+- Si condivide come le altre mappe: inquadri la zona che vuoi e scegli il formato, invece dell'inquadratura fissa sull'Europa.
+
+### Menu
+
+- Modello e grandezza sono di nuovo in un riquadro, così si vede che si possono cambiare.
+- Sul computer i due menu si aprono con un clic e non più passandoci sopra col mouse. Il pannello che si apre ha una punta che lo collega alla voce scelta.
+- In alto a destra c'è l'icona del menu al posto della freccia, e il tasto per ricaricare l'app non ha più il riquadro.
+
 ## v1.0.0-rc18
 
 ### Nuovi menu di modello e grandezza

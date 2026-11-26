@@ -25,6 +25,7 @@ MODEL = ModelInfo(
     country="eu",
     short="ECMWF (AIFS)",
     steps=tuple(range(6, 193, 6)),
+    run_end=360,  # the synoptic chart goes on to the end of the run
     description=(
         "Modello del Centro Europeo (ECMWF) basato sull'intelligenza artificiale, addestrato sulle analisi "
         "del modello fisico IFS. Griglia di 0,25° (circa 25 km), 4 corse al giorno, un passo ogni 6 ore, "

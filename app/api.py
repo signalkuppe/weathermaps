@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
 from . import soundings, variables
-from .config import STEPS, get_initial_view, get_version, prev_step
+from .config import LONG_STEPS, STEPS, get_initial_view, get_version, prev_step
 from . import fetcher
 from . import mean as mean_mod
 from . import ensemble
@@ -46,6 +46,15 @@ def refresh(request: Request, model: str):
     return JSONResponse({**fetcher.status(model), "accepted": started, "reason": reason, "cooldown_s": fetcher.REFRESH_COOLDOWN_S}, headers={"Cache-Control": "no-store"})
 
 
+def _with_steps(item: dict) -> dict:
+    """Menu entry with, for fields that have their own steps (synoptic chart, to the end of the run), the steps of
+    each model: the page's slider uses them instead of the shared `steps`."""
+    var = variables.REGISTRY.get(item.get("field") or item["id"])
+    if not var or not var.steps:
+        return item
+    return {**item, "steps": {m: steps_for(var, m) for m in item["models"]}}
+
+
 @router.get("/meta")
 def meta(request: Request):
     store = _store(request)
@@ -66,7 +75,7 @@ def meta(request: Request):
             # GFS and ECMWF ensembles for the place spaghetti plots on the synoptic chart ({model: ...})
             "ensemble": ensemble.info(store),
             "models": [m.as_dict() for m in MODELS.values()],
-            "variables": variables.menu(),
+            "variables": [_with_steps(v) for v in variables.menu()],
         },
         headers={"Cache-Control": "max-age=300"},
     )
@@ -197,7 +206,7 @@ def field(
         mode = v.modes[0]
     if mode not in v.modes:
         raise HTTPException(400, f"Modalità {mode!r} non valida per {var}; ammesse {v.modes}")
-    if step not in STEPS:
+    if step not in LONG_STEPS:
         raise HTTPException(400, f"Passo non valido: {step}")
     try:
         run_dt = parse_run_id(run)
@@ -214,7 +223,7 @@ def field(
     p = ([0] + own)[own.index(step)] if step in own else prev_step(step)
     if mode == "interval" and prev is not None:
         # 6, 12, 24-hour accumulations: difference with an earlier step (0 = since the start of the run)
-        if prev != 0 and prev not in STEPS or prev >= step:
+        if prev != 0 and prev not in LONG_STEPS or prev >= step:
             raise HTTPException(400, f"Passo di partenza non valido: {prev}")
         p = prev
     if mode == "interval":

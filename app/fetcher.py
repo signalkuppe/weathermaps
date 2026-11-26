@@ -61,8 +61,15 @@ def model_steps(model_id: str) -> list[int]:
 
 
 def steps_for(var: variables.Variable, model_id: str) -> list[int]:
+    """Steps of a field for a model. Fields with their own steps (synoptic chart, to the end of the run): the model's
+    own steps up to its range, then the field's ones beyond it, up to the end of the published run."""
     own = model_steps(model_id)
-    return [s for s in var.steps if s in own] if var.steps else own
+    if not var.steps:
+        return own
+    model = MODELS[model_id]
+    end = max(model.run_end or 0, model.max_step)
+    last = own[-1] if own else 0
+    return [s for s in var.steps if s in own or last < s <= end]
 
 
 def _convert(var: variables.Variable, model_id: str, field: Field) -> Field:
