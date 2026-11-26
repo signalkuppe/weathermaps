@@ -116,6 +116,9 @@ def build_page(out_dir: Path) -> None:
     if (out_dir / "icons").exists():
         shutil.rmtree(out_dir / "icons")
     shutil.copytree(ROOT / "static" / "icons", out_dir / "icons")  # logo: favicon and phone home-screen icons
+    if (out_dir / "previews").exists():
+        shutil.rmtree(out_dir / "previews")
+    shutil.copytree(ROOT / "static" / "previews", out_dir / "previews")  # field previews of the "Grandezza" menu
     html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
     html = html.replace('<html lang="it">', '<html lang="it" data-mode="static">', 1)
     vendor_script = '    <script src="vendor/range-slider-input-2.4.7.min.js"></script>\n'

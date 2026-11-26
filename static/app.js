@@ -1661,6 +1661,7 @@
     fillModelSelect(models, state.model);
     renderModelSubs();
     renderModelInfo();
+    menus.refresh();
   }
 
   // ---------- info icon about the chosen model
@@ -1675,7 +1676,20 @@
   function setModelInfoOpen(open) {
     ui.modelInfo.hidden = !open;
     ui.modelInfoBtn.setAttribute("aria-expanded", String(open));
+    if (open) placeModelInfo();
   }
+  // the note floats over everything (position: fixed, see style.css): 8px under the model row, as wide as it
+  function placeModelInfo() {
+    const row = ui.modelInfo.closest(".row").getBoundingClientRect();
+    Object.assign(ui.modelInfo.style, {
+      top: `${row.bottom + 8}px`,
+      left: `${row.left}px`,
+      width: `${row.width}px`,
+    });
+  }
+  // it would stay behind while the panel scrolls or the window changes: close it
+  ui.panel.addEventListener("scroll", () => setModelInfoOpen(false), true);
+  addEventListener("resize", () => !ui.modelInfo.hidden && setModelInfoOpen(false));
   ui.modelInfoBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     setModelInfoOpen(ui.modelInfo.hidden);
@@ -1700,7 +1714,412 @@
       state.var,
     );
     ui.varRow.hidden = meta.variables.length < 2;
+    menus.refresh();
   }
+
+  // ---------- model and field menus
+  // Computers: a panel that opens to the right of the side panel, on hover (with intent: a short delay to open, a
+  // longer one to close, and no close while the pointer travels towards it) or on click. Phones and tablets in
+  // portrait (mobileMq): a bottom sheet. The two <select> stay in the page, hidden: they keep the value and fire
+  // "change" as before, so the rest of the page does not know about the menus.
+  const svgIcon = (paths, size = 24) =>
+    `<svg viewBox="0 0 ${size} ${size}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+  // Lucide (ISC): cloud-rain, thermometer, snowflake, wind, gauge, clock, x, chevron-right
+  const MENU_ICONS = {
+    rain: svgIcon('<path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="M16 14v6"/><path d="M8 14v6"/><path d="M12 16v6"/>'),
+    temp: svgIcon('<path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/>'),
+    snow: svgIcon('<path d="M2 12h20"/><path d="M12 2v20"/><path d="m20 16-4-4 4-4"/><path d="m4 8 4 4-4 4"/><path d="m16 4-4 4-4-4"/><path d="m8 20 4-4 4 4"/>'),
+    wind: svgIcon('<path d="M12.8 19.6A2 2 0 1 0 14 16H2"/><path d="M17.5 8a2.5 2.5 0 1 1 2 4H2"/><path d="M9.8 4.4A2 2 0 1 1 11 8H2"/>'),
+    gauge: svgIcon('<path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>'),
+    clock: svgIcon('<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>'),
+    close: svgIcon('<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'),
+    chevron: svgIcon('<path d="m9 18 6-6-6-6"/>'),
+  };
+  // sections of the field menu, in order. Here and not in meta.json: a page-only deploy reuses the published
+  // meta.json. A field missing here ends up in "Altre", at the bottom
+  const FIELD_SECTIONS = [
+    ["Precipitazioni", "rain", ["tp", "tp_hzero", "tp_wind700"]],
+    ["Temperatura", "temp", ["t2m", "tw2m", "t850"]],
+    ["Neve e quote", "snow", ["sf", "hzero", "hwzero", "snowlmt"]],
+    ["Vento", "wind", ["wind10", "wind700", "wind850", "r850_wind850"]],
+    ["Sinottica", "gauge", ["z500_msl"]],
+  ];
+  const RECENT_COUNT = 4; // "Appena aggiornati": the models whose data arrived last
+  const FRESH_MIN = 60; // green dot: data arrived within the last hour
+  const escapeHtml = (s) =>
+    String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+  function fieldSections() {
+    const vars = meta.variables;
+    const known = new Set(FIELD_SECTIONS.flatMap((s) => s[2]));
+    const out = FIELD_SECTIONS.map(([name, icon, ids]) => [
+      name,
+      icon,
+      ids.map((id) => vars.find((v) => v.id === id)).filter(Boolean),
+    ]);
+    out.push(["Altre", null, vars.filter((v) => !known.has(v.id))]);
+    return out.filter((s) => s[2].length);
+  }
+  const sectionOf = (id) => fieldSections().find((s) => s[2].some((v) => v.id === id));
+  /** When the newest data of a model arrived (ms), from runs.json (`updated_at` of the run shown). */
+  function arrivedAt(id) {
+    const at = (runs?.[id] || []).find((r) => !r.incoming)?.updated_at;
+    return at ? Date.parse(at) : NaN;
+  }
+  const minutesAgo = (ms) => Math.max(0, Math.round((Date.now() - ms) / 60000));
+  const shortAge = (min) =>
+    min < 60 ? `${min} min` : min < 48 * 60 ? `${Math.round(min / 60)} h` : `${Math.round(min / 1440)} g`;
+  function modelSub(m) {
+    const run = (runs?.[m.id] || []).find((r) => !r.incoming)?.run;
+    const base = !m.base ? "" : ["globale", "mediana"].includes(m.base) ? m.base : `base ${m.base}`;
+    return [run ? `${cycle(run)} ${fmtRunDay(run)}` : "nessuna corsa", base].filter(Boolean).join(" · ");
+  }
+
+  function modelRow(m, withAge) {
+    const late = lateRuns(m.id);
+    const at = arrivedAt(m.id);
+    const min = minutesAgo(at);
+    const age =
+      withAge && !Number.isNaN(at)
+        ? `<span class="mm-age">${min < FRESH_MIN ? '<span class="mm-fresh" aria-hidden="true"></span>' : ""}${shortAge(min)}</span>`
+        : "";
+    return (
+      `<button type="button" class="mm-opt mm-model" role="option" data-id="${m.id}" aria-selected="${m.id === state.model}">` +
+      `<span class="mm-icon">${modelIcon(m)}</span>` +
+      `<span class="mm-name">${escapeHtml(m.label)}${late ? `<span class="mm-late" title="In ritardo: ${lateText(late)}"></span>` : ""}</span>` +
+      age +
+      `<span class="mm-sub">${escapeHtml(modelSub(m))}</span></button>`
+    );
+  }
+  function recentModels() {
+    return meta.models
+      .filter((m) => m.id !== "mean" && !Number.isNaN(arrivedAt(m.id)))
+      .sort((a, b) => arrivedAt(b.id) - arrivedAt(a.id))
+      .slice(0, RECENT_COUNT);
+  }
+  const closeBtn = `<button type="button" class="mm-close" aria-label="Chiudi" title="Chiudi">${MENU_ICONS.close}</button>`;
+
+  // ----- contents (computer panel and phone sheet)
+  function modelPanel(el) {
+    const models = meta.models;
+    const half = Math.ceil(models.length / 2);
+    el.className = "mm-pop mm-pop-models";
+    el.innerHTML =
+      `<div class="mm-recent"><div class="mm-head mm-head-recent">${MENU_ICONS.clock}Appena aggiornati</div>` +
+      `${recentModels().map((m) => modelRow(m, true)).join("")}</div>` +
+      `<div class="mm-all"><div class="mm-head">Tutti i modelli${closeBtn}</div><div class="mm-cols">` +
+      `<div class="mm-col">${models.slice(0, half).map((m) => modelRow(m, false)).join("")}</div>` +
+      `<div class="mm-col">${models.slice(half).map((m) => modelRow(m, false)).join("")}</div></div></div>`;
+  }
+  function fieldPanel(el) {
+    el.className = "mm-pop mm-pop-fields";
+    el.innerHTML =
+      `${closeBtn}<div class="mm-rows">` +
+      fieldSections()
+        .map(
+          ([name, icon, vars]) =>
+            `<div class="mm-row" role="group" aria-label="${escapeHtml(name)}">` +
+            `<div class="mm-sec">${icon ? MENU_ICONS[icon] : ""}<span>${escapeHtml(name)}</span></div>` +
+            vars
+              .map(
+                (v) =>
+                  `<button type="button" class="mm-opt mm-tile" role="option" data-id="${v.id}" aria-selected="${v.id === state.var}">` +
+                  `<span class="mm-thumb"><img alt="" loading="lazy" src="previews/${v.id}.jpg" onerror="this.remove()"></span>` +
+                  `<span class="mm-tname">${escapeHtml(v.menu_label || v.label)}</span></button>`,
+              )
+              .join("") +
+            `</div>`,
+        )
+        .join("") +
+      `</div>`;
+  }
+  function modelSheet(el) {
+    el.className = "mm-sheet-body mm-sheet-models";
+    el.innerHTML =
+      `<section class="mm-group mm-group-recent"><div class="mm-sheet-sec"><span>Appena aggiornati</span>${MENU_ICONS.clock}</div>` +
+      `<div class="mm-list">${recentModels().map((m) => modelRow(m, true)).join("")}</div></section>` +
+      `<section class="mm-group"><div class="mm-sheet-sec"><span>Tutti i modelli</span></div>` +
+      `<div class="mm-list">${meta.models.map((m) => modelRow(m, false)).join("")}</div></section>`;
+  }
+  function fieldSheet(el) {
+    el.className = "mm-sheet-body mm-sheet-fields";
+    el.innerHTML = fieldSections()
+      .map(
+        ([name, icon, vars]) =>
+          `<section class="mm-group"><div class="mm-sheet-sec"><span>${escapeHtml(name)}</span>${icon ? MENU_ICONS[icon] : ""}</div>` +
+          `<div class="mm-list" role="group" aria-label="${escapeHtml(name)}">` +
+          vars
+            .map(
+              (v) =>
+                `<button type="button" class="mm-opt mm-field" role="option" data-id="${v.id}" aria-selected="${v.id === state.var}">` +
+                `<span class="mm-sq"><img alt="" loading="lazy" src="previews/${v.id}.jpg" onerror="this.remove()"></span>` +
+                `<span class="mm-name">${escapeHtml(v.menu_label || v.label)}</span></button>`,
+            )
+            .join("") +
+          `</div></section>`,
+      )
+      .join("");
+  }
+
+  // ----- the phone sheet, shared by the two menus
+  const sheet = document.createElement("dialog");
+  sheet.className = "mm-sheet";
+  sheet.innerHTML =
+    '<div class="mm-sheet-head"><div class="mm-handle"></div><div class="mm-sheet-bar"><span class="mm-sheet-title"></span>' +
+    closeBtn +
+    '</div></div><div class="mm-sheet-body" tabindex="-1" autofocus></div>'; // autofocus: showModal focuses the list, not the X or the first entry (no focus ring on a phone)
+  document.body.append(sheet);
+  const sheetHead = sheet.querySelector(".mm-sheet-head");
+  const sheetTitle = sheet.querySelector(".mm-sheet-title");
+  const sheetBody = sheet.querySelector(".mm-sheet-body");
+  sheet.setAttribute("aria-label", "Menu");
+  let sheetMenu = null; // the menu that opened it
+  let sheetByKeyboard = false; // opened with the keyboard: focus goes back to the button when it closes
+  function openSheet(menu, byKeyboard = false) {
+    sheetMenu = menu;
+    sheetByKeyboard = byKeyboard;
+    sheetTitle.textContent = menu.title;
+    menu.renderSheet(sheetBody);
+    sheet.showModal();
+    sheetBody.scrollTop = 0; // after showModal: on a closed dialog the reset is ignored
+    menu.trigger.setAttribute("aria-expanded", "true");
+    requestAnimationFrame(() => requestAnimationFrame(() => sheet.classList.add("in")));
+    // the field menu scrolls to the chosen entry if it is below the fold (not the models: "Appena aggiornati"
+    // stays on top). Measured against the body: the sheet is still sliding in
+    const sel = menu.revealSelected && sheetBody.querySelector('[aria-selected="true"]');
+    if (sel) {
+      const r = sel.getBoundingClientRect();
+      const br = sheetBody.getBoundingClientRect();
+      if (r.bottom > br.bottom) sheetBody.scrollTop += r.bottom - br.bottom + 48;
+    }
+  }
+  function closeSheet() {
+    if (!sheet.open) return;
+    sheet.classList.remove("in");
+    sheet.style.transform = "";
+    const menu = sheetMenu;
+    menu?.trigger.setAttribute("aria-expanded", "false");
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      sheet.close();
+      // with a finger: no focus left on the button (showModal's return focus would draw the focus ring)
+      if (sheetByKeyboard) menu?.trigger.focus({ preventScroll: true });
+      else document.activeElement?.blur();
+    };
+    sheet.addEventListener("transitionend", finish, { once: true });
+    setTimeout(finish, 350); // no transition (reduced motion)
+  }
+  sheet.addEventListener("cancel", (e) => {
+    e.preventDefault(); // Esc and the back gesture: slide down instead of vanishing
+    closeSheet();
+  });
+  sheet.addEventListener("click", (e) => {
+    if (e.target === sheet || e.target.closest(".mm-close")) return closeSheet(); // backdrop or X
+    const b = e.target.closest(".mm-opt");
+    if (b && sheetMenu) {
+      sheetMenu.pick(b.dataset.id);
+      closeSheet();
+    }
+  });
+  // drag the head down to close: past 90px or a quick flick
+  let drag = null;
+  sheetHead.addEventListener("pointerdown", (e) => {
+    if (e.target.closest(".mm-close")) return;
+    drag = { y: e.clientY, t: performance.now(), dy: 0 };
+    sheetHead.setPointerCapture(e.pointerId);
+    sheet.classList.add("dragging");
+  });
+  sheetHead.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    drag.dy = Math.max(0, e.clientY - drag.y);
+    sheet.style.transform = `translateY(${drag.dy}px)`;
+  });
+  const endDrag = () => {
+    if (!drag) return;
+    const speed = drag.dy / Math.max(1, performance.now() - drag.t); // px per ms
+    sheet.classList.remove("dragging");
+    if (drag.dy > 90 || (drag.dy > 20 && speed > 0.5)) closeSheet();
+    else sheet.style.transform = "";
+    drag = null;
+  };
+  sheetHead.addEventListener("pointerup", endDrag);
+  sheetHead.addEventListener("pointercancel", endDrag);
+
+  // ----- the computer panel: hover intent and placement
+  const OPEN_DELAY = 120; // passing over the button on the way elsewhere does not open it
+  const CLOSE_DELAY = 500; // a slip outside is forgiven if the pointer comes back in time
+  const SAFE_PAD = 16;
+  const EDGE = 12;
+  function inTriangle(p, a, b, c) {
+    const s = (p1, p2, p3) => (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y);
+    const d1 = s(p, a, b), d2 = s(p, b, c), d3 = s(p, c, a);
+    return !((d1 < 0 || d2 < 0 || d3 < 0) && (d1 > 0 || d2 > 0 || d3 > 0));
+  }
+  const allMenus = [];
+  function makeMenu({ select, title, renderPanel, renderSheet, triggerContent, revealSelected }) {
+    const trigger = document.createElement("button");
+    trigger.type = "button";
+    trigger.className = "mm-trigger";
+    trigger.setAttribute("aria-haspopup", "listbox");
+    trigger.setAttribute("aria-expanded", "false");
+    trigger.setAttribute("aria-label", title);
+    select.after(trigger);
+    select.hidden = true;
+    const pop = document.createElement("div");
+    pop.setAttribute("role", "listbox");
+    pop.setAttribute("aria-label", title);
+    pop.hidden = true;
+    document.body.append(pop);
+
+    let openTimer, closeTimer, safe = null, openedAt = 0;
+    const isOpen = () => !pop.hidden;
+    function place() {
+      // to the right of the side panel, its first row level with the button; inside the window: up if it does not
+      // fit below, scrolling inside if it is taller than the window
+      const side = ui.panel.getBoundingClientRect();
+      const t = trigger.getBoundingClientRect();
+      pop.style.maxHeight = "";
+      pop.style.left = `${side.right + EDGE}px`;
+      pop.style.top = `${Math.max(EDGE, t.top - EDGE)}px`;
+      const r = pop.getBoundingClientRect();
+      if (r.bottom > innerHeight - EDGE)
+        pop.style.top = `${Math.max(EDGE, innerHeight - EDGE - r.height)}px`;
+      if (pop.getBoundingClientRect().height > innerHeight - 2 * EDGE)
+        pop.style.maxHeight = `${innerHeight - 2 * EDGE}px`;
+    }
+    function setOpen(open) {
+      clearTimeout(openTimer);
+      clearTimeout(closeTimer);
+      safe = null;
+      if (open === isOpen()) return;
+      if (open) {
+        for (const m of allMenus) if (m !== api) m.setOpen(false);
+        renderPanel(pop);
+        pop.hidden = false;
+        place();
+        openedAt = performance.now();
+      } else pop.hidden = true;
+      trigger.setAttribute("aria-expanded", String(open));
+    }
+    const scheduleClose = () => {
+      clearTimeout(closeTimer);
+      closeTimer = setTimeout(() => setOpen(false), CLOSE_DELAY);
+    };
+    for (const el of [trigger, pop]) {
+      el.addEventListener("pointerenter", (e) => {
+        if (e.pointerType !== "mouse" || mobileMq.matches) return;
+        clearTimeout(closeTimer);
+        safe = null;
+        if (!isOpen() && el === trigger) {
+          clearTimeout(openTimer);
+          openTimer = setTimeout(() => setOpen(true), OPEN_DELAY);
+        }
+      });
+      el.addEventListener("pointerleave", (e) => {
+        if (e.pointerType !== "mouse") return;
+        clearTimeout(openTimer);
+        if (!isOpen()) return;
+        if (el === trigger) {
+          const r = pop.getBoundingClientRect();
+          safe = {
+            a: { x: e.clientX, y: e.clientY },
+            b: { x: r.left, y: r.top - SAFE_PAD },
+            c: { x: r.left, y: r.bottom + SAFE_PAD },
+          };
+        }
+        scheduleClose();
+      });
+    }
+    document.addEventListener("pointermove", (e) => {
+      if (!safe || e.pointerType !== "mouse") return;
+      // still heading for the menu: wait again; once out of the triangle the countdown is not renewed
+      if (inTriangle({ x: e.clientX, y: e.clientY }, safe.a, safe.b, safe.c)) scheduleClose();
+      else safe = null;
+    });
+    trigger.addEventListener("click", (e) => {
+      if (mobileMq.matches) return openSheet(api, e.detail === 0); // detail 0: Enter/Space, not a tap
+      if (isOpen() && performance.now() - openedAt < 700) return; // just opened by the hover: the click means "open"
+      setOpen(!isOpen());
+    });
+    document.addEventListener("pointerdown", (e) => {
+      if (isOpen() && !pop.contains(e.target) && !trigger.contains(e.target)) setOpen(false);
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && isOpen()) {
+        setOpen(false);
+        trigger.focus();
+      }
+    });
+    pop.addEventListener("click", (e) => {
+      if (e.target.closest(".mm-close")) {
+        setOpen(false);
+        trigger.focus();
+        return;
+      }
+      const b = e.target.closest(".mm-opt");
+      if (b) {
+        setOpen(false);
+        api.pick(b.dataset.id);
+      }
+    });
+    addEventListener("resize", () => isOpen() && setOpen(false));
+    mobileMq.addEventListener("change", () => setOpen(false));
+
+    const api = {
+      title,
+      trigger,
+      revealSelected,
+      renderSheet,
+      setOpen,
+      pick(id) {
+        if (select.value === id) return;
+        select.value = id;
+        select.dispatchEvent(new Event("change"));
+      },
+      refresh() {
+        trigger.innerHTML = `${triggerContent()}<span class="mm-chev">${MENU_ICONS.chevron}</span>`;
+        if (isOpen()) renderPanel(pop); // new runs while it is open
+      },
+    };
+    select.addEventListener("change", () => api.refresh());
+    allMenus.push(api);
+    return api;
+  }
+  const modelMenu = makeMenu({
+    select: ui.model,
+    title: "Modello",
+    renderPanel: modelPanel,
+    renderSheet: modelSheet,
+    revealSelected: false,
+    triggerContent: () => {
+      const m = meta?.models.find((x) => x.id === state.model);
+      return m
+        ? `<span class="mm-icon">${modelIcon(m)}</span><span class="mm-label">${escapeHtml(m.label)}</span>`
+        : "";
+    },
+  });
+  const fieldMenu = makeMenu({
+    select: ui.varSel,
+    title: "Grandezza",
+    renderPanel: fieldPanel,
+    renderSheet: fieldSheet,
+    revealSelected: true,
+    triggerContent: () => {
+      const v = meta?.variables.find((x) => x.id === state.var);
+      if (!v) return "";
+      const icon = sectionOf(v.id)?.[1];
+      return `<span class="mm-icon">${icon ? MENU_ICONS[icon] : ""}</span><span class="mm-label">${escapeHtml(v.menu_label || v.label)}</span>`;
+    },
+  });
+  const menus = {
+    refresh() {
+      if (!meta) return;
+      modelMenu.refresh();
+      fieldMenu.refresh();
+    },
+  };
 
   function setupModes() {
     const v = variable();
@@ -1831,6 +2250,7 @@
       }
       dot.title = `In ritardo: ${lateText(n)}`;
     }
+    menus.refresh(); // ages and late dots of the menus (an open one is redrawn too)
   }
 
   /** Returns true if the run shown has changed. */
