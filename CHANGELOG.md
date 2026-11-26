@@ -3,6 +3,10 @@
 <!-- One "## vX.Y.Z" section per tag, newest first, in Italian (it is shown in the app, in Info e crediti, and used
      as the GitHub release notes by .github/workflows/release.yml). Only what users notice, in plain words. -->
 
+## v1.0.0-rc20
+
+- Sul telefono la barra in basso della carta sinottica non esce più dallo schermo: la legenda, più lunga delle altre, la allargava oltre il bordo destro.
+
 ## v1.0.0-rc19
 
 ### Carta sinottica (pressione e geopotenziale 500 hPa)

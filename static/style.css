@@ -2999,6 +2999,9 @@ body.radar-mode .badge .extra-close {
 .badge > .legend {
   grid-row: 4;
   padding-left: 0;
+  /* no say in the bar's width: spanning every column, a long legend (the 500 hPa chart's) made the max-content
+     columns as wide as itself and the bar went past the screen edge; it fits in the bar's width instead */
+  contain: inline-size;
 }
 body:not(.radar-mode) #m-play,
 body.radar-mode .badge-radar #radar-play {
